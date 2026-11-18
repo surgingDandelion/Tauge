@@ -757,7 +757,7 @@ private struct StartHostCard: View {
         customTint
     }
 
-    var body: some View {
+    private var cardContentBase: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 9) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -859,7 +859,17 @@ private struct StartHostCard: View {
                               lineWidth: isDropTarget ? 1.5 : 1)
         )
         .shadow(color: hovering ? Theme.shadow : Color.clear, radius: 6, y: 2)
-        .contentShape(Rectangle())
+    }
+
+    var body: some View {
+        interactiveCard
+            .contextMenu { HostContextMenu(app: app, host: host) }
+            .help(host.name + "  " + host.displayAddress + (host.notes.isEmpty ? "" : "\n" + host.notes))
+    }
+
+    private var interactiveCard: some View {
+        cardContentBase
+            .contentShape(Rectangle())
         .onDrag {
             NSItemProvider(object: host.id.uuidString as NSString)
         }
@@ -873,8 +883,6 @@ private struct StartHostCard: View {
         .onTapGesture {
             app.selectedSidebarHostID = host.id
         }
-        .contextMenu { HostContextMenu(app: app, host: host) }
-        .help(host.name + "  " + host.displayAddress + (host.notes.isEmpty ? "" : "\n" + host.notes))
     }
 
     /// Reserved height of the chip/metadata row and the smallest height a card
