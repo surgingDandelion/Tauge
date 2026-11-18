@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     name: Build, sign, notarise and publish
-    runs-on: macos-14
+    runs-on: macos-15-intel
     timeout-minutes: 120
     env:
       HAS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}

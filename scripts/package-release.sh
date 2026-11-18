@@ -14,7 +14,9 @@
 #   TAUGE_NOTARY_KEY_ID        key identifier
 #   TAUGE_NOTARY_KEY_ISSUER    issuer UUID
 #
-# Without credentials the app is signed ad-hoc and the DMG/ZIP still build.
+# Without a Developer ID identity the app is ad-hoc signed and the DMG/ZIP
+# still build. Release artifacts always default to ad-hoc unless
+# TAUGE_SIGN_IDENTITY names a Developer ID Application identity.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,6 +26,27 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resour
 ARCHS="${TAUGE_ARCHS:-arm64 x86_64}"
 DMG="$OUT/Tauge-$VERSION.dmg"
 ZIP="$OUT/Tauge-$VERSION.zip"
+
+SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${SHELLX_SIGN_IDENTITY:-}}"
+SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${SHELLX_SIGN_KEYCHAIN:-}}"
+DISTRIBUTION_SIGNING=0
+
+if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
+  FIND_ARGS=(-v -p codesigning)
+  if [ -n "$SIGN_KEYCHAIN" ]; then
+    FIND_ARGS+=("$SIGN_KEYCHAIN")
+  fi
+  if security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
+    DISTRIBUTION_SIGNING=1
+  else
+    echo "error: TAUGE_SIGN_IDENTITY names a Developer ID identity that is not available:" >&2
+    echo "       $SIGN_IDENTITY" >&2
+    exit 1
+  fi
+elif [ -z "$SIGN_IDENTITY" ]; then
+  echo "==> no signing identity: release will be ad-hoc signed"
+  export TAUGE_SIGN_IDENTITY="-"
+fi
 
 notary_args() {
   if [ -n "${TAUGE_NOTARY_KEY_PATH:-}" ] && [ -n "${TAUGE_NOTARY_KEY_ID:-}" ] && [ -n "${TAUGE_NOTARY_KEY_ISSUER:-}" ]; then
@@ -47,7 +70,7 @@ mkdir -p "$OUT"
 
 TAUGE_ARCHS="$ARCHS" ./scripts/build-app.sh release
 
-if [ -n "$(notary_args)" ]; then
+if [ "$DISTRIBUTION_SIGNING" = 1 ] && [ -n "$(notary_args)" ]; then
   # Notarise the app inside a zip first, then staple the ticket to the bundle
   # so the app validates even when the DMG is not present.
   TMP_ZIP="$OUT/.notarize.zip"
@@ -57,6 +80,9 @@ if [ -n "$(notary_args)" ]; then
   # The ticket belongs to the app bundle; a zip cannot be stapled.
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
+elif [ -n "$(notary_args)" ]; then
+  echo "==> notarisation credentials present but no Developer ID identity; skipping notarisation"
+  echo "    (an ad-hoc/self-signed app cannot be notarised)"
 else
   echo "==> no notarisation credentials: skipping notarisation"
   echo "    (set TAUGE_NOTARY_APPLE_ID / TAUGE_NOTARY_TEAM_ID / TAUGE_NOTARY_PASSWORD)"
@@ -74,19 +100,19 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -quiet -volname "Tauge $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 rm -rf "$STAGE"
 
-if [ -n "${TAUGE_SIGN_IDENTITY:-}" ]; then
+if [ "$DISTRIBUTION_SIGNING" = 1 ]; then
   echo "==> signing disk image"
   DMG_SIGN_ARGS=(--force --timestamp --sign "$TAUGE_SIGN_IDENTITY")
-  if [ -n "${TAUGE_SIGN_KEYCHAIN:-}" ]; then
-    DMG_SIGN_ARGS+=(--keychain "$TAUGE_SIGN_KEYCHAIN")
+  if [ -n "$SIGN_KEYCHAIN" ]; then
+    DMG_SIGN_ARGS+=(--keychain "$SIGN_KEYCHAIN")
   fi
   codesign "${DMG_SIGN_ARGS[@]}" "$DMG"
-fi
 
-if [ -n "$(notary_args)" ]; then
-  notarize_submit "$DMG"
-  xcrun stapler staple "$DMG"
-  xcrun stapler validate "$DMG"
+  if [ -n "$(notary_args)" ]; then
+    notarize_submit "$DMG"
+    xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
+  fi
 fi
 
 echo "==> checksums"

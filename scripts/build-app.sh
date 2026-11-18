@@ -7,6 +7,7 @@
 #   TAUGE_ARCHS          Space-separated architectures (default: host arch).
 #                        Use "arm64 x86_64" for a universal build.
 #   TAUGE_SIGN_IDENTITY  Code-signing identity (default: "Tauge Local Signing").
+#                        Use "-" to force an ad-hoc signature for distribution.
 #   TAUGE_SIGN_KEYCHAIN  Keychain holding the identity (default: local dev keychain).
 #   TAUGE_BUILD_NUMBER   Override CFBundleVersion in the assembled bundle.
 set -euo pipefail
@@ -82,7 +83,10 @@ if [ -f "$SIGN_KEYCHAIN" ]; then
   FIND_ARGS+=("$SIGN_KEYCHAIN")
 fi
 
-if security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  echo "    (ad-hoc signature requested)"
+  codesign --force --deep --identifier com.shellx.app --sign - "$APP"
+elif security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
   SIGN_ARGS=(--force --deep --identifier com.shellx.app --sign "$SIGN_IDENTITY" "${IDENTITY_ARGS[@]}")
   case "$SIGN_IDENTITY" in
     "Developer ID Application"*)
