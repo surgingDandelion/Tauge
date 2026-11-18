@@ -21,6 +21,8 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     @Published var isLoading = false
     @Published var errorText: String?
     @Published var selection: Set<String> = []
+    /// Row that anchors ⇧ range selection; cleared whenever the pane navigates.
+    private(set) var selectionAnchor: String?
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
     @Published var pathEditing = false
@@ -56,6 +58,18 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
         self.client = client
     }
 
+    /// Applies a click on one row: plain replaces, ⌘ toggles, ⇧ extends from the
+    /// anchor. The order comes from the list so ranges follow what is on screen.
+    func selectRow(_ path: String, in order: [FileEntry], command: Bool, shift: Bool) {
+        let outcome = FileSelection.outcome(clicked: path,
+                                            order: order.map(\.path),
+                                            selection: selection,
+                                            anchor: selectionAnchor,
+                                            mode: FileSelection.Mode(command: command, shift: shift))
+        selection = outcome.selection
+        selectionAnchor = outcome.anchor
+    }
+
     func attach(client: SFTPClient, startDirectory: String?) async {
         self.client = client
         connectionError = nil
@@ -75,6 +89,8 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     func detach() {
         client = nil
         entries = []
+        selection.removeAll()
+        selectionAnchor = nil
     }
 
     /// Navigates to a path typed into the address bar (absolute, relative or ~).
@@ -96,6 +112,7 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
         guard let client else { return }
         loadGeneration += 1
         let generation = loadGeneration
+        let previousPath = path
         isLoading = true
         errorText = nil
         do {
@@ -108,6 +125,11 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
             path = resolved
             entries = names.compactMap { RemoteBrowserModel.fileEntry(base: resolved, name: $0) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            if resolved != previousPath {
+                // Rows from the old folder no longer exist here.
+                selection.removeAll()
+                selectionAnchor = nil
+            }
             if recordHistory {
                 if historyIndex < history.count - 1 {
                     history = Array(history.prefix(historyIndex + 1))
@@ -208,6 +230,8 @@ final class LocalBrowserModel: ObservableObject {
     @Published var showHidden = false
     @Published var errorText: String?
     @Published var selection: Set<String> = []
+    /// Row that anchors ⇧ range selection; cleared whenever the pane navigates.
+    private(set) var selectionAnchor: String?
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
 
@@ -253,7 +277,13 @@ final class LocalBrowserModel: ObservableObject {
 
     func load(_ newPath: String, recordHistory: Bool = true) {
         guard service.isDirectory(newPath) else { return }
+        let previousPath = path
         path = newPath
+        if newPath != previousPath {
+            // Rows from the old folder no longer exist here.
+            selection.removeAll()
+            selectionAnchor = nil
+        }
         if recordHistory {
             if historyIndex < history.count - 1 {
                 history = Array(history.prefix(historyIndex + 1))
@@ -271,6 +301,18 @@ final class LocalBrowserModel: ObservableObject {
     func open(_ entry: FileEntry) {
         guard entry.isDirectory else { return }
         load(entry.path)
+    }
+
+    /// Applies a click on one row: plain replaces, ⌘ toggles, ⇧ extends from the
+    /// anchor. The order comes from the list so ranges follow what is on screen.
+    func selectRow(_ path: String, in order: [FileEntry], command: Bool, shift: Bool) {
+        let outcome = FileSelection.outcome(clicked: path,
+                                            order: order.map(\.path),
+                                            selection: selection,
+                                            anchor: selectionAnchor,
+                                            mode: FileSelection.Mode(command: command, shift: shift))
+        selection = outcome.selection
+        selectionAnchor = outcome.anchor
     }
 
     func goUp() {

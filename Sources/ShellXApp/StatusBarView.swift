@@ -64,9 +64,9 @@ struct StatusBarView: View {
                 .buttonStyle(.plain)
             }
             Button {
-                app.showingCommandPalette = true
+                app.showQuickOpen()
             } label: {
-                Text(L("⌘K 命令面板"))
+                Text(L("⌘K 快速打开"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }

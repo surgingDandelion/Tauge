@@ -76,7 +76,10 @@ extension AppState {
 
         let progressID = UUID()
         var progress = TransferProgress(id: progressID,
-                                        hostID: source.hostID,
+                                        // The transfer task is shown at its destination.
+                                        // This keeps the label aligned with the target
+                                        // pane's title when several SFTP panes are open.
+                                        hostID: target.hostID,
                                         direction: .download,
                                         sourcePath: source.hostName + ":" + source.path,
                                         destinationPath: target.hostName + ":" + target.path,
@@ -229,50 +232,31 @@ extension AppState {
         try await source.close(readHandle)
     }
 
-    /// Resolve a dragged remote path to the pane it came from and copy it into
-    /// another pane. Falls back to a stat when the cached listing moved on.
-    func copyDroppedPath(_ path: String,
-                         from sourcePaneID: UUID?,
-                         in tab: TerminalTab,
-                         to target: RemoteBrowserModel) {
+    /// Drop of remote rows onto another remote pane: relays the whole drag, one
+    /// request per source pane, awaited in turn so two relays never race for the
+    /// single conflict continuation.
+    func copyDroppedPaths(_ items: [(path: String, hostID: UUID?, paneID: UUID?)],
+                          in tab: TerminalTab,
+                          to target: RemoteBrowserModel) {
+        guard !items.isEmpty else { return }
         Task { @MainActor in
-            let source = tab.allRemotes.first(where: { $0.id == sourcePaneID })
-                ?? self.remotePane(forDroppedPath: path, in: tab)
-            guard let source, source.id != target.id else {
-                self.presentMessage(L("无法传输"),
-                                    L("源和目标在同一个面板里。"),
-                                    suggestion: L("拖到另一个远端面板，或直接拖到本地面板下载。"))
-                return
+            let resolution = await self.resolveDroppedItems(items, in: tab)
+            for batch in resolution.batches {
+                guard batch.pane.id != target.id else {
+                    self.presentMessage(L("无法传输"),
+                                        L("源和目标在同一个面板里。"),
+                                        suggestion: L("拖到另一个远端面板，或直接拖到本地面板下载。"))
+                    continue
+                }
+                await self.performRelay(RelayRequest(tabID: tab.id,
+                                                     sourcePaneID: batch.pane.id,
+                                                     targetPaneID: target.id,
+                                                     entries: batch.entries),
+                                        tab: tab,
+                                        source: batch.pane,
+                                        target: target)
             }
-            var client = source.client
-            if client == nil {
-                await self.openSFTP(tab: tab, pane: source)
-                client = source.client
-            }
-            guard let client else {
-                self.presentMessage(L("无法传输"),
-                                    source.connectionError ?? L("源服务器的 SFTP 会话尚未建立。"),
-                                    suggestion: L("在源面板上点“重试”后再拖。"))
-                return
-            }
-            if let entry = source.entries.first(where: { $0.path == path }) {
-                self.copyRemotely(entries: [entry], from: source, to: target, tab: tab)
-                return
-            }
-            do {
-                let attributes = try await client.stat(path)
-                let kind: FileEntry.Kind = attributes.isDirectory ? .directory
-                    : (attributes.isSymlink ? .symlink : .file)
-                let entry = FileEntry(path: path,
-                                      name: (path as NSString).lastPathComponent,
-                                      kind: kind,
-                                      size: Int64(attributes.size ?? 0),
-                                      mode: attributes.permissions.map { UInt16($0 & 0o7777) },
-                                      modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
-                self.copyRemotely(entries: [entry], from: source, to: target, tab: tab)
-            } catch {
-                self.presentMessage(L("无法传输"), self.describe(error), suggestion: L("确认源路径仍然存在。"))
-            }
+            self.reportDroppedFailures(resolution.failures, title: L("无法传输"))
         }
     }
 

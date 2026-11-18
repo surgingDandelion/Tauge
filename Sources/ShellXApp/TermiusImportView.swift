@@ -173,7 +173,7 @@ struct TermiusImportView: View {
                     .font(.system(size: 11))
                     .frame(width: 160)
                 Spacer()
-                Toggle(L("保存密码到钥匙串"), isOn: binding(\.importPasswords, default: true))
+                Toggle(L("保存密码到凭据库"), isOn: binding(\.importPasswords, default: true))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 10.5))
                 Toggle(L("导入私钥"), isOn: binding(\.importKeys, default: true))

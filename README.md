@@ -14,7 +14,8 @@ English · [简体中文](README.zh-CN.md)
 Tauge is built with SwiftPM only — SwiftUI, AppKit, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm),
 and a vendored fork of [SwiftNIO SSH](Vendor/swift-nio-ssh). There is no
 account, no sync service, and no telemetry. Hosts, keys, and transfer history
-live in a local SQLite database; secrets live in the macOS Keychain.
+live in a local SQLite database; secrets live in an encrypted vault inside
+the same folder.
 
 > Tauge was previously developed under the internal name **ShellX**. The bundle
 > identifier, Keychain service names, and data directory keep the `shellx`
@@ -113,9 +114,12 @@ cannot update itself.
 
 - Password or private-key authentication: Ed25519, ECDSA P-256/P-384/P-521,
   and RSA in OpenSSH, PKCS#8, or SEC1 format (unencrypted PEM only).
-- Passwords and key passphrases are stored in the Keychain with
-  `kSecAttrAccessibleAfterFirstUnlock`; the database contains no plaintext
-  secrets.
+- Passwords and key passphrases are stored in `vault.v1.enc` next to the
+database, sealed with AES-256-GCM under a random key in `vault.key`; both files
+  are `0600` and the database contains no plaintext secrets. Reading one asks for
+  Touch ID (or the device password) once per launch. The login keychain is only
+  read to migrate a credential an older build left there, so rebuilding or
+  reinstalling never raises a keychain prompt.
 - Trust-on-first-use host-key verification with SHA-256 and MD5 fingerprints;
   changed keys are blocked and the old and new fingerprints are shown side by
   side.
@@ -129,9 +133,11 @@ cannot update itself.
 - Start page with workspaces/groups on the left and draggable host cards on the
   right; a hideable sidebar; status bar with route, encoding, and transfer
   speed.
-- Command palette (`⌘K`) with the group tree, workspaces, and commands.
-- Menu-bar extra for opening the window, new terminal/SFTP tabs, the command
-  palette, and the transfer centre.
+- Quick Open (`⌘K`): one search field for hosts, workspaces, and commands,
+  ranked by match quality and recent use; `↩` opens and connects, `⌘↩`
+  opens an SFTP tab.
+- Menu-bar extra for opening the window, new terminal/SFTP tabs, Quick Open,
+  and the transfer centre.
 - Single instance; closing the main window quits the process cleanly.
 - English and Simplified Chinese, switchable at runtime in Settings → General.
 
@@ -191,11 +197,11 @@ Optional live checks are skipped unless their environment variables are set:
 ## Signing and notarisation
 
 - Local development: `./scripts/setup-signing.sh` creates a self-signed
-  identity so Keychain “Always Allow” grants survive rebuilds. Both build
-  scripts use it by default when it exists; an ad-hoc signature instead pins the
-  cdhash, so every rebuild (or release update) asks for the keychain password
-  again. Saved credentials live in one keychain item and are unlocked with Touch
-  ID once per launch (Settings → Security).
+  identity so macOS keeps recognising the app across rebuilds — an ad-hoc
+  signature pins the cdhash, which changes on every build, and any keychain
+  grant (for example reading the Termius vault) has to be confirmed again. Saved
+  credentials no longer depend on the signature: they live in the app's own
+  vault and are unlocked with Touch ID once per launch (Settings → Security).
 - Distribution: `./scripts/package-release.sh` builds a universal app, signs
   with `TAUGE_SIGN_IDENTITY` when present, notarises with
   `TAUGE_NOTARY_*` credentials, and writes a DMG, ZIP, and
@@ -214,7 +220,7 @@ Optional live checks are skipped unless their environment variables are set:
 Sources/ShellXKit/
   Model/          models, group inheritance, proxy and jump resolution
   Store/          SQLite (WAL) catalog, known hosts, transfer history, settings
-  Security/       Keychain, credential storage, AES-256-GCM export encryption
+  Security/       encrypted local vault, keychain migration, AES-256-GCM export
   SSHConfig/      ~/.ssh/config parser and Host * defaults
   SFTP/           SFTP v3 codec and concurrent client
   SSH/            NIOSSH connections, proxies, jump chains, host-key checks
@@ -263,17 +269,20 @@ status against the product requirements (in Chinese).
 
 ## Privacy
 
-Tauge does not include analytics, crash reporting, or update checks. Network
-traffic goes only to the SSH servers and proxies you configure. Termius import
-reads the local vault; nothing is uploaded. Session logs are off by default and
-stored under `~/Logs`.
+Tauge does not include analytics or crash reporting. The update check asks
+GitHub's public Release API for the latest version and sends no host,
+credential, or usage data; turn it off in Settings → General. All other network
+traffic goes to the SSH servers and proxies you configure. Termius import reads
+the local vault; nothing is uploaded. Session logs are off by default and stored
+under `~/Logs`.
 
 Data locations:
 
 - Database: `~/Library/Application Support/ShellX/shellx.sqlite`
 - Imported keys: `~/Library/Application Support/ShellX/Keys`
 - Logs: `~/Logs/<host>/<date>.log`
-- Credentials: macOS Keychain (service `shellx`)
+- Credentials: `~/Library/Application Support/ShellX/vault.v1.enc` and
+  `vault.key` (both `0600`, AES-256-GCM)
 
 `SHELLX_CATALOG_PATH` (or the `ShellXCatalogPath` default) overrides the
 database location; Settings → Advanced can migrate it.

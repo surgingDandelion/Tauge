@@ -149,6 +149,17 @@ public actor SSHClient {
     private var systemOptions: SystemSSHOptions?
     private var systemChildren: [SystemSSHChild] = []
     private let logger = Logger(label: "shellx.ssh")
+    /// The running application-level keepalive loop, one per live connection.
+    private var keepaliveTask: Task<Void, Never>?
+    /// Called when the transport dies on its own: the peer hung up, the TCP
+    /// connection broke, or a keepalive went unanswered. Not called for a
+    /// deliberate disconnect().
+    private var disconnectHandler: (@Sendable (String) -> Void)?
+    /// Guards against reporting the same dead transport twice (a keepalive
+    /// failure is usually followed by the channel close callback).
+    private var didNotifyDisconnect = false
+    /// Set by disconnect()/shutdown() so an intentional close stays silent.
+    private var closeRequested = false
 
     public init(eventLoopGroup: MultiThreadedEventLoopGroup? = nil) {
         if let eventLoopGroup {
@@ -168,10 +179,20 @@ public actor SSHClient {
         hopDescriptions
     }
 
+    /// Registers the callback that runs when the transport dies on its own.
+    /// The app uses it to tear down stale SFTP channels and start a reconnect.
+    public func setDisconnectHandler(_ handler: (@Sendable (String) -> Void)?) {
+        disconnectHandler = handler
+    }
+
     public var isConnected: Bool {
         if case .connected = state {
             if transportKind == .system {
-                return systemWorkspace != nil
+                guard systemWorkspace != nil else { return false }
+                // A system-ssh client can outlive its ssh process (the SFTP pane
+                // keeps only a child, not a channel). No children means nothing
+                // has been opened yet, so the workspace is still the answer.
+                return systemChildren.isEmpty || systemChildren.contains { $0.isRunning }
             }
             return rootChannel?.isActive ?? false
         }
@@ -267,6 +288,8 @@ public actor SSHClient {
             self.targetAuthDelegate = authDelegate
             self.channelTimeout = options.connectTimeout
             self.hopDescriptions = descriptions
+            self.closeRequested = false
+            self.didNotifyDisconnect = false
             self.state = .connected
             // NIOSSH completes the key exchange lazily, when the first channel is
             // opened. Without this throwaway channel a server that refuses every
@@ -713,6 +736,10 @@ public actor SSHClient {
     }
 
     public func disconnect() {
+        closeRequested = true
+        didNotifyDisconnect = false
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         for child in systemChildren {
             child.terminate()
         }
@@ -736,6 +763,14 @@ public actor SSHClient {
         }
     }
 
+    /// Starts the application-level keepalive.
+    ///
+    /// SO_KEEPALIVE alone is not enough on macOS: the first probe is only sent
+    /// after two hours of idleness, so a NAT or firewall hop silently dropped
+    /// the mapping long before that. Every `seconds` we therefore send an
+    /// OpenSSH `keepalive@openssh.com` global request, the same probe ssh(1)
+    /// uses, and treat a missing answer as a dead link so the app can reconnect
+    /// instead of showing a frozen terminal.
     private func startKeepalive(seconds: Int) {
         guard seconds > 0, var channel = rootChannel else { return }
         // A jump chain terminates in an SSH child channel, and those channels trap on
@@ -745,10 +780,67 @@ public actor SSHClient {
         while let parent = channel.parent {
             channel = parent
         }
-        guard channel is SocketOptionProvider else { return }
-        // NIO SSH does not expose app-level global requests, so keep the NAT/firewall
-        // mapping alive with TCP keepalives instead.
-        _ = channel.setOption(ChannelOptions.socketOption(.so_keepalive), value: 1)
+        if channel is SocketOptionProvider {
+            _ = channel.setOption(ChannelOptions.socketOption(.so_keepalive), value: 1)
+        }
+
+        keepaliveTask?.cancel()
+        keepaliveTask = Task { [weak self] in
+            await self?.runKeepalive(seconds: seconds)
+        }
+    }
+
+    private func runKeepalive(seconds: Int) async {
+        let interval = UInt64(seconds) * 1_000_000_000
+        // Give the peer a bit more than one interval to answer; a slow link
+        // should not be declared dead after a single missed packet.
+        let answerTimeout = max(seconds, 5)
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: interval)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isConnected else { return }
+            do {
+                try await sendKeepalive(timeout: answerTimeout)
+            } catch {
+                keepaliveFailed()
+                return
+            }
+        }
+    }
+
+    /// Sends one keepalive probe and waits (bounded) for the peer to answer.
+    private func sendKeepalive(timeout: Int) async throws {
+        guard transportKind == .builtin, let handler = sshHandler, let channel = rootChannel else {
+            throw SSHClientError.notConnected
+        }
+        let promise = channel.eventLoop.makePromise(of: Void.self)
+        handler.sendKeepaliveRequest(promise: promise)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await promise.futureResult.get() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000_000)
+                throw KeepaliveTimeout()
+            }
+            defer { group.cancelAll() }
+            try await group.next()
+        }
+    }
+
+    /// Tears down a transport that stopped answering. The channel close is
+    /// asynchronous, so the state is updated here first: the app must learn
+    /// about the dead link immediately, not when the close callback arrives.
+    private func keepaliveFailed() {
+        guard case .connected = state else { return }
+        keepaliveTask = nil
+        let reason = L("服务器长时间未响应保活请求，连接已断开")
+        state = .disconnected(reason)
+        rootChannel?.close(mode: .all, promise: nil)
+        rootChannel = nil
+        sshHandler = nil
+        notifyDisconnect(reason)
     }
 
     private func handleChannelClosed(failure: SSHConnectionError?) {
@@ -759,9 +851,20 @@ public actor SSHClient {
         if openedChannelCount == 0, let failure {
             handshakeFailure = failure
             state = .disconnected(failure.detail)
+            notifyDisconnect(failure.detail)
             return
         }
-        state = .disconnected(L("连接已关闭"))
+        let reason = L("连接已关闭")
+        state = .disconnected(reason)
+        notifyDisconnect(reason)
+    }
+
+    /// Reports a self-inflicted transport failure once, and only when the app
+    /// did not ask for the disconnect itself.
+    private func notifyDisconnect(_ reason: String) {
+        guard !closeRequested, !didNotifyDisconnect, let disconnectHandler else { return }
+        didNotifyDisconnect = true
+        disconnectHandler(reason)
     }
 
     /// The error reported when a transport closes before its first channel opens.
@@ -825,6 +928,9 @@ public actor SSHClient {
                                   port: port)
     }
 }
+
+/// Raised when a keepalive probe was written but the peer never answered.
+private struct KeepaliveTimeout: Error {}
 
 public enum SSHClientError: Error, LocalizedError {
     case notConnected

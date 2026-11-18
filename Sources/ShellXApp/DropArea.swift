@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import ShellXKit
 
 /// One decoded drag operation that reached an AppKit drop container.
 struct DroppedContent {
@@ -11,9 +12,22 @@ struct DroppedContent {
     }
 
     var remotePaths: [RemotePath] = []
+    /// Extra local rows of a multi-row drag; complements `fileURLs`, which only
+    /// ever holds the row under the pointer.
+    var localPaths: [String] = []
     var fileURLs: [URL] = []
 
-    var isEmpty: Bool { remotePaths.isEmpty && fileURLs.isEmpty }
+    var isEmpty: Bool { remotePaths.isEmpty && localPaths.isEmpty && fileURLs.isEmpty }
+
+    /// Every local row the drag carries, without repeats.
+    var localURLs: [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for path in localPaths + fileURLs.map(\.path) where seen.insert(path).inserted {
+            result.append(URL(fileURLWithPath: path))
+        }
+        return result
+    }
 }
 
 /// AppKit-backed drop area.
@@ -71,6 +85,7 @@ final class DropContainerView: NSView {
     private var acceptedTypes: [NSPasteboard.PasteboardType] {
         [
             NSPasteboard.PasteboardType(RemoteFileDrag.payloadType.identifier),
+            NSPasteboard.PasteboardType(LocalFileDrag.payloadType.identifier),
             .fileURL,
             .string,
         ]
@@ -120,24 +135,53 @@ final class DropContainerView: NSView {
 
     private func decode(_ pasteboard: NSPasteboard) -> DroppedContent {
         var content = DroppedContent()
+        let items = pasteboard.pasteboardItems ?? []
 
-        let customType = RemoteFileDrag.payloadType.identifier
-        if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(customType)),
-           let payload = try? JSONDecoder().decode(RemoteFileDrag.Payload.self, from: data) {
-            content.remotePaths.append(.init(hostID: payload.hostID, path: payload.path, paneID: payload.paneID))
-        } else if let raw = pasteboard.string(forType: .string) {
-            let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            // A plain string drop is only treated as a remote path when it looks
-            // like an absolute POSIX path; arbitrary text is ignored.
-            if path.hasPrefix("/"), !path.contains("\n") {
-                content.remotePaths.append(.init(hostID: nil, path: path))
+        // Remote rows: a single drag item may carry the whole selection, and
+        // several items (a drag session built by another app) each carry one.
+        let remoteType = NSPasteboard.PasteboardType(RemoteFileDrag.payloadType.identifier)
+        var remoteBlobs = items.compactMap { $0.data(forType: remoteType) }
+        if remoteBlobs.isEmpty, let data = pasteboard.data(forType: remoteType) {
+            remoteBlobs = [data]
+        }
+        var seenRemote = Set<String>()
+        for data in remoteBlobs {
+            guard let payload = try? JSONDecoder().decode(RemoteFileDrag.Payload.self, from: data) else { continue }
+            for path in payload.allPaths {
+                // Two panes can show the same absolute path on different hosts.
+                let key = (payload.paneID ?? "-") + "|" + path
+                guard seenRemote.insert(key).inserted else { continue }
+                content.remotePaths.append(.init(hostID: payload.hostID, path: path, paneID: payload.paneID))
             }
         }
 
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+        let localType = NSPasteboard.PasteboardType(LocalFileDrag.payloadType.identifier)
+        var localBlobs = items.compactMap { $0.data(forType: localType) }
+        if localBlobs.isEmpty, let data = pasteboard.data(forType: localType) {
+            localBlobs = [data]
+        }
+        var seenLocal = Set<String>()
+        for data in localBlobs {
+            guard let payload = try? JSONDecoder().decode(LocalDragPayload.self, from: data) else { continue }
+            for path in payload.allPaths where seenLocal.insert(path).inserted {
+                content.localPaths.append(path)
+            }
+        }
+
+        if content.remotePaths.isEmpty,
+           let urls = pasteboard.readObjects(forClasses: [NSURL.self],
                                              options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
-            content.fileURLs = urls
+            // A multi-row local drag also publishes the grabbed row as a URL;
+            // the payload already names it.
+            content.fileURLs = urls.filter { !seenLocal.contains($0.path) }
+        }
+
+        if content.isEmpty, let raw = pasteboard.string(forType: .string) {
+            let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if path.hasPrefix("/"), !path.contains("\n") {
+                content.remotePaths.append(.init(hostID: nil, path: path))
+            }
         }
 
         return content

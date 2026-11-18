@@ -34,8 +34,10 @@ To produce a runnable app bundle:
 open dist/Tauge.app
 ```
 
-For a stable local code signature (so Keychain "Always Allow" grants survive
-rebuilds), run `./scripts/setup-signing.sh` once. It creates a self-signed
+For a stable local code signature (so macOS keeps recognising the app, and
+keychain grants such as the Termius vault are not re-confirmed after every
+rebuild), run `./scripts/setup-signing.sh` once. Saved credentials do not
+depend on it. It creates a self-signed
 certificate in a dedicated Keychain. Never commit signing material.
 
 ## Making changes

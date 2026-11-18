@@ -51,6 +51,18 @@ func runTransferChecks() async {
         return
     }
 
+    let secondServer = MockSFTPServer()
+    let secondClient = SFTPClient(transport: secondServer,
+                                  configuration: .init(chunkSize: 32768, requestTimeout: 20))
+    do {
+        try await secondClient.start()
+    } catch {
+        print("FAIL transfer checks: second client start " + String(describing: error))
+        failures += 1
+        await client.shutdown()
+        return
+    }
+
     let payload = makePayload(count: 150_000)
     let sourcePath = root.appendingPathComponent("payload.bin").path
 
@@ -82,6 +94,36 @@ func runTransferChecks() async {
         expectEqual(result?.state, .completed, "download state (error: " + (result?.errorMessage ?? "none") + ")")
         expectEqual(try? Data(contentsOf: URL(fileURLWithPath: destination)), payload, "downloaded bytes match")
         expect(server.reads > 0, "server saw read packets")
+    }
+
+    await runAsync("transfer.queue keeps each pane session with its item") {
+        let firstPath = root.appendingPathComponent("queued-first.bin").path
+        let secondPath = root.appendingPathComponent("queued-second.bin").path
+        let firstData = makePayload(count: 250_000, seed: 11)
+        let secondData = makePayload(count: 32_000, seed: 12)
+        try firstData.write(to: URL(fileURLWithPath: firstPath))
+        try secondData.write(to: URL(fileURLWithPath: secondPath))
+
+        let first = TransferItem(direction: .upload,
+                                 sourcePath: firstPath,
+                                 destinationPath: "/remote/queued-first.bin",
+                                 conflictPolicy: .overwrite)
+        let second = TransferItem(direction: .upload,
+                                  sourcePath: secondPath,
+                                  destinationPath: "/remote/queued-second.bin",
+                                  conflictPolicy: .overwrite)
+        let firstID = await engine.enqueue(first, remote: client)
+        let secondID = await engine.enqueue(second, remote: secondClient)
+        let firstResult = await waitForTerminal(engine, id: firstID, seconds: 20)
+        let secondResult = await waitForTerminal(engine, id: secondID, seconds: 20)
+        expectEqual(firstResult?.state, .completed, "first queued transfer completes")
+        expectEqual(secondResult?.state, .completed, "second queued transfer completes")
+        expectEqual(server.fileData("/remote/queued-first.bin"), firstData,
+                    "first transfer uses its source pane")
+        expectEqual(secondServer.fileData("/remote/queued-second.bin"), secondData,
+                    "second transfer uses its destination pane")
+        expect(secondServer.fileData("/remote/queued-first.bin") == nil,
+               "queued transfer is not sent to another pane")
     }
 
     await runAsync("transfer.download resumes from a partial local file") {
@@ -175,4 +217,5 @@ func runTransferChecks() async {
     }
 
     await client.shutdown()
+    await secondClient.shutdown()
 }

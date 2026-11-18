@@ -23,6 +23,15 @@ struct ContentView: View {
             StatusBarView()
         }
         .background(Theme.windowBackground)
+        // Quick open is an overlay, not a sheet: ⌘K has to feel like Spotlight
+        // rather than a modal card that drags the window with it.
+        .overlay {
+            if app.showingCommandPalette {
+                QuickOpenView()
+                    .environmentObject(app)
+                    .transition(.opacity)
+            }
+        }
         // SwiftUI only presents one sheet per view, so every dialog funnels
         // through a single presenter; set(nil) routes to the matching cancel.
         .sheet(item: activeSheet) { sheet in
@@ -39,8 +48,6 @@ struct ContentView: View {
                 SettingsView().environmentObject(app).frame(width: 640, height: 520)
             case .transfers:
                 TransferCenterView().environmentObject(app)
-            case .palette:
-                CommandPaletteView().environmentObject(app)
             case .boardCreate:
                 BoardCreateSheet().environmentObject(app)
             case .boardName:
@@ -79,7 +86,6 @@ struct ContentView: View {
                 if app.showingKeyImporter { return .keyImporter }
                 if app.showingSettings { return .settings }
                 if app.showingTransferCenter { return .transfers }
-                if app.showingCommandPalette { return .palette }
                 if app.showingBoardCreate { return .boardCreate }
                 // A draft workspace asks for its name before it can be saved.
                 if app.boardNamePrompt != nil { return .boardName }
@@ -120,7 +126,6 @@ private enum ActiveSheet: Identifiable {
     case keyImporter
     case settings
     case transfers
-    case palette
     case boardCreate
     case boardName
     case newSFTPTab
@@ -138,7 +143,6 @@ private enum ActiveSheet: Identifiable {
         case .keyImporter: return "keyImporter"
         case .settings: return "settings"
         case .transfers: return "transfers"
-        case .palette: return "palette"
         case .boardCreate: return "boardCreate"
         case .boardName: return "boardName"
         case .newSFTPTab: return "newSFTPTab"

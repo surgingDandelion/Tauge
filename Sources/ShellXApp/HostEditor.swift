@@ -127,7 +127,7 @@ struct HostEditorView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 labeled("") {
-                    Toggle(L("保存密码到钥匙串"), isOn: $host.savesPassword)
+                    Toggle(L("保存密码到凭据库"), isOn: $host.savesPassword)
                         .font(.system(size: 11))
                 }
             case .privateKey:

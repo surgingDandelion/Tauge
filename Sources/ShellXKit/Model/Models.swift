@@ -215,7 +215,7 @@ public struct ProxyConfig: Identifiable, Codable, Hashable, Sendable {
     public var host: String
     public var port: Int
     public var username: String
-    /// Whether the proxy password lives in the Keychain.
+    /// Whether the proxy password is saved in the credential vault.
     public var savesPassword: Bool
 
     public init(
@@ -247,7 +247,7 @@ public struct PrivateKeyRecord: Identifiable, Codable, Hashable, Sendable {
     public var publicKeyOpenSSH: String
     public var fingerprintSHA256: String
     public var hasPassphrase: Bool
-    /// Keychain account that stores the PEM/OpenSSH private key blob, nil when the key is referenced from disk.
+    /// Secret-store account that holds the PEM/OpenSSH private key blob, nil when the key is referenced from disk.
     public var storageRef: String?
 
     public init(
@@ -278,7 +278,7 @@ public struct SSHHost: Identifiable, Codable, Hashable, Sendable {
     public var keyID: UUID?
     /// Identity file path when the user references a key on disk instead of importing it.
     public var identityFilePath: String?
-    /// Save the password / passphrase into the Keychain. When false the user is prompted every time.
+    /// Save the password / passphrase into the app's vault. When false the user is prompted every time.
     public var savesPassword: Bool
     public var proxyPolicy: ProxyPolicy
     public var jumpPolicy: JumpPolicy
@@ -620,6 +620,11 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var automaticallyChecksForUpdates: Bool = true
     /// Timestamp of the last successful update check; drives the daily throttle.
     public var lastUpdateCheck: Date?
+    /// Ask for Touch ID (falling back to the device password) before a saved
+    /// password or key passphrase is read from the vault. On by default: the
+    /// vault is a file any process running as the user could open, so the gate
+    /// is what keeps a stored credential from being used by someone else.
+    public var unlockWithBiometrics: Bool = true
 
     public init() {}
 
@@ -658,6 +663,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         broadcastInput = (try? c.decodeIfPresent(Bool.self, forKey: .broadcastInput)) ?? broadcastInput
         automaticallyChecksForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .automaticallyChecksForUpdates)) ?? automaticallyChecksForUpdates
         lastUpdateCheck = (try? c.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)) ?? lastUpdateCheck
+        unlockWithBiometrics = (try? c.decodeIfPresent(Bool.self, forKey: .unlockWithBiometrics)) ?? unlockWithBiometrics
     }
 }
 

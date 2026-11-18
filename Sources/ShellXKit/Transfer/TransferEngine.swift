@@ -153,6 +153,10 @@ public actor TransferEngine {
 
     private struct Managed {
         var item: TransferItem
+        /// Keep the destination session with the queued item. Passing the most
+        /// recently enqueued client to the scheduler makes a queued transfer
+        /// jump to another SFTP pane when several panes share one engine.
+        var remote: SFTPClient
         var progress: TransferProgress
         var task: Task<Void, Never>?
         var pauseRequested = false
@@ -224,10 +228,10 @@ public actor TransferEngine {
                                         attempt: 0,
                                         skippedFiles: 0,
                                         updatedAt: Date())
-        items[item.id] = Managed(item: item, progress: progress)
+        items[item.id] = Managed(item: item, remote: remote, progress: progress)
         order.append(item.id)
         emit(item.id)
-        pump(remote: remote)
+        pump()
         return item.id
     }
 
@@ -241,6 +245,7 @@ public actor TransferEngine {
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
+        pump()
     }
 
     public func pause(_ id: UUID) {
@@ -260,6 +265,7 @@ public actor TransferEngine {
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
+        pump()
     }
 
     public func resume(_ id: UUID, remote: SFTPClient) {
@@ -267,12 +273,13 @@ public actor TransferEngine {
         managed.pauseRequested = false
         managed.cancelRequested = false
         if managed.progress.state == .paused || managed.progress.state == .failed {
+            managed.remote = remote
             managed.progress.state = .queued
             managed.progress.errorMessage = nil
             managed.progress.updatedAt = Date()
             items[id] = managed
             emit(id)
-            pump(remote: remote)
+            pump()
         }
     }
 
@@ -282,13 +289,14 @@ public actor TransferEngine {
         managed.retryCount = 0
         managed.pauseRequested = false
         managed.cancelRequested = false
+        managed.remote = remote
         managed.progress.state = .queued
         managed.progress.errorMessage = nil
         managed.progress.bytesPerSecond = 0
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
-        pump(remote: remote)
+        pump()
     }
 
     public func retryAllFailed(remote: SFTPClient) {
@@ -353,22 +361,22 @@ public actor TransferEngine {
 
     // MARK: - Scheduling
 
-    private func pump(remote: SFTPClient) {
-        let active = items.values.filter { $0.progress.state == .running }.count
-        guard active < activeConfiguration.maxConcurrent else { return }
+    private func pump() {
         for id in order {
             guard let managed = items[id], managed.progress.state == .queued, managed.task == nil else { continue }
-            start(id, remote: remote)
+            guard items.values.filter({ $0.progress.state == .running }).count < activeConfiguration.maxConcurrent else { break }
+            start(id)
         }
     }
 
-    private func start(_ id: UUID, remote: SFTPClient) {
+    private func start(_ id: UUID) {
         guard var managed = items[id] else { return }
         managed.progress.state = .running
         managed.progress.updatedAt = Date()
         managed.pauseRequested = false
         managed.cancelRequested = false
         let item = managed.item
+        let remote = managed.remote
         items[id] = managed
         emit(id)
 
@@ -408,6 +416,7 @@ public actor TransferEngine {
         }
         items[id] = managed
         emit(id)
+        pump()
     }
 
     private func handleInterruption(_ id: UUID) {
@@ -424,6 +433,7 @@ public actor TransferEngine {
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
+        pump()
     }
 
     private func handleFailure(_ id: UUID, error: Error, remote: SFTPClient) async {
@@ -445,7 +455,7 @@ public actor TransferEngine {
             emit(id)
             let delay = UInt64(1 << (managed.retryCount - 1)) * 1_000_000_000
             try? await Task.sleep(nanoseconds: delay)
-            pump(remote: remote)
+            pump()
             return
         }
         managed.progress.state = .failed

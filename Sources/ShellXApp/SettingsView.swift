@@ -410,10 +410,22 @@ struct SettingsView: View {
             }
             card {
                 row(L("凭据存储")) {
-                    Text(L("密码与口令保存在 macOS 钥匙串（解锁后可访问）。"))
+                    Text(L("密码与口令保存在应用目录的加密库里（vault.v1.enc，仅当前用户可读）。"))
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.secondary)
                 }
+                row(L("解锁方式")) {
+                    Toggle(L("使用 Touch ID 解锁凭据"), isOn: binding(\.unlockWithBiometrics))
+                        .disabled(!BiometricGate.hasBiometrics())
+                }
+                Text(biometricHint)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(L("凭据库与代码签名无关：重新构建、重装或换签名都不会再触发钥匙串授权。旧版本存在钥匙串里的密码会在第一次用到时自动搬进凭据库。"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -442,7 +454,7 @@ struct SettingsView: View {
         (L("显示/隐藏 SFTP"), "⇧⌘O"),
         (L("切换标签 1–9"), "⌘1 … ⌘9"),
         (L("增/减字号"), "⌘+ / ⌘-"),
-        (L("命令面板"), "⌘K"),
+        (L("快速打开"), "⌘K"),
         (L("传输中心"), "⇧⌘J"),
         (L("新建主机"), "⌘N"),
         (L("新建分组"), "⇧⌘N"),
@@ -551,6 +563,14 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    /// Explains the Touch ID gate, or why it is unavailable on this Mac.
+    private var biometricHint: String {
+        guard BiometricGate.hasBiometrics() else {
+            return L("此 Mac 没有可用的 Touch ID，连接时会直接读取凭据库。")
+        }
+        return L("每次启动后第一次连接会要求 Touch ID（也可用登录密码）；解锁一次后本次运行不再询问。")
+    }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
         Binding(

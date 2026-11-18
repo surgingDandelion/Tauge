@@ -44,6 +44,11 @@ public actor SFTPClient {
 
     public var chunkSize: UInt32 { configuration.chunkSize }
 
+    /// True once the subsystem channel is gone: either shutdown() ran or the
+    /// read loop saw the transport close. The UI uses it to tell a live SFTP
+    /// channel from a stale one whose client is still referenced.
+    public var isClosed: Bool { closed || terminalError != nil }
+
     // MARK: - Lifecycle
 
     public func start() async throws {

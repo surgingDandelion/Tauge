@@ -137,7 +137,7 @@ struct ProxyEditorView: View {
                 TextField(L("端口"), value: $proxy.port, format: .number)
                 TextField(L("用户名（可选）"), text: $proxy.username)
                 SecureField(L("密码（可选）"), text: $password)
-                Toggle(L("保存密码到钥匙串"), isOn: $proxy.savesPassword)
+                Toggle(L("保存密码到凭据库"), isOn: $proxy.savesPassword)
                 Text(L("作用域：主机 > 分组 > 全局；代理仅用于连接第一跳 TCP。选了代理的主机不再经过跳板机。"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)

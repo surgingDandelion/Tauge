@@ -77,6 +77,10 @@ final class TerminalTab: ObservableObject, Identifiable {
     var terminalType = "xterm-256color"
     var routeSummary = ""
     var connectTask: Task<Void, Never>?
+    /// Pending automatic reconnect of the tab's own connection.
+    var reconnectTask: Task<Void, Never>?
+    /// Pending automatic reconnect of an extra pane's dedicated connection.
+    var paneReconnectTasks: [UUID: Task<Void, Never>] = [:]
     var connectedAt: Date?
     var reconnectAttempt = 0
     var didAutoOpenSFTP = false
@@ -98,7 +102,7 @@ final class TerminalTab: ObservableObject, Identifiable {
         self.lastRemoteDirectory = startRemoteDirectory
         self.remote = RemoteBrowserModel()
         self.remote.hostID = host.id
-        self.remote.hostName = host.name
+        self.remote.hostName = Self.label(for: host)
         // A host's configured upload folder wins; otherwise reopen the folder the
         // user last browsed locally.
         self.local = LocalBrowserModel(service: localFiles,
@@ -202,6 +206,8 @@ final class TerminalTab: ObservableObject, Identifiable {
         if let ssh = remoteClients.removeValue(forKey: pane.id) {
             Task { await ssh.disconnect() }
         }
+        paneReconnectTasks[pane.id]?.cancel()
+        paneReconnectTasks[pane.id] = nil
         pane.setClient(nil)
         extraRemotes.removeAll { $0.id == pane.id }
     }
@@ -255,6 +261,10 @@ final class TerminalTab: ObservableObject, Identifiable {
         isClosing = true
         connectTask?.cancel()
         connectTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        for (_, task) in paneReconnectTasks { task.cancel() }
+        paneReconnectTasks.removeAll()
         teardown()
         extraRemotes.removeAll()
         connectionState = .idle

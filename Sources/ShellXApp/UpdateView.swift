@@ -99,12 +99,7 @@ struct UpdateView: View {
                 }
 
                 if controller.phase == .downloading {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(L("正在下载并校验更新包…"))
-                            .foregroundStyle(.secondary)
-                    }
+                    downloadStatus
                 } else if controller.phase == .ready {
                     VStack(alignment: .leading, spacing: 8) {
                         ProgressView()
@@ -136,6 +131,52 @@ struct UpdateView: View {
                 }
             }
         }
+    }
+
+
+    /// Determinate bar plus byte counts and a smoothed rate. The old view
+    /// showed a bare spinner, which told the user nothing about a 30 MB
+    /// archive on a slow link; GitHub always advertises a content length, so
+    /// the bar is determinate unless a proxy strips it.
+    private var downloadStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let fraction = controller.downloadProgress?.fraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.linear)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(downloadByteSummary)
+                Spacer(minLength: 12)
+                Text(downloadRateSummary)
+                    .monospacedDigit()
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var downloadByteSummary: String {
+        guard let progress = controller.downloadProgress else {
+            return L("正在下载更新…")
+        }
+        let received = FileAttributeFormatter.size(progress.bytesReceived)
+        guard progress.totalBytes > 0 else {
+            return L("已下载 %@", received)
+        }
+        let total = FileAttributeFormatter.size(progress.totalBytes)
+        let percent = Int(((progress.fraction ?? 0) * 100).rounded())
+        return L("已下载 %@ / %@", received, total) + " · " + String(percent) + "%"
+    }
+
+    private var downloadRateSummary: String {
+        let speed = controller.downloadSpeed > 0
+            ? FileAttributeFormatter.speed(bytesPerSecond: controller.downloadSpeed)
+            : L("正在等待数据…")
+        guard let remaining = controller.downloadRemainingTime else { return speed }
+        return speed + " · " + L("剩余 %@", FileAttributeFormatter.duration(remaining))
     }
 
     @ViewBuilder

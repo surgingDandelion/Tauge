@@ -110,7 +110,7 @@ struct StartPageView: View {
                 Button(L("导入 ~/.ssh/config")) { app.importSSHConfig() }
                 Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
                 Divider()
-                Button(L("命令面板")) { app.showingCommandPalette = true }
+                Button(L("快速打开…")) { app.showQuickOpen() }
                 Button(L("传输中心")) { app.showingTransferCenter = true }
                 Button(L("设置…")) { app.showingSettings = true }
             } label: {
@@ -581,7 +581,7 @@ struct StartPageView: View {
             hint("⌘N", L("新建主机"))
             hint("⌘T", L("新建标签"))
             hint("⇧⌘B", L("新建工作区"))
-            hint("⌘K", L("命令面板"))
+            hint("⌘K", L("快速打开"))
             hint("⌘F", L("终端查找"))
             Spacer(minLength: 0)
             if showsDragHelp {

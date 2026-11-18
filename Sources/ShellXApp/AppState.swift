@@ -54,6 +54,10 @@ struct CommandPaletteItem: Identifiable {
     var groupTitle: String?
     /// Nesting depth of the host's group, used to indent the row.
     var depth: Int = 0
+    /// Extra strings the row answers to (address, group path, tags, pinyin…).
+    var keywords: [String] = []
+    /// Recency tie-breaker for the ranking; see `QuickOpen`.
+    var weight: Int = 0
 }
 
 struct SidebarGroupNode: Identifiable {
@@ -148,6 +152,9 @@ final class AppState: ObservableObject {
     var passwordContinuation: CheckedContinuation<String?, Never>?
     var hostKeyContinuation: CheckedContinuation<HostKeyDecision, Never>?
     var conflictContinuation: CheckedContinuation<ConflictPolicy?, Never>?
+    /// Conflict dialogs are global to the app window. Keep later drops queued
+    /// instead of replacing the continuation that the first transfer awaits.
+    var conflictWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceSaveTask: Task<Void, Never>?
 
     private init() {
@@ -295,7 +302,7 @@ final class AppState: ObservableObject {
     }
 
     func hostName(for id: UUID?) -> String {
-        host(id: id)?.name ?? L("未知主机")
+        host(id: id).map(TerminalTab.label(for:)) ?? L("未知主机")
     }
 
     func proxyName(for policy: ProxyPolicy) -> String {
@@ -722,6 +729,24 @@ final class AppState: ObservableObject {
         (selectedBoardID != nil ? focusedBoardSession : selectedTab)?.bridge.view
     }
 
+    /// True while one of our own sheets owns the window. The quick-open panel is
+    /// an overlay, so raising it behind a sheet would be invisible: ⌘K waits.
+    var hasPresentedSheet: Bool {
+        passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil
+            || editor != nil || editingHost != nil || editingGroup != nil || editingProxy != nil
+            || showingKeyImporter || showingSettings || showingTransferCenter
+            || showingBoardCreate || boardNamePrompt != nil || showingNewSFTPTab
+    }
+
+    /// ⌘K. Opens the quick-open panel, or closes it when it is already up.
+    func showQuickOpen() {
+        guard !hasPresentedSheet else { return }
+        showingCommandPalette.toggle()
+        if showingCommandPalette {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// True while one of our own dialogs/sheets owns the keyboard.
     private var hasPresentedDialog: Bool {
         passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil
@@ -1120,7 +1145,7 @@ final class AppState: ObservableObject {
         persistTransfer(progress)
         if let request = relayRequests[progress.id] {
             if progress.state == .completed,
-               let tab = tabs.first(where: { $0.id == request.tabID }),
+               let tab = transferSessions.first(where: { $0.id == request.tabID }),
                let pane = tab.allRemotes.first(where: { $0.id == request.targetPaneID }) {
                 Task { await pane.refresh() }
             }
@@ -1190,7 +1215,7 @@ final class AppState: ObservableObject {
 
     func retryTransfer(_ progress: TransferProgress) {
         if let request = relayRequests[progress.id],
-           let tab = tabs.first(where: { $0.id == request.tabID }),
+           let tab = transferSessions.first(where: { $0.id == request.tabID }),
            let source = tab.allRemotes.first(where: { $0.id == request.sourcePaneID }),
            let target = tab.allRemotes.first(where: { $0.id == request.targetPaneID }) {
             removeTransfer(progress)
@@ -1232,9 +1257,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    private var transferSessions: [TerminalTab] {
+        let otherBoards = boardSessionCache.filter { $0.key != currentBoard?.id }
+        return tabs + boardSessions + otherBoards.flatMap { $0.value.values }
+    }
+
     func sftpClient(for hostID: UUID?) -> SFTPClient? {
         guard let hostID else { return nil }
-        return tabs.first { $0.hostID == hostID }?.sftpClient
+        return transferSessions.flatMap(\.allRemotes).first { $0.hostID == hostID && $0.isReady }?.client
     }
 
     func hostName(forTransfer progress: TransferProgress) -> String {
@@ -1290,16 +1320,23 @@ final class AppState: ObservableObject {
         // Workspaces come first: with no tab open this is the keyboard route
         // into a multi-terminal workspace.
         for board in boards.sorted(by: { $0.name < $1.name }) {
+            // A workspace is also findable by the machines inside it: typing a
+            // host name lists both the host and the workspace that hosts it.
+            let paneHosts = board.panes.compactMap { host(id: $0.hostID) }
+            let paneKeywords = paneHosts.flatMap { [$0.name, $0.displayAddress, $0.hostname] }
             items.append(CommandPaletteItem(id: "board-" + board.id.uuidString,
                                             title: board.name,
                                             subtitle: L("工作区 · %d 个窗格", board.panes.count),
                                             kind: .action,
                                             host: nil,
                                             action: { [weak self] in self?.openBoardTab(board.id) },
-                                            groupTitle: L("工作区")))
+                                            groupTitle: L("工作区"),
+                                            keywords: [board.name] + paneKeywords))
         }
 
         func appendHost(_ host: SSHHost, groupTitle: String, depth: Int) {
+            let keywords = quickOpenKeywords(for: host, groupPath: groupTitle)
+            let weight = quickOpenWeight(for: host)
             items.append(CommandPaletteItem(id: "host-" + host.id.uuidString,
                                             title: host.name,
                                             subtitle: host.displayAddress,
@@ -1307,7 +1344,9 @@ final class AppState: ObservableObject {
                                             host: host,
                                             action: nil,
                                             groupTitle: groupTitle,
-                                            depth: depth))
+                                            depth: depth,
+                                            keywords: keywords,
+                                            weight: weight))
             items.append(CommandPaletteItem(id: "sftp-" + host.id.uuidString,
                                             title: host.name,
                                             subtitle: host.displayAddress + " · SFTP",
@@ -1315,7 +1354,9 @@ final class AppState: ObservableObject {
                                             host: host,
                                             action: nil,
                                             groupTitle: groupTitle,
-                                            depth: depth))
+                                            depth: depth,
+                                            keywords: keywords + ["sftp", "文件"],
+                                            weight: weight))
         }
 
         // Walk the group tree so the palette mirrors the sidebar hierarchy:
@@ -1355,15 +1396,61 @@ final class AppState: ObservableObject {
                                             kind: .action,
                                             host: nil,
                                             action: action.2,
-                                            groupTitle: L("命令")))
+                                            groupTitle: L("命令"),
+                                            keywords: [action.0, action.1]))
         }
         return items
     }
 
-    func activateCommand(_ item: CommandPaletteItem) {
+    /// Everything a host answers to in the quick-open panel: what is written on
+    /// the row, plus the address, user, port, group path, tags, notes and the
+    /// pinyin forms so "cs" still finds 测试服务器.
+    private func quickOpenKeywords(for host: SSHHost, groupPath: String) -> [String] {
+        var keywords = [host.name, host.displayAddress, host.hostname, host.username,
+                        groupPath, String(host.port), host.notes]
+        keywords += host.tags
+        keywords.append(Self.latinized(host.name))
+        keywords.append(Self.pinyinInitials(host.name))
+        return keywords.filter { !$0.isEmpty }
+    }
+
+    /// Recent machines come first among equally good matches; the cap keeps a
+    /// long-used host from outranking a better textual match.
+    private func quickOpenWeight(for host: SSHHost) -> Int {
+        var weight = min(max(host.useCount, 0), 20)
+        guard let last = host.lastUsedAt else { return weight }
+        let days = Date().timeIntervalSince(last) / 86_400
+        if days < 1 { weight += 40 } else if days < 7 { weight += 20 } else if days < 30 { weight += 10 }
+        return weight
+    }
+
+    /// Ranks the quick-open entries against what the user typed.
+    ///
+    /// An empty query keeps the catalog order (workspaces, then the sidebar
+    /// tree, then commands) so opening the panel and pressing return does
+    /// something predictable.
+    func commandPaletteResults(query: String) -> [CommandPaletteItem] {
+        let items = commandPaletteItems
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return items }
+        let candidates = items.map {
+            QuickOpen.Candidate(id: $0.id, title: $0.title, keywords: $0.keywords, weight: $0.weight)
+        }
+        var byID: [String: CommandPaletteItem] = [:]
+        for item in items { byID[item.id] = item }
+        return QuickOpen.rank(candidates, query: query).compactMap { byID[$0.candidate.id] }
+    }
+
+    /// Opens the row the panel highlights. `prefersSFTP` is ⌘↩: a host opens a
+    /// browser tab instead of a shell, which is the quicker route to files when
+    /// the panel was opened for exactly that.
+    func activateCommand(_ item: CommandPaletteItem, prefersSFTP: Bool = false) {
         showingCommandPalette = false
         if let host = item.host {
-            openTab(for: host, showsSFTP: item.id.hasPrefix("sftp-"))
+            if prefersSFTP {
+                openSFTPTab(for: host)
+            } else {
+                openTab(for: host, showsSFTP: item.id.hasPrefix("sftp-"))
+            }
         } else {
             item.action?()
         }
@@ -1420,13 +1507,17 @@ extension AppState {
     /// looks like it did nothing.
     func refreshAfterTransfer(_ progress: TransferProgress) {
         guard progress.state == .completed, let hostID = progress.hostID else { return }
-        guard let tab = tabs.first(where: { $0.hostID == hostID }) else { return }
+        let directory = POSIXPath.parent(progress.destinationPath)
         switch progress.direction {
         case .upload:
-            guard tab.sftpClient != nil else { return }
-            Task { await tab.remote.refresh() }
+            for pane in transferSessions.flatMap(\.allRemotes)
+                where pane.hostID == hostID && pane.isReady && POSIXPath.normalize(pane.path) == directory {
+                Task { await pane.refresh() }
+            }
         case .download:
-            tab.local.reload()
+            for tab in transferSessions where POSIXPath.normalize(tab.local.path) == directory {
+                tab.local.reload()
+            }
         }
     }
 }

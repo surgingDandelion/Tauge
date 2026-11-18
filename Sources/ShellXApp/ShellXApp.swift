@@ -159,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusItem(L("新建 SFTP 标签…"), #selector(newSFTPTabFromMenuBar)))
         menu.addItem(statusItem(L("新建终端标签"), #selector(newTerminalTabFromMenuBar)))
         menu.addItem(.separator())
-        menu.addItem(statusItem(L("命令面板…"), #selector(commandPaletteFromMenuBar)))
+        menu.addItem(statusItem(L("快速打开…"), #selector(commandPaletteFromMenuBar)))
         menu.addItem(statusItem(L("传输中心…"), #selector(transferCenterFromMenuBar)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("退出 Tauge"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -197,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func commandPaletteFromMenuBar() {
         showMainWindow()
-        AppState.shared.showingCommandPalette = true
+        AppState.shared.showQuickOpen()
     }
 
     @objc private func transferCenterFromMenuBar() {
@@ -379,7 +379,7 @@ struct ShellXCommands: Commands {
         }
 
         CommandMenu(L("导航")) {
-            Button(L("命令面板")) { app.showingCommandPalette = true }
+            Button(L("快速打开…")) { app.showQuickOpen() }
                 .keyboardShortcut("k", modifiers: .command)
             Button(L("传输中心")) { app.showingTransferCenter = true }
                 .keyboardShortcut("j", modifiers: [.command, .shift])

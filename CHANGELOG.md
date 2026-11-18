@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Quick Open** (`⌘K`): a spotlight-style panel over the window that searches
+  hosts, workspaces, and commands at once and ranks them by match quality and
+  recent use. `↩` opens the tab and connects, `⌘↩` opens an SFTP tab, and the
+  panel stays out of the way while another sheet is up. It replaces the
+  command-palette sheet.
+- SSH keepalives at the protocol level: every connection sends
+  `keepalive@openssh.com` global requests (`ServerAliveInterval`, 30s by
+  default) and drops the link only when the peer stops answering, on top of the
+  `SO_KEEPALIVE` socket option, which macOS only starts after two idle hours.
+  System-`ssh` transfers add `-o ServerAliveInterval` / `ServerAliveCountMax=3`.
+- Broken SFTP panes come back on their own: the primary pane reconnects the tab,
+  an extra pane rebuilds its own channel, and the refresh button reconnects
+  instead of staying disabled.
+- The update download reports real progress: a byte-level progress bar, the
+  transferred and total size, a smoothed transfer rate, and the remaining time.
+  The rate meters frames with an exponential average so the label does not
+  jitter, and the bar keeps showing the final sample even when the server sends
+  no content length.
+- SFTP panes support multi-row selection (`⌘` click, `⇧` click for a range) and
+  dragging the whole selection in one gesture; each batch asks the conflict
+  question once.
+- Credentials live in the app's own folder instead of the login keychain:
+  `vault.v1.enc` (AES-256-GCM, `0600`) with its random key in `vault.key`.
+  Updates, reinstalls and re-signed builds no longer raise "Tauge wants to use
+  your confidential information stored in …". A credential an older build left
+  in the keychain is read once, migrated, and never looked up again; an account
+  deleted in the app stays deleted.
+- Touch ID (or the device password) unlocks the vault once per launch. The
+  vault is a file, so without this gate nothing would guard a stored password.
+  Settings → Security → `Unlock method` turns it off; it is skipped on Macs
+  without a sensor, and a failing sensor opens the vault rather than blocking
+  the connection.
+
+### Changed
+
+- The transfer details panel names the host of the pane the transfer came from,
+  not the tab's first host, so a multi-pane window shows the right machine.
+- Credential storage moved from one keychain item per secret, to one item, to
+  the encrypted file vault described above. The keychain is now only a migration
+  source, and the settings page says where the vault lives instead of warning
+  about ad-hoc signing.
+- `scripts/package-release.sh` signs with the local `Tauge Local Signing`
+  identity when no Developer ID is available, so "Always Allow" grants survive
+  releases built on this machine.
+
 ## [1.1.2] — 2026-11-18
 
 ### Added

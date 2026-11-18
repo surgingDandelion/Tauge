@@ -16,8 +16,57 @@ extension AppState {
         connect(tab: tab)
     }
 
-    func connect(tab: TerminalTab) {
-        guard !tab.connectionState.isBusy else { return }
+    /// Asks for Touch ID once per launch before a stored credential is read.
+    ///
+    /// The vault is a file, so macOS never asks for the keychain password and
+    /// nothing would stop a passer-by from connecting as the user. This gate is
+    /// what makes reading a stored credential fingerprint-first. It is skipped
+    /// when the setting is off, when the Mac has no sensor with an enrolled
+    /// finger, and after the first successful unlock in this process. A hard
+    /// authentication failure opens the vault rather than blocking the
+    /// connection: the gate is a convenience, the file permissions are the guard.
+    private func unlockCredentialsIfNeeded(tab: TerminalTab) async -> Bool {
+        guard settings.unlockWithBiometrics, BiometricGate.hasBiometrics() else { return true }
+        let gate = BiometricGate.shared
+        if gate.isUnlocked { return true }
+
+        let previous = tab.connectionState
+        tab.markConnecting(L("等待 Touch ID 解锁"))
+        switch await gate.unlock(reason: L("解锁已保存的登录密码与私钥口令")) {
+        case .unlocked, .unavailable:
+            return true
+        case .cancelled:
+            restore(tab, afterDismissedUnlock: previous, reason: L("已取消解锁"))
+            return false
+        case .failed:
+            // The sheet only reports this after repeated bad attempts. Open the
+            // vault instead of leaving the user unable to connect at all.
+            return true
+        }
+    }
+
+    /// Puts the tab back where it was when the unlock sheet was raised. A live
+    /// session must not be relabelled as disconnected just because the user
+    /// dismissed Touch ID, and a fresh tab has to show why nothing happened.
+    private func restore(_ tab: TerminalTab, afterDismissedUnlock previous: TabConnectionState, reason: String) {
+        if previous.isConnected {
+            tab.connectionState = .connected
+        } else {
+            tab.markDisconnected(reason)
+        }
+    }
+
+    /// Connects the tab. A scheduled retry passes `force` because it moved the
+    /// tab into the "reconnecting" state itself, which would otherwise look busy
+    /// and make the retry a no-op.
+    func connect(tab: TerminalTab, force: Bool = false) {
+        // A waiting retry timer counts as idle: an explicit attempt (the retry
+        // button, a refresh) should dial now and supersede the timer instead of
+        // being swallowed by the "reconnecting" state the timer itself set.
+        let waitingForRetry = tab.reconnectTask != nil
+        guard force || waitingForRetry || !tab.connectionState.isBusy else { return }
+        tab.reconnectTask?.cancel()
+        tab.reconnectTask = nil
         tab.connectTask?.cancel()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -28,6 +77,7 @@ extension AppState {
 
     private func performConnect(tab: TerminalTab) async {
         let host = tab.host
+        guard await unlockCredentialsIfNeeded(tab: tab) else { return }
         tab.markConnecting(L("解析配置"))
         do {
             let resolver = ConfigResolver(catalog: Catalog(groups: groups, hosts: hosts, proxies: proxies, keys: keys))
@@ -244,7 +294,63 @@ extension AppState {
             await client.shutdown()
             throw error
         }
+        // The transport can die on its own long after this call returns: the peer
+        // hangs up, the TCP path breaks, or a keepalive goes unanswered. Report it
+        // so the tab drops stale channels and reconnects instead of staying on a
+        // frozen terminal.
+        await client.setDisconnectHandler { [weak self, weak tab] reason in
+            Task { @MainActor in
+                guard let self, let tab else { return }
+                self.transportDidClose(tab: tab, client: client, reason: reason)
+            }
+        }
         return EstablishedConnection(client: client, auth: prepared.auth, transport: transport)
+    }
+
+    /// The tab's own transport died by itself. The terminal channel usually
+    /// reports the close first, so state is only moved when the tab still looked
+    /// live; the stale SFTP channels are dropped in every case.
+    func transportDidClose(tab: TerminalTab, client: SSHClient, reason: String) {
+        guard !tab.isClosing, tab.client === client else { return }
+        let wasLive = tab.connectionState.isConnected || tab.connectionState.isBusy
+        tab.client = nil
+        Task { @MainActor [weak self, weak tab] in
+            guard let self, let tab else { return }
+            await self.invalidateSFTPChannels(tab: tab, deadClient: client)
+            self.persistWorkspace()
+        }
+        guard wasLive else { return }
+        tab.markDisconnected(reason)
+        tab.logger?.close()
+        scheduleReconnectIfNeeded(tab: tab)
+    }
+
+    /// One extra pane's dedicated connection died. Its client is dropped so the
+    /// next refresh (or the single automatic retry) dials it again.
+    func paneTransportDidClose(tab: TerminalTab, pane: RemoteBrowserModel, client: SSHClient, reason: String) {
+        guard !tab.isClosing, tab.remoteClients[pane.id] === client else { return }
+        tab.remoteClients[pane.id] = nil
+        Task { await client.disconnect() }
+        if let sftp = pane.client {
+            Task { await sftp.shutdown() }
+            pane.setClient(nil)
+        }
+        pane.connectionError = reason
+        schedulePaneReconnectIfNeeded(tab: tab, pane: pane)
+    }
+
+    /// One delayed retry for a pane that lost its connection. Further failures do
+    /// not queue more attempts; the pane keeps its retry button for manual ones.
+    private func schedulePaneReconnectIfNeeded(tab: TerminalTab, pane: RemoteBrowserModel) {
+        guard settings.autoReconnect,
+              !tab.isClosing,
+              tab.paneReconnectTasks[pane.id] == nil else { return }
+        tab.paneReconnectTasks[pane.id] = Task { @MainActor [weak self, weak tab, weak pane] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, let tab, let pane, !tab.isClosing else { return }
+            tab.paneReconnectTasks[pane.id] = nil
+            await self.ensureSFTPChannel(tab: tab, pane: pane)
+        }
     }
 
     /// Extra SFTP panes remembered from a previous session are dialled once the
@@ -291,17 +397,24 @@ extension AppState {
     }
 
     private func scheduleReconnectIfNeeded(tab: TerminalTab) {
+        // One attempt at a time: a transport failure and the terminal channel
+        // close both report here, and two timers would race for the connection.
         guard settings.autoReconnect,
               !tab.isClosing,
               isLive(tab: tab),
-              tab.reconnectAttempt < 6 else { return }
+              tab.reconnectAttempt < 6,
+              tab.reconnectTask == nil else { return }
         tab.reconnectAttempt += 1
         let delay = min(30, pow(2.0, Double(tab.reconnectAttempt - 1)))
         tab.markConnecting(L("连接断开，") + String(Int(delay)) + L(" 秒后第 ") + String(tab.reconnectAttempt) + L(" 次重连"))
-        Task { @MainActor [weak self] in
+        tab.reconnectTask = Task { @MainActor [weak self, weak tab] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let tab else { return }
+            tab.reconnectTask = nil
             guard !tab.isClosing, let self, self.isLive(tab: tab) else { return }
-            self.connect(tab: tab)
+            // The retry set the tab's state to "reconnecting"; force bypasses the
+            // busy guard, which used to make every scheduled retry a no-op.
+            self.connect(tab: tab, force: true)
         }
     }
 
@@ -551,15 +664,9 @@ extension AppState {
             return
         }
         tab.showsSFTP = true
-        if tab.remote.client != nil {
-            Task { await refreshSFTP(tab: tab) }
-            return
-        }
-        if tab.client == nil {
-            connect(tab: tab)
-        } else {
-            Task { await openSFTP(tab: tab) }
-        }
+        // refreshSFTP re-dials a dead connection, so revealing the panel after a
+        // dropped link no longer leaves an empty browser behind.
+        Task { await refreshSFTP(tab: tab) }
     }
 
     func openSFTP(tab: TerminalTab) async {
@@ -568,26 +675,47 @@ extension AppState {
 
     /// Opens (or reveals) the SFTP subsystem for one pane. The main pane rides
     /// on the tab's terminal connection; extra panes each own a connection.
+    /// A pane whose transport died is dialled again rather than written off.
     func openSFTP(tab: TerminalTab, pane: RemoteBrowserModel) async {
-        if pane.client != nil {
+        if await sftpChannelIsUsable(tab: tab, pane: pane) {
             tab.showsSFTP = true
             return
         }
+        if let stale = pane.client {
+            // The subsystem channel is closed; drop it before dialling again.
+            Task { await stale.shutdown() }
+            pane.setClient(nil)
+        }
+        pane.connectionError = nil
         let isMain = pane === tab.remote
+        let client: SSHClient
         if isMain {
-            guard tab.client != nil else {
-                // Keep the browser visible with an explanation: closing it
-                // silently made a failed attempt look like the panel vanished.
-                pane.connectionError = L("尚未建立 SSH 连接，面板会在连接成功后自动载入。")
+            guard let existing = tab.client, await existing.isConnected else {
+                // The tab's own connection is gone. Reconnecting the tab reopens
+                // every pane through performConnect, so only ask for that.
+                tab.showsSFTP = true
+                tab.client = nil
+                pane.connectionError = L("连接已断开，正在重新连接…")
+                connect(tab: tab)
                 return
             }
+            client = existing
         } else {
-            guard let ssh = tab.remoteClients[pane.id] else {
-                pane.connectionError = L("该面板的连接已断开，请关闭后重新添加。")
+            guard let hostID = pane.hostID, let host = host(id: hostID) else {
+                pane.connectionError = L("主机已被删除，无法重新连接。")
                 return
             }
-            if !(await ssh.isConnected) {
-                pane.connectionError = L("该面板的连接已断开，请关闭后重新添加。")
+            do {
+                if let existing = tab.remoteClients[pane.id], await existing.isConnected {
+                    client = existing
+                } else {
+                    if let dead = tab.remoteClients.removeValue(forKey: pane.id) {
+                        Task { await dead.disconnect() }
+                    }
+                    client = try await paneConnection(tab: tab, host: host, pane: pane)
+                }
+            } catch {
+                pane.connectionError = describe(error)
                 return
             }
         }
@@ -599,15 +727,11 @@ extension AppState {
             tab.sftpLoading = false
         }
         do {
-            let sftp: SFTPClient
-            if isMain, let client = tab.client {
-                sftp = try await client.openSFTP()
+            let sftp = try await client.openSFTP()
+            if isMain {
                 tab.attach(sftp: sftp)
-            } else if let client = tab.remoteClients[pane.id] {
-                sftp = try await client.openSFTP()
-                pane.setClient(sftp)
             } else {
-                return
+                pane.setClient(sftp)
             }
             tab.showsSFTP = true
             configureSFTPHistory(for: pane)
@@ -641,12 +765,52 @@ extension AppState {
         await refreshSFTP(tab: tab, pane: tab.remote)
     }
 
+    /// Reloads a pane, reopening its connection first when the transport died.
+    /// Refreshing a dead pane now re-dials instead of doing nothing.
     func refreshSFTP(tab: TerminalTab, pane: RemoteBrowserModel) async {
+        let ready = await ensureSFTPChannel(tab: tab, pane: pane)
+        guard ready else { return }
         await pane.refresh()
         recordSFTPPath(pane.path, for: pane.hostID)
         if pane === tab.remote {
             tab.lastRemoteDirectory = pane.path
             persistWorkspace()
+        }
+    }
+
+    /// True when the pane has a live SFTP channel on a live transport.
+    private func sftpChannelIsUsable(tab: TerminalTab, pane: RemoteBrowserModel) async -> Bool {
+        guard let sftp = pane.client, !(await sftp.isClosed) else { return false }
+        guard let ssh = tab.sshClient(for: pane), await ssh.isConnected else { return false }
+        return true
+    }
+
+    /// Makes sure the pane can browse, reopening the subsystem when needed.
+    /// Returns whether a usable channel is in place afterwards.
+    @discardableResult
+    func ensureSFTPChannel(tab: TerminalTab, pane: RemoteBrowserModel) async -> Bool {
+        guard !(await sftpChannelIsUsable(tab: tab, pane: pane)) else { return true }
+        await openSFTP(tab: tab, pane: pane)
+        guard let sftp = pane.client else { return false }
+        return !(await sftp.isClosed)
+    }
+
+    /// Drops the SFTP channels that rode on a transport that is now gone and
+    /// tells the affected panes why they are empty.
+    func invalidateSFTPChannels(tab: TerminalTab, deadClient: SSHClient?) async {
+        for pane in tab.allRemotes {
+            guard let sftp = pane.client else { continue }
+            let ssh = tab.sshClient(for: pane)
+            let alive: Bool
+            if let ssh, ssh !== deadClient {
+                alive = await ssh.isConnected
+            } else {
+                alive = false
+            }
+            if alive { continue }
+            await sftp.shutdown()
+            pane.setClient(nil)
+            pane.connectionError = L("连接已断开，点击刷新重新连接。")
         }
     }
 
@@ -660,7 +824,7 @@ extension AppState {
         }
         let pane = RemoteBrowserModel()
         pane.hostID = host.id
-        pane.hostName = host.name
+        pane.hostName = TerminalTab.label(for: host)
         pane.showHidden = tab.remote.showHidden
         // nil means "decide when connecting": remembered folder first, then the
         // host default (resolved in openSFTP).
@@ -689,11 +853,13 @@ extension AppState {
     }
 
     private func paneConnection(tab: TerminalTab, host: SSHHost, pane: RemoteBrowserModel) async throws -> SSHClient {
-        if host.id == tab.hostID, let existing = tab.client {
+        if host.id == tab.hostID, let existing = tab.client, await existing.isConnected {
             return existing
         }
         if let existing = tab.remoteClients[pane.id] {
-            return existing
+            if await existing.isConnected { return existing }
+            tab.remoteClients[pane.id] = nil
+            Task { await existing.disconnect() }
         }
         let resolver = ConfigResolver(catalog: Catalog(groups: groups, hosts: hosts, proxies: proxies, keys: keys))
         let config = try resolver.effective(for: host)
@@ -709,6 +875,14 @@ extension AppState {
             reloadCatalog()
         }
         tab.remoteClients[pane.id] = client
+        // Extra panes own their transport, so they watch it themselves instead of
+        // relying on the tab's terminal channel to report the loss.
+        await client.setDisconnectHandler { [weak self, weak tab, weak pane] reason in
+            Task { @MainActor in
+                guard let self, let tab, let pane else { return }
+                self.paneTransportDidClose(tab: tab, pane: pane, client: client, reason: reason)
+            }
+        }
         try? store.recordConnection(hostID: host.id)
         recentHosts = (try? store.recentHosts(limit: 20)) ?? recentHosts
         return client

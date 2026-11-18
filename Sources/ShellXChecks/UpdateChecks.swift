@@ -164,4 +164,53 @@ func runUpdateChecks() {
             try TaugeUpdateService.evaluate(releaseData: releaseJSON(tagName: "v1.1.0", checksumsURL: "http://example.com/SHA256SUMS.txt"), currentVersion: "1.0.1")
         }, "an HTTP checksum file is rejected")
     }
+
+    run("update.download progress reports fractions and estimates") {
+        let empty = ArchiveDownloadProgress(bytesReceived: 0, totalBytes: 1_000)
+        expectEqual(empty.fraction ?? -1, 0, "nothing received yet")
+        expect(!empty.isComplete, "an empty download is not complete")
+        let half = ArchiveDownloadProgress(bytesReceived: 500, totalBytes: 1_000)
+        expectEqual(half.fraction ?? -1, 0.5, "halfway")
+        expectEqual(half.remainingBytes, 500, "remaining bytes")
+        expectEqual(half.remainingTime(bytesPerSecond: 250) ?? -1, 2, "two seconds at 250 B/s")
+        expect(half.remainingTime(bytesPerSecond: 0) == nil, "no estimate without a rate")
+        let done = ArchiveDownloadProgress(bytesReceived: 1_000, totalBytes: 1_000)
+        expectEqual(done.fraction ?? -1, 1, "complete")
+        expect(done.isComplete, "complete flag")
+        expect(done.remainingTime(bytesPerSecond: 250) == nil, "nothing left to estimate")
+        let unknown = ArchiveDownloadProgress(bytesReceived: 2_048, totalBytes: -1)
+        expectEqual(unknown.totalBytes, 0, "negative totals are clamped")
+        expect(unknown.fraction == nil, "no fraction without a total")
+        expect(!unknown.isComplete, "an unknown total is never complete")
+        let overshoot = ArchiveDownloadProgress(bytesReceived: 3_000, totalBytes: 1_000)
+        expectEqual(overshoot.fraction ?? -1, 1, "fractions stay at one")
+    }
+
+    run("update.download rate meter smooths bursts and decays stalls") {
+        var meter = DownloadRateMeter(weight: 0.5)
+        expectEqual(meter.update(bytes: 0, at: 0), 0, "the first sample has no rate")
+        expectEqual(meter.update(bytes: 1_000, at: 0.5), 2_000, "instant rate after one gap")
+        expectEqual(meter.update(bytes: 4_000, at: 1.0), 4_000, "the burst is smoothed, not echoed")
+        expectEqual(meter.bytesPerSecond, 4_000, "the smoothed rate is exposed")
+        let stalled = meter.update(bytes: 4_000, at: 1.5)
+        expect(stalled < 4_000, "a stalled sample pulls the label down instead of freezing it")
+        let before = meter.bytesPerSecond
+        expectEqual(meter.update(bytes: 9_000, at: 1.5), before, "a duplicate timestamp is ignored")
+        let rewound = meter.update(bytes: 10, at: 2.0)
+        expect(rewound >= 0, "a counter that went backwards keeps the last estimate")
+        meter.reset()
+        expectEqual(meter.bytesPerSecond, 0, "reset clears the rate")
+        expectEqual(meter.update(bytes: 100, at: 10), 0, "reset forgets the previous sample")
+    }
+
+    run("update.download throttle caps UI updates") {
+        var throttle = ProgressThrottle(minimumInterval: 0.2)
+        expect(throttle.shouldEmit(at: 0), "the first callback always passes")
+        expect(!throttle.shouldEmit(at: 0.05), "too soon after the last one")
+        expect(!throttle.shouldEmit(at: 0.19), "still too soon")
+        expect(throttle.shouldEmit(at: 0.2), "the interval has elapsed")
+        expect(throttle.shouldEmit(at: 5), "a long gap passes")
+        var open = ProgressThrottle(minimumInterval: 0)
+        expect(open.shouldEmit(at: 0) && open.shouldEmit(at: 0), "a zero interval lets everything through")
+    }
 }

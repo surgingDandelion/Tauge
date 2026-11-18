@@ -267,6 +267,12 @@ runBoardTreeChecks()
 runBoardDropChecks()
 runBroadcastChecks()
 runUpdateChecks()
+await runUpdateDownloadChecks()
+runDragPayloadChecks()
+runFileSelectionChecks()
+runQuickOpenChecks()
+runKeychainVaultChecks()
+runLocalVaultChecks()
 await runProxyChecks()
 await runTransferChecks()
 
@@ -285,6 +291,10 @@ runSystemSSHChecks()
 // MARK: - End-to-end SSH + SFTP against an in-process server
 
 await runMockSSHChecks()
+
+// MARK: - Transport keepalive and SFTP reconnect
+
+await runConnectionChecks()
 
 // MARK: - Jump chains (direct-tcpip tunnels)
 

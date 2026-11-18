@@ -207,8 +207,16 @@ public final class TaugeUpdateService: @unchecked Sendable {
 
     /// Download the release ZIP, verify it against SHA256SUMS.txt from the same
     /// release, and leave the verified archive at `destination`.
+    ///
+    /// `progress` runs on the downloader's own delegate queue and is throttled
+    /// to a handful of updates per second; UI callers must hop back to the main
+    /// actor before touching state.
     @discardableResult
-    public func downloadVerifiedArchive(for update: TaugeUpdate, to destination: URL) async throws -> URL {
+    public func downloadVerifiedArchive(
+        for update: TaugeUpdate,
+        to destination: URL,
+        progress: (@Sendable (ArchiveDownloadProgress) -> Void)? = nil
+    ) async throws -> URL {
         let checksumText = try await downloadChecksumFile(for: update)
         guard let expected = TaugeChecksum.expectedSHA256(for: update.archiveName, in: checksumText) else {
             throw TaugeUpdateError.checksumMissing(update.archiveName)
@@ -216,9 +224,15 @@ public final class TaugeUpdateService: @unchecked Sendable {
 
         let temporaryURL: URL
         do {
-            let (downloaded, response) = try await session.download(from: update.archiveURL)
-            let http = try Self.httpResponse(response)
-            guard http.statusCode == 200 else { throw TaugeUpdateError.httpStatus(http.statusCode) }
+            let (downloaded, response) = try await downloadTemporaryCopy(of: update.archiveURL, progress: progress)
+            guard let http = response as? HTTPURLResponse else {
+                try? FileManager.default.removeItem(at: downloaded)
+                throw TaugeUpdateError.invalidResponse
+            }
+            guard http.statusCode == 200 else {
+                try? FileManager.default.removeItem(at: downloaded)
+                throw TaugeUpdateError.httpStatus(http.statusCode)
+            }
             temporaryURL = downloaded
         } catch let error as TaugeUpdateError {
             throw error
@@ -258,6 +272,20 @@ public final class TaugeUpdateService: @unchecked Sendable {
         return destination
     }
 
+    /// Download one file with byte-level progress and hand back the temporary
+    /// copy plus the response headers. Errors arrive unmapped so the caller
+    /// decides how to report them.
+    ///
+    /// Public so the self-check suite can drive the progress plumbing against a
+    /// file URL instead of the network.
+    public func downloadTemporaryCopy(
+        of url: URL,
+        progress: (@Sendable (ArchiveDownloadProgress) -> Void)? = nil
+    ) async throws -> (URL, URLResponse) {
+        let downloader = ArchiveDownloadCoordinator(progress: progress)
+        return try await downloader.download(makeAssetRequest(url: url), configuration: session.configuration)
+    }
+
     private func downloadChecksumFile(for update: TaugeUpdate) async throws -> String {
         let request = makeRequest(url: update.checksumsURL)
         do {
@@ -285,6 +313,16 @@ public final class TaugeUpdateService: @unchecked Sendable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("Tauge/\(TaugeAppInfo.version) (macOS)", forHTTPHeaderField: "User-Agent")
+        return request
+    }
+
+    /// The asset endpoint redirects to a signed objects host, so the request
+    /// stays minimal: no GitHub Accept header, just a user agent.
+    private func makeAssetRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("Tauge/\(TaugeAppInfo.version) (macOS)", forHTTPHeaderField: "User-Agent")
         return request
     }
@@ -350,5 +388,121 @@ public final class TaugeUpdateService: @unchecked Sendable {
             checksumsURL: checksums.browserDownloadURL,
             publishedAt: release.publishedAt
         ))
+    }
+}
+
+// MARK: - Download coordinator
+
+/// One-shot download with byte-level progress.
+///
+/// `URLSession.download(from:)` reports nothing while it runs, and the async
+/// `download(for:delegate:)` overload hands the finished file to whichever
+/// delegate you pass anyway. This coordinator drives its own session, moves the
+/// file out of the system's temporary location before returning (URLSession
+/// deletes it as soon as the delegate call returns), and bridges the delegate
+/// contract to a single continuation.
+final class ArchiveDownloadCoordinator: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private enum State {
+        case ready
+        case running
+        case finished(Result<(URL, URLResponse), Error>)
+    }
+
+    private let progress: (@Sendable (ArchiveDownloadProgress) -> Void)?
+    private let mutex = NSLock()
+    private var throttle = ProgressThrottle(minimumInterval: 0.2)
+    private var state: State = .ready
+    private var continuation: CheckedContinuation<Result<(URL, URLResponse), Error>, Never>?
+
+    init(progress: (@Sendable (ArchiveDownloadProgress) -> Void)?) {
+        self.progress = progress
+    }
+
+    func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let task = session.downloadTask(with: request)
+        let outcome = await withTaskCancellationHandler(
+            operation: {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Result<(URL, URLResponse), Error>, Never>) in
+                    let immediate = mutex.withLock { () -> Result<(URL, URLResponse), Error>? in
+                        if case .finished(let result) = state { return result }
+                        state = .running
+                        self.continuation = continuation
+                        return nil
+                    }
+                    if let immediate {
+                        continuation.resume(returning: immediate)
+                        return
+                    }
+                    task.resume()
+                }
+            },
+            onCancel: {
+                // Resolve the caller even if URLSession never delivers a
+                // completion for a task that was cancelled before it started.
+                self.finish(.failure(URLError(.cancelled)))
+                task.cancel()
+            }
+        )
+        return try outcome.get()
+    }
+
+    // MARK: URLSessionDownloadDelegate
+
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard let progress else { return }
+        let timestamp = Date().timeIntervalSinceReferenceDate
+        let shouldEmit = mutex.withLock { throttle.shouldEmit(at: timestamp) }
+        guard shouldEmit else { return }
+        progress(ArchiveDownloadProgress(bytesReceived: totalBytesWritten,
+                                         totalBytes: totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Tauge-download-" + UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: destination)
+        } catch {
+            finish(.failure(error))
+            return
+        }
+        guard let response = downloadTask.response else {
+            try? FileManager.default.removeItem(at: destination)
+            finish(.failure(TaugeUpdateError.invalidResponse))
+            return
+        }
+        // Always deliver a final, unthrottled sample so the bar lands on 100%.
+        progress?(ArchiveDownloadProgress(bytesReceived: downloadTask.countOfBytesReceived,
+                                          totalBytes: max(downloadTask.countOfBytesExpectedToReceive,
+                                                          downloadTask.countOfBytesReceived)))
+        finish(.success((destination, response)))
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error else {
+            // didFinishDownloadingTo normally settles the download first;
+            // reaching here without a file means the server sent nothing
+            // usable.
+            finish(.failure(TaugeUpdateError.invalidResponse))
+            return
+        }
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<(URL, URLResponse), Error>) {
+        let pending: CheckedContinuation<Result<(URL, URLResponse), Error>, Never>? = mutex.withLock {
+            if case .finished = state { return nil }
+            state = .finished(result)
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        pending?.resume(returning: result)
     }
 }

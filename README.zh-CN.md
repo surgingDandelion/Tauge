@@ -13,7 +13,7 @@ SFTP 与服务器间直传，凭据始终留在你的 Mac 上。
 Tauge 只使用 SwiftPM 构建，界面由 SwiftUI 与 AppKit 编写，终端基于
 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)，SSH 基于一份内置的
 [SwiftNIO SSH](Vendor/swift-nio-ssh) 分支。没有账号、没有同步服务、没有遥测。
-主机、密钥与传输记录保存在本地 SQLite 数据库，敏感凭据保存在 macOS 钥匙串。
+主机、密钥与传输记录保存在本地 SQLite 数据库，敏感凭据保存在同一目录下的加密凭据库。
 
 > Tauge 早期内部代号为 **ShellX**。Bundle 标识符、钥匙串服务名与数据目录仍保留
 > `shellx` 前缀，以保证升级不会丢失数据。
@@ -152,8 +152,10 @@ XSalsa20-Poly1305 测试向量、本地化表完整性，以及针对进程内�
 
 ## 签名与公证
 
-- 本地开发：运行 `./scripts/setup-signing.sh` 创建自签名证书，使钥匙串的
-  「始终允许」在重新构建后继续有效。
+- 本地开发：运行 `./scripts/setup-signing.sh` 创建自签名证书，使 macOS 在重新
+  构建后仍认得这个 App（ad-hoc 签名的 cdhash 每次都变，任何钥匙串授权——例如
+  读取 Termius 保险库——都要重新确认）。保存的凭据已不再依赖签名：它们存在
+  应用自己的凭据库里，每次启动用 Touch ID 解锁一次。
 - 分发：运行 `./scripts/package-release.sh` 构建通用二进制；若提供
   `TAUGE_SIGN_IDENTITY` 则签名，若提供 `TAUGE_NOTARY_*` 则公证，最终生成
   DMG、ZIP 与 `SHA256SUMS.txt`。
@@ -167,7 +169,7 @@ XSalsa20-Poly1305 测试向量、本地化表完整性，以及针对进程内�
 Sources/ShellXKit/
   Model/          模型、分组继承、代理与跳板解析
   Store/          SQLite（WAL）目录、已知主机、传输历史、设置
-  Security/       钥匙串、凭据存储、AES-256-GCM 导出加密
+  Security/       本地加密凭据库、钥匙串迁移、AES-256-GCM 导出加密
   SSHConfig/      ~/.ssh/config 解析与 Host * 默认值
   SFTP/           SFTP v3 编解码与并发客户端
   SSH/            NIOSSH 连接、代理、跳板链、主机密钥校验
@@ -218,7 +220,8 @@ Tauge 不包含统计分析或崩溃上报。更新检查只向 GitHub 的公开
 - 数据库：`~/Library/Application Support/ShellX/shellx.sqlite`
 - 导入的私钥：`~/Library/Application Support/ShellX/Keys`
 - 日志：`~/Logs/<host>/<date>.log`
-- 凭据：macOS 钥匙串（服务名 `shellx`）
+- 凭据：`~/Library/Application Support/ShellX/vault.v1.enc` 与 `vault.key`
+  （均为 `0600`，AES-256-GCM）
 
 环境变量 `SHELLX_CATALOG_PATH`（或偏好键 `ShellXCatalogPath`）可覆盖数据库位置；
 「设置 → 高级」中可迁移数据目录。

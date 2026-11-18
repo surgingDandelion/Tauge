@@ -321,6 +321,56 @@ extension NIOSSHHandler {
         self.sendGlobalRequestsIfPossible()
     }
 
+    /// Sends an `keepalive@openssh.com` global request, the standard OpenSSH
+    /// liveness probe. A server that is still there answers with REQUEST_SUCCESS
+    /// or REQUEST_FAILURE; only a dead transport produces neither.
+    ///
+    /// The promise succeeds as soon as the peer answers, whether it accepts the
+    /// request or not, and fails when the transport is closed or the request
+    /// cannot be written. Unlike the other global request APIs this may be
+    /// called from any thread; the work is hopped onto the channel's loop.
+    ///
+    /// - parameters:
+    ///     - promise: Fulfilled when the peer answered, failed when it did not.
+    ///       Create it on the channel's event loop.
+    public func sendKeepaliveRequest(promise: EventLoopPromise<Void>) {
+        let loop = promise.futureResult.eventLoop
+        let hop = NIOSSHHandlerHop(handler: self)
+        if loop.inEventLoop {
+            hop.handler.sendKeepaliveRequestOnLoop(promise)
+        } else {
+            loop.execute { hop.handler.sendKeepaliveRequestOnLoop(promise) }
+        }
+    }
+
+    private func sendKeepaliveRequestOnLoop(_ promise: EventLoopPromise<Void>) {
+        guard let context = self.context, self.stateMachine.isActive else {
+            promise.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
+        let message = SSHMessage.GlobalRequestMessage(
+            wantReply: true,
+            type: .unknown("keepalive@openssh.com", context.channel.allocator.buffer(capacity: 0))
+        )
+        let reply = context.eventLoop.makePromise(of: ByteBuffer?.self)
+        reply.futureResult.assumeIsolatedUnsafeUnchecked().whenComplete { result in
+            switch result {
+            case .success:
+                promise.succeed(())
+            case .failure(let error):
+                // sshd answers this probe with REQUEST_FAILURE. A protocol-level
+                // refusal still proves the peer is alive, so only transport
+                // errors mean the connection is gone.
+                if error is NIOSSHError {
+                    promise.succeed(())
+                } else {
+                    promise.fail(error)
+                }
+            }
+        }
+        self.sendGlobalRequestMessage(message, promise: reply)
+    }
+
     /// Sends a global request of any kind. This is commonly used for TCP forwarding requests, but can be used to extend the protocol.
     ///
     /// This function is **not** thread-safe: it may only be called from on the channel.
@@ -555,4 +605,11 @@ extension NIOSSHHandler: SSHMultiplexerDelegate {
             self.context?.flush()
         }
     }
+}
+
+/// Carries the deliberately non-Sendable handler across an event loop hop. The
+/// wrapper is only ever unwrapped inside a closure scheduled on the handler's
+/// own loop, so the handler is still only touched from the thread that owns it.
+private struct NIOSSHHandlerHop: @unchecked Sendable {
+    let handler: NIOSSHHandler
 }

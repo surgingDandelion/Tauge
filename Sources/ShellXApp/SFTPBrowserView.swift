@@ -26,45 +26,43 @@ struct SFTPBrowserView: View {
     @ViewState private var compactSide: CompactSide?
 
     var body: some View {
-        DropArea(app: app, onDrop: handleDroppedContent) {
-            GeometryReader { proxy in
-                VStack(spacing: 0) {
-                    if proxy.size.width < Self.compactWidth {
-                        compactSwitcher
-                        Divider().opacity(0.5)
-                        compactContent
-                    } else {
-                        HSplitView {
-                            DropArea(app: app, onDrop: handleLocalDrop) {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                if proxy.size.width < Self.compactWidth {
+                    compactSwitcher
+                    Divider().opacity(0.5)
+                    compactContent
+                } else {
+                    HSplitView {
+                        DropArea(app: app, onDrop: handleLocalDrop) {
+                            PaneWidthReader { width in
+                                LocalBrowserPane(model: tab.local, tab: tab, isCompact: width < Self.narrowPaneWidth)
+                            }
+                        }
+                        .frame(minWidth: 200)
+                        ForEach(tab.allRemotes) { pane in
+                            DropArea(app: app, onDrop: { handleRemoteDrop($0, on: pane) }) {
                                 PaneWidthReader { width in
-                                    LocalBrowserPane(model: tab.local, tab: tab, isCompact: width < Self.narrowPaneWidth)
+                                    RemoteBrowserPane(model: pane, tab: tab, isCompact: width < Self.narrowPaneWidth)
                                 }
                             }
                             .frame(minWidth: 200)
-                            ForEach(tab.allRemotes) { pane in
-                                DropArea(app: app, onDrop: { handleRemoteDrop($0, on: pane) }) {
-                                    PaneWidthReader { width in
-                                        RemoteBrowserPane(model: pane, tab: tab, isCompact: width < Self.narrowPaneWidth)
-                                    }
-                                }
-                                .frame(minWidth: 200)
-                            }
                         }
-                        .frame(minHeight: 160)
                     }
-                    TransferActivityBar(tab: tab)
+                    .frame(minHeight: 160)
                 }
+                TransferActivityBar(tab: tab)
             }
-            .frame(minHeight: 0)
-            .clipped()
-            // Clicking anywhere in the file panel (empty area, toolbar, a row)
-            // also makes that board pane the active one; clicks that a control
-            // consumes still fire this simultaneous gesture.
-            .simultaneousGesture(TapGesture().onEnded {
-                guard app.isWorkspaceSelected else { return }
-                app.focusBoardPane(tab.id)
-            })
         }
+        .frame(minHeight: 0)
+        .clipped()
+        // Clicking anywhere in the file panel (empty area, toolbar, a row)
+        // also makes that board pane the active one; clicks that a control
+        // consumes still fire this simultaneous gesture.
+        .simultaneousGesture(TapGesture().onEnded {
+            guard app.isWorkspaceSelected else { return }
+            app.focusBoardPane(tab.id)
+        })
     }
 
     /// Narrow layout: one full-width browser at a time instead of two clipped ones.
@@ -133,44 +131,56 @@ struct SFTPBrowserView: View {
         }
     }
 
-    /// Single AppKit-backed drop entry point for the whole SFTP area. Remote
-    /// paths download into the local pane's current directory; files dragged
-    /// in from Finder upload to the main remote pane.
     /// Drops on the local pane always land in its directory.
     private func handleLocalDrop(_ content: DroppedContent) {
-        app.traceTransfer("drop local: \(content.remotePaths.count) remote path(s), \(content.fileURLs.count) file url(s)")
-        for item in content.remotePaths {
-            var hostID: UUID?
-            if let raw = item.hostID { hostID = UUID(uuidString: raw) }
-            app.downloadDroppedPath(item.path, into: tab, destination: tab.local.path, preferringHost: hostID)
-        }
+        app.traceTransfer("drop local: " + String(content.remotePaths.count) + " remote path(s), "
+                          + String(content.localURLs.count) + " local url(s)")
+        // A multi-row drag arrives as one batch: one conflict question, and the
+        // panes involved can reconnect before the transfer starts.
+        app.downloadDroppedPaths(droppedItems(content), into: tab, destination: tab.local.path)
     }
 
     /// Drops on a remote pane: Finder files upload there, remote items are
     /// relayed from the pane they came from (server to server).
     private func handleRemoteDrop(_ content: DroppedContent, on pane: RemoteBrowserModel) {
-        app.traceTransfer("drop remote \(pane.hostName): \(content.remotePaths.count) remote path(s), \(content.fileURLs.count) file url(s)")
-        if !content.fileURLs.isEmpty {
-            app.uploadDropped(urls: content.fileURLs, to: tab, destination: pane.path, pane: pane)
+        app.traceTransfer("drop remote " + pane.hostName + ": " + String(content.remotePaths.count) + " remote path(s), "
+                          + String(content.localURLs.count) + " local url(s)")
+        if !content.localURLs.isEmpty {
+            app.uploadDropped(urls: content.localURLs, to: tab, destination: pane.path, pane: pane)
         }
-        for item in content.remotePaths {
-            var sourceID: UUID?
-            if let raw = item.paneID { sourceID = UUID(uuidString: raw) }
-            app.copyDroppedPath(item.path, from: sourceID, in: tab, to: pane)
-        }
+        app.copyDroppedPaths(droppedItems(content), in: tab, to: pane)
     }
 
-    private func handleDroppedContent(_ content: DroppedContent) {
-        app.traceTransfer("drop: \(content.remotePaths.count) remote path(s), \(content.fileURLs.count) file url(s)")
-        for item in content.remotePaths {
-            var hostID: UUID?
-            if let raw = item.hostID { hostID = UUID(uuidString: raw) }
-            app.downloadDroppedPath(item.path, into: tab, destination: tab.local.path, preferringHost: hostID)
-        }
-        if !content.fileURLs.isEmpty {
-            app.uploadDropped(urls: content.fileURLs, to: tab, destination: tab.remote.path, pane: tab.remote)
+    private func droppedItems(_ content: DroppedContent) -> [(path: String, hostID: UUID?, paneID: UUID?)] {
+        content.remotePaths.map { item in
+            (path: item.path,
+             hostID: item.hostID.flatMap { UUID(uuidString: $0) },
+             paneID: item.paneID.flatMap { UUID(uuidString: $0) })
         }
     }
+}
+
+/// Preview under the pointer while dragging: showing the selection size makes it
+/// obvious that a multi-row drag moves every selected row, not just the one that
+/// was grabbed.
+private func dragPreviewRow(for entry: FileEntry, count: Int) -> some View {
+    HStack(spacing: 4) {
+        Image(systemName: entry.isDirectory ? "folder" : "doc")
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.accent)
+        Text(entry.name)
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+        if count > 1 {
+            Text("+" + String(count - 1))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+        }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 5)
+    .background(Theme.panelBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 6))
 }
 
 // MARK: - Local pane
@@ -202,10 +212,17 @@ struct LocalBrowserPane: View {
                             // Drag must be installed before the tap gestures,
                             // otherwise SwiftUI keeps the row in a tap sequence
                             // and no drag session ever begins.
-                            .onDrag {
-                                NSItemProvider(contentsOf: URL(fileURLWithPath: entry.path))
-                                    ?? NSItemProvider(object: entry.path as NSString)
-                            }
+                            .onDrag({
+                                LocalFileDrag.itemProvider(entries: dragEntries(grabbed: entry,
+                                                                                in: model.sortedEntries,
+                                                                                selected: model.selection),
+                                                           grabbed: entry)
+                            }, preview: {
+                                dragPreviewRow(for: entry,
+                                               count: dragEntries(grabbed: entry,
+                                                                  in: model.sortedEntries,
+                                                                  selected: model.selection).count)
+                            })
                             .onTapGesture(count: 2) { open(entry) }
                             .onTapGesture { select(entry) }
                             .contextMenu { menu(for: entry) }
@@ -340,12 +357,13 @@ struct LocalBrowserPane: View {
     }
 
     private func select(_ entry: FileEntry) {
-        if NSEvent.modifierFlags.contains(.command) {
-            if model.selection.contains(entry.path) { model.selection.remove(entry.path) }
-            else { model.selection.insert(entry.path) }
-        } else {
-            model.selection = [entry.path]
-        }
+        // Read the modifiers at click time: ⌘ toggles one row, ⇧ extends the
+        // range from the anchor row, plain click replaces the selection.
+        let flags = NSEvent.modifierFlags
+        model.selectRow(entry.path,
+                        in: model.sortedEntries,
+                        command: flags.contains(.command),
+                        shift: flags.contains(.shift))
     }
 
     private func open(_ entry: FileEntry) {
@@ -465,8 +483,10 @@ struct RemoteBrowserPane: View {
             PaneIconButton(systemName: "arrow.up", help: L("上级目录"), isEnabled: model.isReady) {
                 Task { await model.goUp() }
             }
-            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: model.isReady) {
-                Task { await model.refresh() }
+            // Deliberately enabled while disconnected: refreshing is how a pane
+            // whose connection dropped gets re-dialled.
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: !model.isConnecting) {
+                Task { await app.refreshSFTP(tab: tab, pane: model) }
             }
             historyMenu
             PaneDividerLine()
@@ -485,8 +505,9 @@ struct RemoteBrowserPane: View {
             PaneIconButton(systemName: "arrow.up", help: L("上级目录"), isEnabled: model.isReady) {
                 Task { await model.goUp() }
             }
-            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: model.isReady) {
-                Task { await model.refresh() }
+            // Refresh doubles as reconnect when the pane lost its connection.
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: !model.isConnecting) {
+                Task { await app.refreshSFTP(tab: tab, pane: model) }
             }
             remoteOverflowMenu
             addOrCloseButton
@@ -615,13 +636,29 @@ struct RemoteBrowserPane: View {
             FileListHeader(showsDetails: !isCompact)
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if POSIXPath.normalize(model.path) != "/" {
+                        ParentDirectoryRow { Task { await model.goUp() } }
+                    }
                     ForEach(model.sortedEntries) { entry in
                         FileRowView(entry: entry, isSelected: model.selection.contains(entry.path), showsDetails: !isCompact)
                             .contentShape(Rectangle())
                             // Drag must be installed before the tap gestures,
                             // otherwise SwiftUI keeps the row in a tap sequence
                             // and no drag session ever begins.
-                            .onDrag { RemoteFileDrag.itemProvider(for: entry, client: model.client, hostID: model.hostID, paneID: model.id) }
+                            .onDrag({
+                                RemoteFileDrag.itemProvider(entries: dragEntries(grabbed: entry,
+                                                                                 in: model.sortedEntries,
+                                                                                 selected: model.selection),
+                                                            grabbed: entry,
+                                                            client: model.client,
+                                                            hostID: model.hostID,
+                                                            paneID: model.id)
+                            }, preview: {
+                                dragPreviewRow(for: entry,
+                                               count: dragEntries(grabbed: entry,
+                                                                  in: model.sortedEntries,
+                                                                  selected: model.selection).count)
+                            })
                             .onTapGesture(count: 2) { open(entry) }
                             .onTapGesture { select(entry) }
                             .contextMenu { menu(for: entry) }
@@ -653,12 +690,13 @@ struct RemoteBrowserPane: View {
     }
 
     private func select(_ entry: FileEntry) {
-        if NSEvent.modifierFlags.contains(.command) {
-            if model.selection.contains(entry.path) { model.selection.remove(entry.path) }
-            else { model.selection.insert(entry.path) }
-        } else {
-            model.selection = [entry.path]
-        }
+        // Read the modifiers at click time: ⌘ toggles one row, ⇧ extends the
+        // range from the anchor row, plain click replaces the selection.
+        let flags = NSEvent.modifierFlags
+        model.selectRow(entry.path,
+                        in: model.sortedEntries,
+                        command: flags.contains(.command),
+                        shift: flags.contains(.shift))
     }
 
     private func open(_ entry: FileEntry) {
@@ -815,6 +853,35 @@ struct TransferActivityBar: View {
 }
 
 // MARK: - Shared rows
+
+/// Navigation stays outside the file collection so selecting or dragging a range
+/// can never transfer the parent directory.
+private struct ParentDirectoryRow: View {
+    let goUp: () -> Void
+    @ViewState private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.left.up")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 14)
+            Text(verbatim: "..").font(.system(size: 11.5))
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 24)
+        .background(hovering ? Theme.rowHover : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2, perform: goUp)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L("上级目录"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: L("上级目录"), goUp)
+        .help(L("上级目录"))
+    }
+}
 
 struct FileListHeader: View {
     /// Narrow panes drop the size and date columns so names keep their room.

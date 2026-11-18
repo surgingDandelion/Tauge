@@ -13,12 +13,8 @@ extension AppState {
     }
 
     private func performUpload(entries: [FileEntry], tab: TerminalTab, destination: String?, pane: RemoteBrowserModel) async {
-        var client = pane.client
-        if client == nil {
-            await openSFTP(tab: tab, pane: pane)
-            client = pane.client
-        }
-        guard let client else {
+        // Reconnects a dropped session instead of refusing the transfer.
+        guard await ensureSFTPChannel(tab: tab, pane: pane), let client = pane.client else {
             presentMessage(L("无法上传"),
                            L("SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。"),
                            suggestion: L("使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。"))
@@ -28,7 +24,9 @@ extension AppState {
         guard let policy = await uploadConflictPolicy(entries: entries, directory: destinationDirectory, client: client) else { return }
         for entry in entries {
             let target = POSIXPath.join(destinationDirectory, entry.name)
-            let item = TransferItem(hostID: tab.hostID,
+            // Tag the transfer with the pane's own server: with several panes open
+            // the tab's host is a different machine.
+            let item = TransferItem(hostID: pane.hostID,
                                     direction: .upload,
                                     sourcePath: entry.path,
                                     destinationPath: target,
@@ -88,64 +86,119 @@ extension AppState {
         return remotes.first(where: { $0.isReady }) ?? remotes.first
     }
 
-    /// Drop of a remote item onto the local pane. Unlike the context menu path
-    /// this must work even when the path is no longer in the cached listing —
-    /// otherwise the drop silently does nothing and drag and drop feels broken.
-    func downloadDroppedPath(_ path: String,
-                             into tab: TerminalTab,
-                             destination: String,
-                             preferringHost hostID: UUID? = nil) {
-        traceTransfer("drop path=" + path + " -> " + destination + " host=" + (hostID?.uuidString ?? "-"))
-        Task { @MainActor in
-            guard let pane = self.remotePane(forDroppedPath: path, in: tab, preferringHost: hostID) else {
-                self.presentMessage(L("无法下载"),
-                                    L("这条路径来自已经关闭的远端面板。"),
-                                    suggestion: L("重新打开远端面板后再拖拽。"))
-                return
+    /// One batch of dragged rows that share a source pane. A drag of several rows
+    /// becomes one transfer per pane, so a conflict question is asked once
+    /// instead of once per file (the prompt holds a single continuation, so two
+    /// concurrent asks would strand the first transfer).
+    struct DroppedBatch {
+        var pane: RemoteBrowserModel
+        var entries: [FileEntry]
+    }
+
+    struct DroppedResolution {
+        var batches: [DroppedBatch] = []
+        var failures: [String] = []
+    }
+
+    /// Resolve dragged remote paths to entries on the pane they came from.
+    /// Unlike the context menu path this must work even when the path is no
+    /// longer in the cached listing, and it reconnects a pane whose session
+    /// dropped — otherwise the drop silently does nothing.
+    func resolveDroppedItems(_ items: [(path: String, hostID: UUID?, paneID: UUID?)],
+                             in tab: TerminalTab) async -> DroppedResolution {
+        var resolution = DroppedResolution()
+        var order: [UUID] = []
+        var batches: [UUID: DroppedBatch] = [:]
+        for item in items {
+            traceTransfer("drop path=" + item.path
+                          + " pane=" + (item.paneID?.uuidString ?? "-")
+                          + " host=" + (item.hostID?.uuidString ?? "-"))
+            let pane = tab.allRemotes.first(where: { $0.id == item.paneID })
+                ?? remotePane(forDroppedPath: item.path, in: tab, preferringHost: item.hostID)
+            guard let pane else {
+                resolution.failures.append(L("这条路径来自已经关闭的远端面板。"))
+                continue
             }
             var client = pane.client
             if client == nil {
-                await self.openSFTP(tab: tab, pane: pane)
+                await openSFTP(tab: tab, pane: pane)
                 client = pane.client
             }
             guard let client else {
-                self.presentMessage(L("无法下载"),
-                                    pane.connectionError ?? L("SFTP 会话尚未建立，请先在远端面板上点“重试”。"),
-                                    suggestion: L("确认远端面板已连接后再拖拽。"))
-                return
+                resolution.failures.append(pane.connectionError ?? L("SFTP 会话尚未建立，请先在远端面板上点“重试”。"))
+                continue
             }
-            if let entry = pane.entries.first(where: { $0.path == path }) {
-                self.traceTransfer("using cached entry (kind=" + entry.kind.rawValue + ")")
-                await self.performDownload(entries: [entry], tab: tab, destination: destination, pane: pane)
-                return
+            let entry: FileEntry
+            if let cached = pane.entries.first(where: { $0.path == item.path }) {
+                traceTransfer("using cached entry (kind=" + cached.kind.rawValue + ")")
+                entry = cached
+            } else {
+                traceTransfer("stat fallback via " + pane.hostName)
+                do {
+                    entry = try await Self.droppedEntry(path: item.path, client: client)
+                } catch {
+                    resolution.failures.append(describe(error))
+                    continue
+                }
             }
-            self.traceTransfer("stat fallback via " + pane.hostName)
-            do {
-                let attributes = try await client.stat(path)
-                let kind: FileEntry.Kind = attributes.isDirectory ? .directory
-                    : (attributes.isSymlink ? .symlink : .file)
-                let entry = FileEntry(path: path,
-                                      name: (path as NSString).lastPathComponent,
-                                      kind: kind,
-                                      size: Int64(attributes.size ?? 0),
-                                      mode: attributes.permissions.map { UInt16($0 & 0o7777) },
-                                      modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
-                await self.performDownload(entries: [entry], tab: tab, destination: destination, pane: pane)
-            } catch {
-                self.presentMessage(L("无法下载"),
-                                    self.describe(error),
-                                    suggestion: L("确认远端路径仍然存在。"))
+            if batches[pane.id] == nil {
+                batches[pane.id] = DroppedBatch(pane: pane, entries: [])
+                order.append(pane.id)
             }
+            batches[pane.id]?.entries.append(entry)
+        }
+        resolution.batches = order.compactMap { batches[$0] }
+        return resolution
+    }
+
+    /// Stat fallback for a dragged path that left the cached listing.
+    static func droppedEntry(path: String, client: SFTPClient) async throws -> FileEntry {
+        let attributes = try await client.stat(path)
+        let kind: FileEntry.Kind = attributes.isDirectory ? .directory
+            : (attributes.isSymlink ? .symlink : .file)
+        return FileEntry(path: path,
+                         name: (path as NSString).lastPathComponent,
+                         kind: kind,
+                         size: Int64(attributes.size ?? 0),
+                         mode: attributes.permissions.map { UInt16($0 & 0o7777) },
+                         modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
+    }
+
+    /// One message per gesture: dragging ten unreachable rows must not stack ten
+    /// alerts.
+    func reportDroppedFailures(_ failures: [String], title: String) {
+        guard !failures.isEmpty else { return }
+        var unique: [String] = []
+        for failure in failures where !unique.contains(failure) {
+            unique.append(failure)
+            if unique.count >= 3 { break }
+        }
+        presentMessage(title,
+                       unique.joined(separator: "\n"),
+                       suggestion: L("确认拖拽涉及的远端面板都已连接。"))
+    }
+
+    /// Drop of remote rows onto the local pane: the whole drag is downloaded,
+    /// one transfer per source pane.
+    func downloadDroppedPaths(_ items: [(path: String, hostID: UUID?, paneID: UUID?)],
+                              into tab: TerminalTab,
+                              destination: String) {
+        guard !items.isEmpty else { return }
+        Task { @MainActor in
+            let resolution = await self.resolveDroppedItems(items, in: tab)
+            for batch in resolution.batches {
+                await self.performDownload(entries: batch.entries,
+                                           tab: tab,
+                                           destination: destination,
+                                           pane: batch.pane)
+            }
+            self.reportDroppedFailures(resolution.failures, title: L("无法下载"))
         }
     }
 
     private func performDownload(entries: [FileEntry], tab: TerminalTab, destination: String?, pane: RemoteBrowserModel) async {
-        var client = pane.client
-        if client == nil {
-            await openSFTP(tab: tab, pane: pane)
-            client = pane.client
-        }
-        guard let client else {
+        // Reconnects a dropped session instead of refusing the transfer.
+        guard await ensureSFTPChannel(tab: tab, pane: pane), let client = pane.client else {
             presentMessage(L("无法下载"),
                            L("SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。"),
                            suggestion: L("使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。"))
@@ -169,7 +222,9 @@ extension AppState {
         }
         for entry in entries {
             let target = POSIXPath.join(directory, entry.name)
-            let item = TransferItem(hostID: tab.hostID,
+            // The pane's own server, not the tab's: with several panes open they
+            // are different machines and the details list shows this name.
+            let item = TransferItem(hostID: pane.hostID,
                                     direction: .download,
                                     sourcePath: entry.path,
                                     destinationPath: target,
@@ -202,6 +257,16 @@ extension AppState {
     /// Asks the user how to resolve name collisions. Times out after a minute so
     /// a prompt that never appears can never stall the transfer queue.
     func askConflictPolicy(fileCount: Int, timeoutSeconds: Double = 60) async -> ConflictPolicy? {
+        if conflictContinuation != nil || pendingConflict != nil {
+            await withCheckedContinuation { continuation in
+                conflictWaiters.append(continuation)
+            }
+            // "Apply to all" on the previous prompt also answers this batch.
+            if let policy = transferConflictPolicy {
+                releaseNextConflictWaiter()
+                return policy
+            }
+        }
         let timeout = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
@@ -211,13 +276,21 @@ extension AppState {
                                 L("没有收到冲突处理方式，传输已取消。"),
                                 suggestion: L("重新拖拽或点击上传即可再次触发。"))
         }
-        defer { timeout.cancel() }
+        defer {
+            timeout.cancel()
+            releaseNextConflictWaiter()
+        }
         return await withCheckedContinuation { continuation in
             self.conflictContinuation = continuation
             self.pendingConflict = PendingConflict(title: L("目标位置已存在同名文件"),
                                                    message: L("共有 ") + String(fileCount) + L(" 个项目需要传输，请选择冲突处理方式。"),
                                                    fileCount: fileCount)
         }
+    }
+
+    private func releaseNextConflictWaiter() {
+        guard !conflictWaiters.isEmpty else { return }
+        conflictWaiters.removeFirst().resume()
     }
 
     static func conflictPolicy(fromSetting value: String) -> ConflictPolicy {
@@ -234,7 +307,9 @@ extension AppState {
 
     func refreshBrowser(_ tab: TerminalTab, pane: RemoteBrowserModel? = nil) {
         let target = pane ?? tab.remote
-        Task { await target.refresh() }
+        // Goes through refreshSFTP so a session that dropped during the operation
+        // comes back instead of leaving the pane stuck on stale rows.
+        Task { await refreshSFTP(tab: tab, pane: target) }
     }
 
     func createRemoteFolder(in tab: TerminalTab, name: String, pane: RemoteBrowserModel? = nil) {

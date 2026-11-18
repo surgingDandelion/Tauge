@@ -21,7 +21,13 @@ final class UpdateController: ObservableObject {
     @Published private(set) var update: TaugeUpdate?
     @Published private(set) var errorMessage: String?
     @Published private(set) var lastCheck: Date?
+    /// Bytes on the wire for the archive being downloaded; nil outside the
+    /// download phase.
+    @Published private(set) var downloadProgress: ArchiveDownloadProgress?
+    /// Smoothed rate from DownloadRateMeter, in bytes per second.
+    @Published private(set) var downloadSpeed: Double = 0
 
+    private var rateMeter = DownloadRateMeter()
     private var checkTask: Task<Void, Never>?
     private var installTask: Task<Void, Never>?
     private var windowController: UpdateWindowController?
@@ -127,15 +133,24 @@ final class UpdateController: ObservableObject {
         guard let update, phase == .available else { return }
         phase = .downloading
         errorMessage = nil
+        downloadProgress = ArchiveDownloadProgress(bytesReceived: 0, totalBytes: update.archiveSize)
+        downloadSpeed = 0
+        rateMeter = DownloadRateMeter()
         installTask?.cancel()
         installTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let archive = try await TaugeUpdateService.shared.downloadVerifiedArchive(
                     for: update,
-                    to: Self.archiveDestination(for: update)
+                    to: Self.archiveDestination(for: update),
+                    progress: { [weak self] sample in
+                        // The delegate queue is not the main actor; one hop per
+                        // throttled sample (about five per second) is cheap.
+                        Task { @MainActor [weak self] in self?.applyDownloadProgress(sample) }
+                    }
                 )
                 try Task.checkCancellation()
+                self.clearDownloadProgress()
                 self.phase = .ready
                 let prepared = try await Task.detached(priority: .userInitiated) {
                     try TaugeUpdateInstaller.prepare(archive: archive, update: update)
@@ -148,10 +163,12 @@ final class UpdateController: ObservableObject {
                 try? await Task.sleep(nanoseconds: delay)
                 NSApp.terminate(nil)
             } catch is CancellationError {
+                self.clearDownloadProgress()
                 if self.phase == .downloading || self.phase == .ready {
                     self.phase = .available
                 }
             } catch {
+                self.clearDownloadProgress()
                 self.errorMessage = error.localizedDescription
                 self.phase = .failed
             }
@@ -161,9 +178,36 @@ final class UpdateController: ObservableObject {
     func cancelDownload() {
         installTask?.cancel()
         installTask = nil
+        clearDownloadProgress()
         if phase == .downloading || phase == .ready {
             phase = .available
         }
+    }
+
+    // MARK: - Download feedback
+
+    /// Seconds left at the current smoothed rate, or nil when there is
+    /// nothing to estimate yet.
+    var downloadRemainingTime: TimeInterval? {
+        guard let progress = downloadProgress else { return nil }
+        return progress.remainingTime(bytesPerSecond: downloadSpeed)
+    }
+
+    private func applyDownloadProgress(_ sample: ArchiveDownloadProgress) {
+        guard phase == .downloading else { return }
+        // GitHub sends a content length, but proxies and chunked transfers do
+        // not always; fall back to the size the release advertised.
+        let total = sample.totalBytes > 0 ? sample.totalBytes : (update?.archiveSize ?? 0)
+        let snapshot = ArchiveDownloadProgress(bytesReceived: sample.bytesReceived, totalBytes: total)
+        downloadProgress = snapshot
+        downloadSpeed = rateMeter.update(bytes: snapshot.bytesReceived,
+                                         at: Date().timeIntervalSinceReferenceDate)
+    }
+
+    private func clearDownloadProgress() {
+        downloadProgress = nil
+        downloadSpeed = 0
+        rateMeter = DownloadRateMeter()
     }
 
     func retry() {

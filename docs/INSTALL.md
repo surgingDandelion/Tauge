@@ -58,8 +58,17 @@ translocated path cannot update itself. Move it to Applications first.
 To update by hand instead, quit Tauge, replace `/Applications/Tauge.app` with
 the copy from the newer disk image, and launch it again. Hosts, groups,
 settings, and transfer history live outside the bundle (see below) and are
-preserved in both paths. After an update signed by a different certificate,
-macOS may ask once for Keychain access again; choose **Always Allow**.
+preserved in both paths. Saved credentials are unaffected by a new signature:
+they live in the app's own encrypted vault, not in the login keychain, so an
+update or re-signed build does not raise a Keychain prompt.
+
+The vault is `vault.v1.enc` with its random key in `vault.key`, both in
+Application Support and readable only by your user (`0600`). The app asks for
+Touch ID, or the device password, once per launch before it reads a saved
+credential (Settings → Security → `Unlock method`), and does not ask again until
+it quits. It is skipped on Macs without a sensor. A credential written by an
+older build to the login keychain is read once, migrated into the vault, and
+never looked up again.
 
 ## Build from source
 
@@ -75,6 +84,63 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/modulecache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/modulecache"
 
 swift build --disable-sandbox
+./scripts/build-app.sh release
+open dist/Tauge.app
+```
+
+`--disable-sandbox` is only required when `sandbox-exec` is unavailable in
+the build environment (for example inside another sandbox). A normal Terminal
+session can omit it.
+
+For a universal build:
+
+```bash
+TAUGE_ARCHS="arm64 x86_64" ./scripts/build-app.sh release
+```
+
+Create a DMG, ZIP, and checksums with:
+
+```bash
+./scripts/package-release.sh
+```
+
+## Signing for distribution
+
+A seamless first launch requires an Apple Developer ID Application certificate
+and notarisation. To produce a signed build locally:
+
+```bash
+export TAUGE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export TAUGE_SIGN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+export TAUGE_NOTARY_APPLE_ID="you@example.com"
+export TAUGE_NOTARY_TEAM_ID="TEAMID"
+export TAUGE_NOTARY_PASSWORD="app-specific-password"
+./scripts/package-release.sh
+```
+
+The GitHub release workflow can do this automatically when these repository
+secrets are configured:
+
+| Secret | Purpose |
+| ------ | ------- |
+| `MACOS_CERT_P12_BASE64` | Base64 of the exported Developer ID `.p12` |
+| `MACOS_CERT_PASSWORD` | Password of the `.p12` |
+| `KEYCHAIN_PASSWORD` | Any temporary password for the CI keychain |
+| `APPLE_ID` | Apple ID used for notarisation |
+| `APPLE_TEAM_ID` | Apple Developer team identifier |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple ID |
+
+Without them the workflow still builds and publishes artifacts, but macOS will
+require the manual approval described above.
+
+For local development, `./scripts/setup-signing.sh` creates a self-signed
+certificate so that macOS keeps recognising the app across rebuilds.
+`./scripts/build-app.sh` and `./scripts/package-release.sh` both use that
+identity by default when it is installed, and only fall back to an ad-hoc
+signature otherwise — an ad-hoc signature pins the cdhash, which changes on
+every build, so any keychain grant (reading the Termius vault, for example) has
+to be confirmed again. Saved credentials are unaffected: they live in the app's
+own `vault.v1.enc`, not in a keychain item.
 
 ## Uninstalling
 
@@ -84,7 +150,8 @@ swift build --disable-sandbox
 ```bash
 rm -rf "$HOME/Library/Application Support/ShellX"
 rm -rf "$HOME/Logs"
-security delete-generic-password -s shellx   # repeat for each stored credential
+# Older builds kept credentials in the login keychain; this removes the legacy item.
+security delete-generic-password -s com.shellx.credentials 2>/dev/null || true
 ```
 
 The data directory keeps the historical `ShellX` name so that upgrades from

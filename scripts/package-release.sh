@@ -44,8 +44,23 @@ if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
     exit 1
   fi
 elif [ -z "$SIGN_IDENTITY" ]; then
-  echo "==> no signing identity: release will be ad-hoc signed"
-  export TAUGE_SIGN_IDENTITY="-"
+  # Without a Developer ID, prefer this machine's stable self-signed identity.
+  # An ad-hoc signature's designated requirement is the cdhash, so every release
+  # build invalidates the keychain grants the user made with "始终允许" and the
+  # app asks for the login-keychain password again after every update. A fixed
+  # certificate keeps the requirement — and therefore the grants — intact.
+  LOCAL_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${SHELLX_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}}"
+  LOCAL_IDENTITY="Tauge Local Signing"
+  if [ -f "$LOCAL_KEYCHAIN" ] &&
+     security find-identity -v -p codesigning "$LOCAL_KEYCHAIN" 2>/dev/null | grep -qF "$LOCAL_IDENTITY"; then
+    echo "==> no Developer ID: signing with the stable local identity ($LOCAL_IDENTITY)"
+    export TAUGE_SIGN_IDENTITY="$LOCAL_IDENTITY"
+    export TAUGE_SIGN_KEYCHAIN="$LOCAL_KEYCHAIN"
+  else
+    echo "==> no signing identity: release will be ad-hoc signed"
+    echo "    (run scripts/setup-signing.sh first so keychain grants survive updates)"
+    export TAUGE_SIGN_IDENTITY="-"
+  fi
 fi
 
 notary_args() {
