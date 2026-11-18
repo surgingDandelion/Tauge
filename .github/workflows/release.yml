@@ -93,7 +93,26 @@ jobs:
             dist/release/*.dmg
             dist/release/*.zip
             dist/release/SHA256SUMS.txt
-          generate_release_notes: true
+          body: |
+            **Tauge ${{ github.ref_name }}** — a local-first SSH/SFTP client for macOS.
+
+            ### Install
+
+            1. Download `Tauge-*.dmg`, open it, and drag **Tauge** to Applications.
+            2. Launch Tauge. The app stores everything locally; no account or cloud
+               service is involved.
+
+            The release is a universal build for Apple silicon and Intel and requires
+            macOS 13 or later. `SHA256SUMS.txt` contains the checksums for the DMG
+            and ZIP; verify them with `shasum -a 256 -c SHA256SUMS.txt`.
+
+            If macOS blocks the first launch, follow
+            [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md).
+            Release builds are ad-hoc signed unless the repository has Developer ID
+            credentials configured.
+
+            **Full changelog:**
+            https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
