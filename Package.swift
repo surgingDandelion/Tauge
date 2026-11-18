@@ -53,6 +53,7 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "Sources/ShellXChecks"
         ),

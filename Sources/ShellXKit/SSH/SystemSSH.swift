@@ -512,6 +512,14 @@ public final class SystemSSHTerminalProcess: SystemSSHChild, @unchecked Sendable
                            ws_xpixel: 0,
                            ws_ypixel: 0)
         _ = ioctl(masterFD, TIOCSWINSZ, &size)
+        // The pty slave is not the ssh child's controlling terminal (Foundation
+        // launches it without one), so the kernel never posts SIGWINCH and
+        // OpenSSH never forwards a window-change to the remote pty. Poking the
+        // child ourselves is what makes the remote shell re-wrap at the new
+        // column count; without it CJK lines keep wrapping at the old width.
+        if process.isRunning {
+            _ = kill(process.processIdentifier, SIGWINCH)
+        }
     }
 
     public func terminate() {

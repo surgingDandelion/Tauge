@@ -89,9 +89,10 @@ app after it quits. Use **Tauge → Check for Updates…** to check immediately.
 
 ### Local by default
 
-- Passwords and key passphrases live in one encrypted vault item in your login
-  Keychain. Touch ID or your device password unlocks it on the first connection
-  after launch, and it stays unlocked for that run.
+- Passwords and key passphrases are sealed with AES-256-GCM in Tauge's own
+  vault under `~/Library/Application Support/ShellX`, not in the login Keychain, so
+  updates and reinstalls never trigger a Keychain prompt. An optional Touch ID
+  check gates the app when it opens.
 - Host keys are checked on first connection. If a key changes, Tauge blocks the
   connection and shows both fingerprints.
 - Password, Ed25519, ECDSA, and RSA authentication.
@@ -134,7 +135,7 @@ Releases API for the latest version and sends no host, credential, or usage
 data; you can turn it off in Settings → General.
 
 App data lives in `~/Library/Application Support/ShellX`, credentials in your
-login Keychain, and optional session logs in `~/Logs`.
+encrypted vault in that same folder, and optional session logs in `~/Logs`.
 
 ## Documentation
 

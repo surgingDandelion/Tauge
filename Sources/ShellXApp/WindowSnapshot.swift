@@ -139,8 +139,17 @@ enum WindowSnapshot {
                                       bitsPerComponent: 8,
                                       bytesPerRow: 0,
                                       space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
-        context.setFillColor(NSColor.black.cgColor)
+                                      // Opaque output: a premultiplied-alpha bitmap
+                                      // leaves untouched areas transparent, and a
+                                      // transparent terminal layer then shows up as
+                                      // white or black depending on the viewer. That
+                                      // made visual checks disagree with the real app.
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) else { return nil }
+        // Fill with the window's own background so translucent terminal themes
+        // and any layer the render walk misses still composite the way they do
+        // on screen.
+        let fill = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? .white
+        context.setFillColor(fill.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         // Core Animation layers are laid out with a bottom-left origin while the
         // captured bitmap is top-down: flip vertically so the PNG reads upright.

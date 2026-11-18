@@ -81,6 +81,21 @@ public final class TaugeL10n: @unchecked Sendable {
         return String(format: string(format), locale: locale, arguments: arguments)
     }
 
+    /// Render a count with its noun, choosing the English singular when needed.
+    ///
+    /// Chinese has no singular/plural inflection, so the source key alone is
+    /// enough. English needs a second entry keyed with a `#one` suffix; when it
+    /// is missing the plural form is used, which is the safer fallback.
+    public func counted(_ count: Int, _ key: String) -> String {
+        if count == 1, language == .english {
+            lock.lock()
+            let singular = english[key + "#one"]
+            lock.unlock()
+            if let singular { return String(count) + singular }
+        }
+        return String(count) + string(key)
+    }
+
     public func setLanguage(_ language: TaugeLanguage) {
         self.language = language
     }
@@ -144,4 +159,9 @@ public func L(_ key: String) -> String {
 /// Localize a format string (`%@`, `%d`, …) and substitute its arguments.
 public func L(_ format: String, _ arguments: CVarArg...) -> String {
     TaugeL10n.shared.formatted(format, arguments)
+}
+
+/// Render `count` followed by a localized noun, using the English singular at 1.
+public func L(_ count: Int, _ key: String) -> String {
+    TaugeL10n.shared.counted(count, key)
 }

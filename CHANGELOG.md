@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-11-18
+
+### Changed
+
+- The window chrome is sharper without getting bigger: host addresses, counts,
+  and tags use a monospaced face, tags are squared, buttons are custom-drawn
+  with a real pressed state, and host cards get a hairline border, a corner
+  tick, and a faint dot grid behind the start page. Sidebars, tab strips, and
+  the status bar follow the same language, and every layout dimension is
+  unchanged.
+
+### Fixed
+
+- Resizing the window now re-wraps the remote shell at the new width. The pty
+  size was updated but the ssh child never received `SIGWINCH`, so OpenSSH did
+  not forward a window-change and lines containing Chinese kept wrapping at
+  the old column count.
+- The start page header no longer says "1 workspaces" or "1 hosts"; English
+  counts use the singular form, and the last-used label says "yesterday" and
+  "Used 1 time" instead of "1 days ago" and "1 times".
+- The README screenshot shows the current interface and the credential note
+  points at the app's encrypted vault instead of the login Keychain.
+
 ## [1.2.0] — 2026-11-18
 
 ### Added

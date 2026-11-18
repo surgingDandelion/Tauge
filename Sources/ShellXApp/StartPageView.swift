@@ -24,6 +24,7 @@ struct StartPageView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var query = ""
     @ViewState private var isAreaDropTarget = false
+    @FocusState private var searchFocused: Bool
 
     typealias Selection = StartPageSelection
 
@@ -71,38 +72,34 @@ struct StartPageView: View {
     // MARK: - Header
 
     private var headerSummary: String {
-        var summary = String(app.hosts.count) + L(" 台主机 · ")
-        summary += String(app.groups.count) + L(" 个分组 · ")
-        summary += String(app.boards.count) + L(" 个工作区")
-        return summary
+        [L(app.hosts.count, " 台主机"),
+         L(app.groups.count, " 个分组"),
+         L(app.boards.count, " 个工作区")].joined(separator: " · ")
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.secondary)
+            TechIconTile(systemName: "square.grid.2x2", tint: Theme.accent, size: 26)
             VStack(alignment: .leading, spacing: 1) {
                 Text(L("起始页"))
                     .font(.system(size: 13.5, weight: .semibold))
+                    .tracking(0.2)
                 Text(headerSummary)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
+                    .font(TechFont.mono(9, .medium))
+                    .foregroundStyle(Theme.secondary.opacity(0.92))
             }
             Spacer(minLength: 12)
             searchField
-            Button {
+            TechActionButton(systemName: "arrow.up.arrow.down",
+                             title: L("新建 SFTP"),
+                             isEnabled: !app.hosts.isEmpty) {
                 app.beginNewSFTPTab()
-            } label: {
-                Label(L("新建 SFTP"), systemImage: "arrow.up.arrow.down")
             }
-            .disabled(app.hosts.isEmpty)
             .help(L("选择一台或多台服务器，打开 SFTP 标签"))
-            Button {
+            TechActionButton(systemName: "plus", title: L("新建主机")) {
                 app.editingHost = SSHHost(name: L("新主机"))
-            } label: {
-                Label(L("新建主机"), systemImage: "plus")
             }
+            .help(L("新建一台主机"))
             Menu {
                 Button(L("新建分组…")) { app.beginNewGroup() }
                 Button(L("新建工作区…")) { app.promptCreateBoard() }
@@ -115,6 +112,19 @@ struct StartPageView: View {
                 Button(L("设置…")) { app.showingSettings = true }
             } label: {
                 Image(systemName: "ellipsis")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.secondary)
+                    .frame(width: 26, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                            .fill(LinearGradient(colors: [Theme.cardTop, Theme.cardBottom],
+                                                 startPoint: .top,
+                                                 endPoint: .bottom))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                            .strokeBorder(Theme.hairline.opacity(0.85), lineWidth: 0.8)
+                    )
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -129,32 +139,51 @@ struct StartPageView: View {
     private var searchField: some View {
         HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.secondary)
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(searchFocused ? Theme.accent : Theme.secondary)
             TextField(L("搜索主机、地址、标签"), text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5))
+                .font(TechFont.mono(10.5))
+                .focused($searchFocused)
             if !query.isEmpty {
                 Button {
                     query = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Theme.secondary)
+                        .frame(width: 16, height: 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(Theme.secondary.opacity(0.10))
+                        )
                 }
                 .buttonStyle(.plain)
+                .help(L("清空搜索"))
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 7)
         .frame(width: 210, height: 26)
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(Theme.fieldBackground)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(Theme.secondary.opacity(0.16), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(searchFocused ? Theme.accent.opacity(0.55) : Theme.hairline.opacity(0.9),
+                              lineWidth: 0.8)
         )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(searchFocused ? Theme.accent.opacity(0.8) : Color.clear)
+                .frame(height: 1)
+                .padding(.horizontal, 5)
+        }
+        .shadow(color: searchFocused ? Theme.accent.opacity(0.12) : Color.clear,
+                radius: 4, y: 0)
+        .onExitCommand {
+            if query.isEmpty { searchFocused = false } else { query = "" }
+        }
     }
 
     // MARK: - Left column
@@ -280,8 +309,17 @@ struct StartPageView: View {
     private func addButton(_ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "plus")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(Theme.secondary)
+                .frame(width: 16, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .fill(Theme.tagBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.6)
+                )
         }
         .buttonStyle(.plain)
         .help(help)
@@ -289,10 +327,16 @@ struct StartPageView: View {
 
     private func sectionLabel(_ title: String, addHelp: String? = nil, addAction: (() -> Void)? = nil) -> some View {
         HStack(spacing: 6) {
+            Rectangle()
+                .fill(Theme.accent.opacity(0.75))
+                .frame(width: 2, height: 7)
             Text(title)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(TechFont.mono(9, .semibold))
+                .tracking(0.4)
                 .foregroundStyle(Theme.secondary)
-            Spacer(minLength: 0)
+            Rectangle()
+                .fill(Theme.hairline.opacity(0.7))
+                .frame(height: 0.5)
             if let addHelp, let addAction {
                 addButton(addHelp, action: addAction)
             }
@@ -359,22 +403,21 @@ struct StartPageView: View {
             HStack(spacing: 8) {
                 Text(query.isEmpty ? selectionTitle : L("搜索结果"))
                     .font(.system(size: 12.5, weight: .semibold))
-                Text(query.isEmpty
-                     ? String(visibleHosts.count) + L(" 台")
-                     : String(visibleHosts.count) + L(" 个结果"))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Theme.secondary)
+                    .tracking(0.2)
+                TechTag(text: query.isEmpty
+                        ? String(visibleHosts.count) + L(" 台")
+                        : String(visibleHosts.count) + L(" 个结果"))
                 if query.isEmpty, !showsDescendants, selectedGroupDescendants > 0,
                    case .group = selection {
                     Text(L("不含 ") + String(selectedGroupDescendants) + L(" 个子分组"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.secondary)
+                        .font(TechFont.mono(9))
+                        .foregroundStyle(Theme.secondary.opacity(0.8))
                 }
                 Spacer(minLength: 8)
                 if !query.isEmpty {
                     Text(L("在整个目录中搜索"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.secondary)
+                        .font(TechFont.mono(9))
+                        .foregroundStyle(Theme.secondary.opacity(0.8))
                 } else if case .group(let id) = selection {
                     if selectedGroupDescendants > 0 {
                         areaButton(showsDescendants
@@ -429,22 +472,14 @@ struct StartPageView: View {
                     return true
                 }
             }
+            .background { TechDotGrid() }
         }
     }
 
     /// Neutral pill used for the small actions in the header row. The old
     /// `.link` style painted every one of them system blue.
     private func areaButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Color.primary.opacity(0.06)))
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
+        TechActionButton(title: title, kind: .ghost, height: 20, action: action)
     }
 
     private func hostGrid(_ hosts: [SSHHost]) -> some View {
@@ -510,15 +545,7 @@ struct StartPageView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Theme.cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Theme.cardStroke, lineWidth: 1)
-        )
-        .shadow(color: Theme.shadow, radius: 8, y: 2)
+        .techCard(cornerRadius: 10, glow: false)
     }
 
     private func setupCard(_ title: String,
@@ -547,11 +574,17 @@ struct StartPageView: View {
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Theme.secondary.opacity(0.06))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(LinearGradient(colors: [Theme.cardTop, Theme.cardBottom],
+                                         startPoint: .top,
+                                         endPoint: .bottom))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Theme.hairline.opacity(0.8), lineWidth: 0.7)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TechButtonStyle(kind: .ghost))
         .help(title)
     }
 
@@ -597,15 +630,20 @@ struct StartPageView: View {
     private func hint(_ keys: String, _ title: String) -> some View {
         HStack(spacing: 4) {
             Text(keys)
-                .font(.system(size: 9.5, weight: .medium))
+                .font(TechFont.mono(8.5, .semibold))
+                .foregroundStyle(Theme.secondary)
                 .padding(.horizontal, 4)
-                .padding(.vertical, 1)
+                .padding(.vertical, 1.5)
                 .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Theme.secondary.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .fill(Theme.tagBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.6)
                 )
             Text(title)
-                .font(.system(size: 10))
+                .font(.system(size: 9.5))
                 .foregroundStyle(Theme.secondary)
         }
         .fixedSize()
@@ -631,8 +669,8 @@ private struct StartListRow: View {
         Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: symbol)
-                    .font(.system(size: 10))
-                    .foregroundStyle(isSelected ? .primary : Theme.secondary)
+                    .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.secondary)
                     .frame(width: 14)
                 Text(title)
                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
@@ -640,19 +678,32 @@ private struct StartListRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(detail)
-                    .font(.system(size: 9.5).monospacedDigit())
+                    .font(TechFont.mono(8.5, .medium))
                     .foregroundStyle(Theme.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(Theme.tagBackground.opacity(isSelected ? 1 : 0.65))
+                    )
             }
             .padding(.horizontal, 7)
             .frame(height: 24)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.09)
-                          : (hovering ? Color.primary.opacity(0.05) : Color.clear))
-            )
+            .background {
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isSelected ? Theme.accent.opacity(0.11)
+                              : (hovering ? Color.primary.opacity(0.05) : Color.clear))
+                    Rectangle()
+                        .fill(isSelected ? Theme.accent : Color.clear)
+                        .frame(width: 2, height: 12)
+                        .padding(.leading, 2)
+                }
+            }
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isDropTarget ? 0.45 : 0), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(isDropTarget ? Theme.accent.opacity(0.55) : Color.clear,
+                                  lineWidth: 1)
             )
             .padding(.leading, indentation)
             .contentShape(Rectangle())
@@ -732,7 +783,13 @@ private struct StartHostCard: View {
         if seconds < 60 { return L("刚刚连接") }
         if seconds < 3600 { return L("上次连接 %d 分钟前", Int(seconds / 60)) }
         if seconds < 86400 { return L("上次连接 %d 小时前", Int(seconds / 3600)) }
-        if seconds < 86400 * 30 { return L("上次连接 %d 天前", Int(seconds / 86400)) }
+        if seconds < 86400 * 30 {
+            let days = Int(seconds / 86400)
+            // "%d days ago" reads wrong for a single day; English has no
+            // plural rule in the flat key/value table, so give it its own key.
+            if days == 1 { return L("上次连接昨天") }
+            return L("上次连接 %d 天前", days)
+        }
         let formatter = DateFormatter()
         formatter.locale = TaugeL10n.shared.locale
         formatter.dateFormat = "yyyy-MM-dd"
@@ -749,10 +806,6 @@ private struct StartHostCard: View {
         host.colorHex.flatMap { Color(hex: $0) } ?? HostPalette.tint(for: host.id)
     }
 
-    private var iconBackground: Color {
-        customTint.opacity(hovering ? 0.20 : 0.14)
-    }
-
     private var iconColor: Color {
         customTint
     }
@@ -760,43 +813,65 @@ private struct StartHostCard: View {
     private var cardContentBase: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 9) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(iconBackground)
-                    .frame(width: 30, height: 30)
-                    .overlay(
-                        // Generic server glyph until the host has been logged into at
-                        // least once; then the detected OS logo takes its place.
-                        HostPlatformIcon(platform: app.platform(for: host.id),
-                                         detail: app.platformInfo(for: host.id)?.detail,
-                                         size: 16,
-                                         fallbackColor: iconColor)
-                    )
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(LinearGradient(colors: [customTint.opacity(hovering ? 0.26 : 0.18),
+                                                      customTint.opacity(hovering ? 0.15 : 0.10)],
+                                             startPoint: .top,
+                                             endPoint: .bottom))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(customTint.opacity(hovering ? 0.55 : 0.35), lineWidth: 0.8)
+                    // Generic server glyph until the host has been logged into at
+                    // least once; then the detected OS logo takes its place.
+                    HostPlatformIcon(platform: app.platform(for: host.id),
+                                     detail: app.platformInfo(for: host.id)?.detail,
+                                     size: 16,
+                                     fallbackColor: iconColor)
+                        .frame(width: 30, height: 30)
+                    Rectangle()
+                        .fill(customTint.opacity(hovering ? 0.9 : 0.5))
+                        .frame(width: 4, height: 1)
+                        .padding(.top, 3)
+                        .padding(.trailing, 4)
+                }
+                .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Text(host.name)
                             .font(.system(size: 12.5, weight: .semibold))
+                            .tracking(0.1)
                             .lineLimit(1)
                         if isFavorite {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 8))
+                                .font(.system(size: 7.5))
                                 .foregroundStyle(Theme.warning)
                         }
                     }
                     Text(host.displayAddress)
-                        .font(.system(size: 10.5).monospacedDigit())
+                        .font(TechFont.mono(10, .medium))
                         .foregroundStyle(Theme.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if hovering {
+                // Reserve the action width even when hidden: inserting the
+                // buttons into the stack on hover shortened the name field and
+                // made long host names visibly truncate under the pointer.
+                HStack(spacing: 4) {
                     Button {
                         app.openTab(for: host)
                     } label: {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Theme.accent)
                             .frame(width: 22, height: 22)
-                            .background(Circle().fill(Color.primary.opacity(0.09)))
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Theme.accent.opacity(0.12))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .strokeBorder(Theme.accent.opacity(0.45), lineWidth: 0.8)
+                            )
                     }
                     .buttonStyle(.plain)
                     .help(L("连接"))
@@ -804,61 +879,67 @@ private struct StartHostCard: View {
                         app.openSFTPTab(for: host)
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 8.5, weight: .bold))
                             .foregroundStyle(Theme.secondary)
                             .frame(width: 22, height: 22)
-                            .background(Circle().fill(Color.primary.opacity(0.06)))
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Theme.cardTop)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .strokeBorder(Theme.hairline.opacity(0.85), lineWidth: 0.8)
+                            )
                     }
                     .buttonStyle(.plain)
                     .help(L("新建 SFTP 标签"))
                 }
+                .frame(width: 48, alignment: .trailing)
+                .opacity(hovering ? 1 : 0)
+                .allowsHitTesting(hovering)
+                .animation(.easeOut(duration: 0.1), value: hovering)
             }
 
             // The chip row is always laid out, even when a host has no caption,
             // jump host, proxy or tags. Without the reserved height a card
             // without chips was ~16pt shorter than its neighbours, so the grid
             // looked ragged.
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 if let caption, !caption.isEmpty {
                     chip(caption)
                 }
                 if let jumpCount {
-                    chip(L("跳板 ×") + String(jumpCount))
+                    chip(L("跳板 ×") + String(jumpCount), systemName: "arrow.triangle.branch")
                 }
                 if let proxyChip {
-                    chip(proxyChip)
+                    chip(proxyChip, systemName: "network")
                 }
                 ForEach(visibleTags.prefix(2), id: \.self) { tag in
-                    chip(tag)
+                    chip(tag, systemName: "tag")
                 }
                 Spacer(minLength: 0)
             }
             .frame(height: Self.chipRowHeight, alignment: .leading)
             HStack(spacing: 6) {
                 Text(lastUsedText)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(Theme.secondary.opacity(0.85))
+                    .font(TechFont.mono(8.5))
+                    .foregroundStyle(Theme.secondary.opacity(0.82))
                 Spacer(minLength: 0)
                 if host.useCount > 0 {
-                    Text(L("用过 ") + String(host.useCount) + L(" 次"))
-                        .font(.system(size: 9.5).monospacedDigit())
-                        .foregroundStyle(Theme.secondary.opacity(0.85))
+                    Text(host.useCount == 1
+                         ? L("用过 1 次")
+                         : L("用过 ") + String(host.useCount) + L(" 次"))
+                        .font(TechFont.mono(8.5))
+                        .foregroundStyle(Theme.secondary.opacity(0.82))
                 }
             }
         }
         .padding(11)
         .frame(maxWidth: .infinity, minHeight: Self.cardMinHeight, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(hovering ? Theme.rowHover : Theme.cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(isDropTarget ? Color.primary.opacity(0.55)
-                              : (hovering ? Theme.accent.opacity(0.35) : Theme.cardStroke),
-                              lineWidth: isDropTarget ? 1.5 : 1)
-        )
-        .shadow(color: hovering ? Theme.shadow : Color.clear, radius: 6, y: 2)
+        .techCard(cornerRadius: 9,
+                  hovered: hovering || isDropTarget,
+                  selected: isDropTarget,
+                  accent: isDropTarget ? Color.primary : Theme.accent)
     }
 
     var body: some View {
@@ -898,14 +979,8 @@ private struct StartHostCard: View {
         return true
     }
 
-    private func chip(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9.5))
-            .foregroundStyle(Theme.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1.5)
-            .background(Capsule().fill(Color.primary.opacity(0.06)))
+    private func chip(_ text: String, systemName: String? = nil) -> some View {
+        TechTag(text: text, systemName: systemName)
     }
 }
 

@@ -5,6 +5,7 @@ import ShellXKit
 
 struct SidebarView: View {
     @EnvironmentObject private var app: AppState
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,25 +25,47 @@ struct SidebarView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(Theme.secondary)
-                .font(.system(size: 11))
+                .foregroundStyle(searchFocused ? Theme.accent : Theme.secondary)
+                .font(.system(size: 9.5, weight: .semibold))
             TextField(L("搜索主机、地址、标签（支持拼音）"), text: $app.searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(TechFont.mono(10))
+                .focused($searchFocused)
             if !app.searchText.isEmpty {
                 Button {
                     app.searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 11))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7.5, weight: .bold))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(width: 14, height: 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                                .fill(Theme.secondary.opacity(0.10))
+                        )
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.secondary)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 7)
+        .frame(height: 26)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Theme.fieldBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(searchFocused ? Theme.accent.opacity(0.5) : Theme.hairline.opacity(0.8),
+                              lineWidth: 0.7)
+        )
+        .padding(.horizontal, 8)
         .frame(height: 34)
+        .onExitCommand {
+            if app.searchText.isEmpty { searchFocused = false } else { app.searchText = "" }
+        }
     }
 
     private var emptyState: some View {
@@ -58,12 +81,12 @@ struct SidebarView: View {
                 .foregroundStyle(Theme.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 18)
-            Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
-                .buttonStyle(.link)
-                .font(.system(size: 11))
+            TechActionButton(systemName: "plus", title: L("新建主机"), kind: .primary) {
+                app.editingHost = SSHHost(name: L("新主机"))
+            }
+            TechActionButton(title: L("从 ~/.ssh/config 导入"), kind: .ghost) {
+                app.importSSHConfig()
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -222,14 +245,13 @@ struct GroupNodeView: View {
     private var groupLabel: some View {
         HStack(spacing: 6) {
             Image(systemName: "folder")
-                .font(.system(size: 11))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Theme.secondary)
             Text(node.group.name)
                 .font(.system(size: 12, weight: .medium))
+                .tracking(0.1)
             Spacer()
-            Text(String(node.hosts.count + childHostCount))
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.secondary)
+            TechTag(text: String(node.hosts.count + childHostCount))
         }
         .contextMenu {
             Button(L("在此分组新建主机")) {
@@ -272,27 +294,31 @@ struct HostRowView: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            RoundedRectangle(cornerRadius: 1.5)
+            RoundedRectangle(cornerRadius: 1)
                 .fill(Color(hex: host.colorHex) ?? Theme.accent)
-                .frame(width: 2.5, height: 20)
-                .opacity(isSelected || hovering ? 1 : 0.65)
+                .frame(width: 2, height: 20)
+                .opacity(isSelected ? 1 : (hovering ? 0.85 : 0.55))
+                .shadow(color: (isSelected ? (Color(hex: host.colorHex) ?? Theme.accent) : .clear).opacity(0.5),
+                        radius: 3)
             HostPlatformIcon(platform: app.platform(for: host.id),
                              detail: app.platformInfo(for: host.id)?.detail,
                              size: 12)
             VStack(alignment: .leading, spacing: 0.5) {
                 Text(host.name)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                    .tracking(0.1)
                     .lineLimit(1)
                 Text(host.displayAddress)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(Theme.secondary)
+                    .font(TechFont.mono(8.5))
+                    .foregroundStyle(Theme.secondary.opacity(0.9))
                     .lineLimit(1)
             }
             Spacer(minLength: 2)
             if let openTab {
-                Circle()
-                    .fill(openTab.connectionState.isConnected ? Theme.success : Theme.secondary.opacity(0.6))
-                    .frame(width: 5, height: 5)
+                TechStatusDot(color: openTab.connectionState.isConnected
+                              ? Theme.success
+                              : Theme.secondary.opacity(0.6),
+                              size: 5)
             }
             if host.tags.contains(where: { $0 == "favorite" || $0 == "收藏" }) {
                 Image(systemName: "star.fill")
@@ -303,13 +329,13 @@ struct HostRowView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? Theme.accent.opacity(0.16)
-                      : (hovering ? Theme.secondary.opacity(0.09) : Color.clear))
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isSelected ? Theme.accent.opacity(0.12)
+                      : (hovering ? Theme.secondary.opacity(0.08) : Color.clear))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isSelected ? Theme.accent.opacity(0.35) : Color.clear, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(isSelected ? Theme.accent.opacity(0.32) : Color.clear, lineWidth: 0.7)
         )
         .contentShape(Rectangle())
         .onHover { inside in

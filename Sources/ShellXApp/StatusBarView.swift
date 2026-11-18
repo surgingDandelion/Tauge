@@ -18,13 +18,17 @@ struct StatusBarView: View {
             .buttonStyle(.plain)
             .shortcutTip(app.settings.sidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏"), keys: ["⌃⌘S"], below: false)
 
+            Rectangle()
+                .fill(Theme.hairline.opacity(0.55))
+                .frame(width: 1, height: 10)
+
             if app.isWorkspaceSelected {
                 // A workspace is not tied to one tab, so showing the selected tab's route here
                 // would be misleading; summarise the workspace instead.
                 HStack(spacing: 6) {
-                    Image(systemName: "rectangle.grid.2x2").font(.system(size: 10))
+                    Image(systemName: "rectangle.grid.2x2").font(.system(size: 9.5))
                     Text(boardSummary)
-                        .font(.system(size: 11))
+                        .font(TechFont.mono(9.5))
                 }
                 .foregroundStyle(Theme.secondary)
             } else if let tab = app.selectedTab {
@@ -33,7 +37,7 @@ struct StatusBarView: View {
                 TabStatusItems(tab: tab)
             } else {
                 Text(L("就绪"))
-                    .font(.system(size: 11))
+                    .font(TechFont.mono(9.5))
                     .foregroundStyle(Theme.secondary)
             }
             Spacer()
@@ -45,7 +49,7 @@ struct StatusBarView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                         Text(L("数据库只读"))
                     }
-                    .font(.system(size: 11))
+                    .font(TechFont.mono(9.5))
                     .foregroundStyle(Theme.warning)
                 }
                 .buttonStyle(.plain)
@@ -58,7 +62,7 @@ struct StatusBarView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.arrow.down")
                         Text(activeTransferLabel)
-                            .font(.system(size: 11).monospacedDigit())
+                            .font(TechFont.mono(9.5, .medium))
                     }
                 }
                 .buttonStyle(.plain)
@@ -66,9 +70,23 @@ struct StatusBarView: View {
             Button {
                 app.showQuickOpen()
             } label: {
-                Text(L("⌘K 快速打开"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.secondary)
+                HStack(spacing: 4) {
+                    Text("⌘K")
+                        .font(TechFont.mono(8, .semibold))
+                        .padding(.horizontal, 3.5)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(Theme.tagBackground)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.6)
+                        )
+                    Text(L("快速打开"))
+                        .font(TechFont.mono(9.5))
+                        .foregroundStyle(Theme.secondary)
+                }
             }
             .buttonStyle(.plain)
         }

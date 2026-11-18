@@ -181,6 +181,12 @@ struct TabStripView: View {
         }
         .frame(height: 38)
         .background(Theme.headerBackground)
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [Theme.insetHighlight.opacity(0.45), .clear],
+                           startPoint: .leading,
+                           endPoint: .trailing)
+                .frame(height: 0.8)
+        }
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.separator.opacity(0.55)).frame(height: 0.5)
         }
@@ -216,10 +222,11 @@ struct StartPageChipView: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "house")
-                .font(.system(size: 9.5, weight: .medium))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(isSelected ? Theme.accent : Theme.secondary)
             Text(L("起始页"))
-                .font(.system(size: 11.5, weight: isSelected ? .medium : .regular))
+                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                .tracking(0.1)
                 .lineLimit(1)
         }
         .padding(.leading, 9)
@@ -227,11 +234,17 @@ struct StartPageChipView: View {
         .padding(.vertical, 4)
         .background(chipBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isSelected ? Theme.separator.opacity(0.9) : Color.clear, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(isSelected ? Theme.accent.opacity(0.38) : Color.clear, lineWidth: 0.7)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .shadow(color: isSelected ? Color.black.opacity(0.10) : Color.clear, radius: 1.5, y: 0.5)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
+                .frame(height: 1.5)
+                .padding(.horizontal, 7)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
         .onTapGesture { app.showStartPage() }
         .onHover { inside in
@@ -241,8 +254,8 @@ struct StartPageChipView: View {
     }
 
     private var chipBackground: Color {
-        if isSelected { return Theme.windowBackground }
-        return hovering ? Theme.secondary.opacity(0.10) : Color.clear
+        if isSelected { return Theme.cardTop }
+        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
     }
 }
 
@@ -258,17 +271,16 @@ struct TabChipView: View {
         HStack(spacing: 6) {
             if tab.kind == .sftp {
                 Image(systemName: "folder")
-                    .font(.system(size: 9.5, weight: .medium))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(color)
             } else {
-                Circle()
-                    .fill(color)
-                    .frame(width: 6, height: 6)
+                TechStatusDot(color: color, size: 6)
             }
             // Derived straight from the host so the strip can never show a
             // cached or remote-supplied title instead of the user's own name.
             Text(TerminalTab.label(for: tab.host))
-                .font(.system(size: 11.5, weight: isSelected ? .medium : .regular))
+                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                .tracking(0.1)
                 .lineLimit(1)
                 .frame(maxWidth: 160)
             if hovering || isSelected {
@@ -276,11 +288,12 @@ struct TabChipView: View {
                     app.closeTab(tab)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 7.5, weight: .bold))
+                        .font(.system(size: 7, weight: .bold))
                         .foregroundColor(Theme.secondary)
                         .frame(width: 14, height: 14)
                         .background(
-                            Circle().fill(hovering ? Theme.secondary.opacity(0.16) : Color.clear)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(hovering ? Theme.secondary.opacity(0.14) : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
@@ -293,13 +306,19 @@ struct TabChipView: View {
         .padding(.vertical, 4)
         .background(chipBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(isDropTarget ? Theme.accent
-                                           : (isSelected ? Theme.separator.opacity(0.9) : Color.clear),
-                              lineWidth: isDropTarget ? 1.2 : 0.8)
+                                           : (isSelected ? Theme.accent.opacity(0.38) : Color.clear),
+                              lineWidth: isDropTarget ? 1.2 : 0.7)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .shadow(color: isSelected ? Color.black.opacity(0.10) : Color.clear, radius: 1.5, y: 0.5)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
+                .frame(height: 1.5)
+                .padding(.horizontal, 7)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
         .onTapGesture { app.selectTab(tab) }
         .onHover { inside in
@@ -324,8 +343,8 @@ struct TabChipView: View {
 
     private var chipBackground: Color {
         if isDropTarget { return Theme.accent.opacity(0.12) }
-        if isSelected { return Theme.windowBackground }
-        return hovering ? Theme.secondary.opacity(0.10) : Color.clear
+        if isSelected { return Theme.cardTop }
+        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
     }
 
     private var color: Color {
@@ -351,10 +370,11 @@ struct BoardChipView: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "square.grid.2x2")
-                .font(.system(size: 9.5, weight: .medium))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(isSelected ? Theme.accent : Theme.secondary)
             Text(board.name)
-                .font(.system(size: 11.5, weight: isSelected ? .medium : .regular))
+                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                .tracking(0.1)
                 .lineLimit(1)
                 .frame(maxWidth: 160)
             if hovering || isSelected {
@@ -362,11 +382,12 @@ struct BoardChipView: View {
                     app.closeBoardTab(board.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 7.5, weight: .bold))
+                        .font(.system(size: 7, weight: .bold))
                         .foregroundColor(Theme.secondary)
                         .frame(width: 14, height: 14)
                         .background(
-                            Circle().fill(hovering ? Theme.secondary.opacity(0.16) : Color.clear)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(hovering ? Theme.secondary.opacity(0.14) : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
@@ -379,13 +400,19 @@ struct BoardChipView: View {
         .padding(.vertical, 4)
         .background(chipBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(isDropTarget ? Theme.accent
-                                           : (isSelected ? Theme.separator.opacity(0.9) : Color.clear),
-                              lineWidth: isDropTarget ? 1.2 : 0.8)
+                                           : (isSelected ? Theme.accent.opacity(0.38) : Color.clear),
+                              lineWidth: isDropTarget ? 1.2 : 0.7)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .shadow(color: isSelected ? Color.black.opacity(0.10) : Color.clear, radius: 1.5, y: 0.5)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
+                .frame(height: 1.5)
+                .padding(.horizontal, 7)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
         .onTapGesture { app.selectBoardTab(board.id) }
         .onHover { inside in
@@ -403,8 +430,8 @@ struct BoardChipView: View {
 
     private var chipBackground: Color {
         if isDropTarget { return Theme.accent.opacity(0.12) }
-        if isSelected { return Theme.windowBackground }
-        return hovering ? Theme.secondary.opacity(0.10) : Color.clear
+        if isSelected { return Theme.cardTop }
+        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
     }
 }
 
@@ -650,26 +677,36 @@ private struct StripLabel: View {
     var body: some View {
         HStack(spacing: 4) {
             if let systemName {
-                Image(systemName: systemName).font(.system(size: 11, weight: .medium))
+                Image(systemName: systemName).font(.system(size: 10, weight: .medium))
             }
             if let title {
-                Text(title).font(.system(size: 11))
+                Text(title).font(.system(size: 10.5, weight: .medium))
             }
             if badge > 0 {
                 Text(String(badge))
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(TechFont.mono(8, .bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 3.5)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(Theme.accent))
+                    .background(
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(Theme.accent)
+                    )
             }
         }
-        .foregroundStyle(isEnabled ? Theme.secondary : Theme.secondary.opacity(0.35))
+        .foregroundStyle(isEnabled
+                         ? (hovering ? Theme.accent : Theme.secondary)
+                         : Theme.secondary.opacity(0.35))
         .frame(height: 22)
         .padding(.horizontal, 6)
         .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
                 .fill(hovering && isEnabled ? Theme.rowHover : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .strokeBorder(hovering && isEnabled ? Theme.accent.opacity(0.28) : Color.clear,
+                              lineWidth: 0.7)
         )
         .contentShape(Rectangle())
     }

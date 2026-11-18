@@ -288,6 +288,10 @@ await runTermiusVaultChecks()
 
 runSystemSSHChecks()
 
+// MARK: - Terminal cell widths and pty window changes
+
+runTerminalWidthChecks()
+
 // MARK: - End-to-end SSH + SFTP against an in-process server
 
 await runMockSSHChecks()
