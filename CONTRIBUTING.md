@@ -63,8 +63,11 @@ certificate in a dedicated Keychain. Never commit signing material.
 
 ### Releases
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the version bump, tag, secrets,
-and verification checklist. Do not tag a release while CI is red.
+Cut a release with `./scripts/release.sh patch` (or `minor` / `major`). The
+script checks the tree, runs the localisation and self-check suites, bumps the
+version, updates the changelog, pushes the tag, and verifies the published
+assets. See [docs/RELEASING.md](docs/RELEASING.md) for secrets and recovery.
+Do not tag a release while CI is red.
 
 ### Localisation
 
