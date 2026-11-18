@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-11-18
+
+### Fixed
+
+- The packaged app no longer crashes at launch when SwiftPM emits a flat
+  resource bundle. `TaugeL10n` now looks for `en.json` directly in both the
+  flat and `Contents/Resources` layouts instead of using `Bundle.module`, whose
+  search path differs between SwiftPM toolchains.
+- `scripts/build-app.sh` now loads the packaged localisation table
+  (`Tauge --verify-localization`) before declaring the bundle ready, and CI
+  verifies the same thing after assembling the app.
+
 ## [1.0.0] — 2026-11-18
 
 First public release of Tauge, a local-first macOS SSH/SFTP client.

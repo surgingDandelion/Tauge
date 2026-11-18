@@ -3,6 +3,21 @@ import ShellXKit
 import AppKit
 
 @main
+enum TaugeMain {
+    static func main() {
+        // Diagnostic used by the packaging scripts and by anyone checking an
+        // installed build: load the localisation table without starting AppKit and
+        // fail loudly if the resource bundle cannot be read. This is the check
+        // that would have caught the 1.0.0 bundle-layout crash before shipping.
+        if CommandLine.arguments.contains("--verify-localization") {
+            let count = TaugeL10n.shared.englishTranslations.count
+            FileHandle.standardError.write(Data("localization entries: \(count)\n".utf8))
+            exit(count > 700 ? 0 : 1)
+        }
+        ShellXApp.main()
+    }
+}
+
 struct ShellXApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var app = AppState.shared

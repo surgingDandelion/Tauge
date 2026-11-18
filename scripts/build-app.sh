@@ -61,11 +61,15 @@ if [ -d Sources/ShellXApp/Assets ]; then
   cp Sources/ShellXApp/Assets/*.png "$APP/Contents/Resources/Assets/"
 fi
 
-# SwiftPM resource bundles (English localisation) must live beside the app's
-# resources so Bundle.module resolves inside the .app.
+# SwiftPM resource bundles (English localisation) must live in
+# Contents/Resources so they are sealed by the app signature. The localisation
+# loader looks inside the bundle directly instead of using the generated
+# Bundle.module accessor, whose search path differs between SwiftPM toolchains.
 for BUNDLE in "${BIN_DIRS[0]}"/*.bundle; do
   [ -d "$BUNDLE" ] || continue
+  NAME="$(basename "$BUNDLE")"
   cp -R "$BUNDLE" "$APP/Contents/Resources/"
+  echo "    resource bundle: $NAME"
 done
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
@@ -104,6 +108,12 @@ else
   codesign --force --deep --identifier com.shellx.app --sign - "$APP"
 fi
 codesign --verify --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
+
+# Load the localisation table from inside the assembled bundle. This catches a
+# missing or unreadable resource bundle without launching AppKit, which is how
+# the flat SwiftPM layout broke the first 1.0.0 release.
+echo "==> verify localization"
+"$APP/Contents/MacOS/Tauge" --verify-localization 2>&1 | sed 's/^/    /'
 
 echo "==> done: $APP"
 echo "    version: $VERSION"

@@ -80,3 +80,9 @@ jobs:
             fail "codesign --verify rejected the app"
           fi
           lipo -archs dist/Tauge.app/Contents/MacOS/Tauge || fail "lipo could not read the executable"
+          if ! dist/Tauge.app/Contents/MacOS/Tauge --verify-localization; then
+            echo "::group::Bundle resource tree"
+            find dist/Tauge.app/Contents/Resources -maxdepth 5 -print
+            echo "::endgroup::"
+            fail "the packaged app cannot load its localisation table"
+          fi

@@ -93,15 +93,31 @@ public final class TaugeL10n: @unchecked Sendable {
         return english
     }
 
-    /// Load `en.json` from the ShellXKit resource bundle. A missing bundle must
-    /// not take the app down: fall back to the main bundle and then to Chinese.
+    /// Load `en.json` from the ShellXKit resource bundle.
+    ///
+    /// The generated `Bundle.module` accessor must not be used here: different
+    /// SwiftPM toolchains disagree about whether the bundle lives in
+    /// `Contents/Resources` or beside `Bundle.main.bundleURL`, and the generated
+    /// accessor calls `fatalError` when it guesses wrong. That is exactly the
+    /// crash seen in the first 1.0.0 DMG. Look for the file directly instead and
+    /// handle both SwiftPM bundle layouts (flat and `Contents/Resources`).
+    /// A missing bundle falls back to Chinese rather than taking the app down.
     private static func loadEnglish() -> [String: String] {
-        let candidates: [URL?] = [
-            Bundle.module.url(forResource: "en", withExtension: "json"),
-            Bundle.main.url(forResource: "en", withExtension: "json"),
-            Bundle.main.resourceURL?.appendingPathComponent("ShellX_ShellXKit.bundle/en.json"),
-        ]
-        for case let url? in candidates {
+        let main = Bundle.main
+        var candidates: [URL] = []
+
+        if let resources = main.resourceURL {
+            candidates.append(resources.appendingPathComponent("ShellX_ShellXKit.bundle/en.json"))
+            candidates.append(resources.appendingPathComponent("ShellX_ShellXKit.bundle/Contents/Resources/en.json"))
+            candidates.append(resources.appendingPathComponent("en.json"))
+        }
+
+        let bundleRoot = main.bundleURL
+        candidates.append(bundleRoot.appendingPathComponent("ShellX_ShellXKit.bundle/en.json"))
+        candidates.append(bundleRoot.appendingPathComponent("ShellX_ShellXKit.bundle/Contents/Resources/en.json"))
+        candidates.append(bundleRoot.appendingPathComponent("en.json"))
+
+        for url in candidates {
             if let data = try? Data(contentsOf: url),
                let table = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
                 return table
