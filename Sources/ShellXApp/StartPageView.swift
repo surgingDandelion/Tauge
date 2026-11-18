@@ -873,30 +873,8 @@ private struct StartHostCard: View {
         .onTapGesture {
             app.selectedSidebarHostID = host.id
         }
-        .contextMenu { hostContextMenu }
+        .contextMenu { HostContextMenu(app: app, host: host) }
         .help(host.name + "  " + host.displayAddress + (host.notes.isEmpty ? "" : "\n" + host.notes))
-    }
-
-    /// Kept out of the card body: a menu this large inside the view builder
-    /// pushed the SwiftUI type-checker past its time budget.
-    @ViewBuilder
-    private var hostContextMenu: some View {
-        Button(L("连接")) { app.openTab(for: host) }
-        Button(L("连接并打开 SFTP")) { app.openTab(for: host, showsSFTP: true) }
-        Button(L("新建 SFTP 标签")) { app.openSFTPTab(for: host) }
-        Button(L("在工作区中打开")) { app.openInBoard(hostID: host.id) }
-        Divider()
-        Button(L("编辑主机…")) { app.editingHost = host }
-        Button(L("复制主机…")) { app.duplicateHost(host) }
-        Button(isFavorite ? L("取消收藏") : L("收藏")) { app.toggleFavorite(host) }
-        Divider()
-        Button(L("删除主机…"), role: .destructive) {
-            if Prompt.confirm(title: L("删除「") + host.name + "」？",
-                              message: L("会同时关闭它的终端。"),
-                              destructiveTitle: L("删除")) {
-                app.deleteHost(host.id)
-            }
-        }
     }
 
     /// Reserved height of the chip/metadata row and the smallest height a card
@@ -922,3 +900,46 @@ private struct StartHostCard: View {
             .background(Capsule().fill(Color.primary.opacity(0.06)))
     }
 }
+
+/// A separate view so the card body's modifier chain stays small enough for
+/// the SwiftUI type-checker to solve quickly on every toolchain we support.
+private struct HostContextMenu: View {
+    let app: AppState
+    let host: SSHHost
+
+    private var isFavorite: Bool {
+        host.tags.contains { $0 == "favorite" || $0 == "收藏" }
+    }
+
+    var body: some View {
+        connectionItems
+        Divider()
+        editItems
+        Divider()
+        Button(L("删除主机…"), role: .destructive) { confirmDelete() }
+    }
+
+    @ViewBuilder
+    private var connectionItems: some View {
+        Button(L("连接")) { app.openTab(for: host) }
+        Button(L("连接并打开 SFTP")) { app.openTab(for: host, showsSFTP: true) }
+        Button(L("新建 SFTP 标签")) { app.openSFTPTab(for: host) }
+        Button(L("在工作区中打开")) { app.openInBoard(hostID: host.id) }
+    }
+
+    @ViewBuilder
+    private var editItems: some View {
+        Button(L("编辑主机…")) { app.editingHost = host }
+        Button(L("复制主机…")) { app.duplicateHost(host) }
+        Button(isFavorite ? L("取消收藏") : L("收藏")) { app.toggleFavorite(host) }
+    }
+
+    private func confirmDelete() {
+        if Prompt.confirm(title: L("删除「") + host.name + "」？",
+                          message: L("会同时关闭它的终端。"),
+                          destructiveTitle: L("删除")) {
+            app.deleteHost(host.id)
+        }
+    }
+}
+
