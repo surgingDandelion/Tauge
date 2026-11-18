@@ -267,7 +267,7 @@ func runSystemSSHChecks() {
                                                  port: 23)
         guard let mapped else { throw CheckError.message("expected a handshake failure") }
         expectEqual(mapped.stage, .keyExchange, "the caller can retry with the system ssh transport")
-        expect(mapped.detail.hasPrefix("第 1 跳 root@10.103.136.65:23："), "the failing hop is named first")
+        expect(mapped.detail.hasPrefix("第 1 跳 root@10.103.136.65:23"), "the failing hop is named first")
         expect(mapped.detail.contains("ssh-rsa"), "the likely cause is spelled out")
 
         let closedLater = SSHClient.rejectedHandshake(at: "第 2 跳 root@bastion:22",

@@ -150,7 +150,7 @@ func runJumpChainChecks() async {
             expect(false, "connecting through a refusing jump host must fail")
         } catch let error as SSHConnectionError {
             expectEqual(error.stage, .authentication, "failure is classified as authentication")
-            expect(error.detail.contains("第 1 跳"), "detail names the failing hop (\(error.detail))")
+            expect(error.detail.contains(L("第 ") + "1" + L(" 跳 ")), "detail names the failing hop (\(error.detail))")
             expect(error.detail.contains("jump-user"), "detail includes the hop user (\(error.detail))")
             expectEqual(error.port, refusingJump.port, "error points at the jump port")
         } catch {
@@ -174,7 +174,7 @@ func runJumpChainChecks() async {
             expect(false, "connecting to a closed port must fail")
         } catch let error as SSHConnectionError {
             expectEqual(error.stage, .tcp, "refused connection is a TCP stage failure")
-            expect(error.detail.contains("连接被拒绝"), "refused port is explained (\(error.detail))")
+            expect(error.detail.contains(L("连接被拒绝")), "refused port is explained (\(error.detail))")
         } catch {
             expect(false, "unexpected error type: \(error)")
         }
@@ -194,12 +194,12 @@ func runJumpChainChecks() async {
             expect(false, "connecting to an unknown host must fail")
         } catch let error as SSHConnectionError {
             if error.stage == .dns {
-                expect(error.detail.contains("无法解析"), "DNS failure is explained (\(error.detail))")
+                expect(error.detail.contains(L("无法解析主机名 ")), "DNS failure is explained (\(error.detail))")
             } else {
                 // Some sandboxes stall the resolver instead of answering NXDOMAIN;
                 // the connect timeout is then the correct, still-explained outcome.
                 expectEqual(error.stage, .tcp, "unknown host fails at DNS or times out on TCP")
-                expect(error.detail.contains("没有建立 TCP 连接"), "timeout is explained (\(error.detail))")
+                expect(error.detail.contains(L(" 秒内没有建立 TCP 连接：目标端口无响应，通常是地址不可达、端口不对，或被防火墙/安全组静默丢弃了握手包")), "timeout is explained (\(error.detail))")
             }
         } catch {
             expect(false, "unexpected error type: \(error)")

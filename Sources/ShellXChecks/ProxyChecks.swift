@@ -227,7 +227,7 @@ func runProxyChecks() async {
                                           timeout: .seconds(3))
         expectEqual(result.outcome, .proxyUnreachable, "closed port looks unreachable")
         expect(!result.isSuccess, "unreachable proxy is not a success")
-        expect(result.summary.contains("连不上代理"), "summary names the proxy hop")
+        expect(result.summary.contains(L("连不上代理 ")), "summary names the proxy hop")
         expect(result.recommendation != nil, "unreachable proxy gets a recommendation")
         expect(result.elapsedMilliseconds >= 0, "elapsed time is recorded")
 

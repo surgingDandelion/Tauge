@@ -40,7 +40,7 @@ func runBoardDropChecks() {
         expectEqual(BoardNaming.split(first: "alpha", second: "alpha"), "alpha ×2", "the same host twice")
         expectEqual(BoardNaming.split(first: " alpha ", second: " beta "), "alpha + beta", "whitespace trimmed")
         expectEqual(BoardNaming.split(first: "", second: "beta"), "? + beta", "a nameless host is a placeholder")
-        expectEqual(BoardNaming.split(first: "  ", second: "  "), "分屏工作区", "two nameless hosts")
+        expectEqual(BoardNaming.split(first: "  ", second: "  "), L("分屏工作区"), "two nameless hosts")
         let long = BoardNaming.split(first: String(repeating: "x", count: 80), second: "y")
         expectEqual(long.count, 60, "names are capped")
         expect(long.hasSuffix("y") == false, "the cap truncates instead of overflowing the chip")
