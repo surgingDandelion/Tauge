@@ -14,9 +14,9 @@ struct PasswordPromptView: View {
             Text(prompt.detail).font(.system(size: 11)).foregroundStyle(Theme.secondary)
             Group {
                 if prompt.isPassphrase {
-                    SecureField("口令", text: $value)
+                    SecureField(L("口令"), text: $value)
                 } else {
-                    SecureField("密码", text: $value)
+                    SecureField(L("密码"), text: $value)
                 }
             }
             .textFieldStyle(.roundedBorder)
@@ -24,9 +24,9 @@ struct PasswordPromptView: View {
             .onSubmit { submit() }
             HStack {
                 Spacer()
-                Button("取消") { app.cancelPasswordPrompt() }
+                Button(L("取消")) { app.cancelPasswordPrompt() }
                     .keyboardShortcut(.cancelAction)
-                Button("确定") { submit() }
+                Button(L("确定")) { submit() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(value.isEmpty)
             }
@@ -54,33 +54,33 @@ struct HostKeyPromptView: View {
             HStack(spacing: 8) {
                 Image(systemName: prompt.isChanged ? "exclamationmark.triangle.fill" : "lock.shield")
                     .foregroundStyle(prompt.isChanged ? Theme.danger : Theme.accent)
-                Text(prompt.isChanged ? "主机密钥已变更" : "未知主机密钥")
+                Text(prompt.isChanged ? L("主机密钥已变更") : L("未知主机密钥"))
                     .font(.system(size: 14, weight: .semibold))
             }
 
             if prompt.isChanged {
-                Text("该主机的密钥与 known_hosts 中记录不一致，可能存在中间人攻击。除非你确认主机被重装过，否则请取消连接。")
+                Text(L("该主机的密钥与 known_hosts 中记录不一致，可能存在中间人攻击。除非你确认主机被重装过，否则请取消连接。"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("这是首次连接该主机，请核对指纹后再信任。")
+                Text(L("这是首次连接该主机，请核对指纹后再信任。"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                keyValue("主机", prompt.info.host + ":" + String(prompt.info.port))
-                keyValue("算法", prompt.info.keyType)
+                keyValue(L("主机"), prompt.info.host + ":" + String(prompt.info.port))
+                keyValue(L("算法"), prompt.info.keyType)
                 if let previous = prompt.previousFingerprint {
                     HStack(alignment: .top, spacing: 6) {
-                        Text("旧指纹").font(.system(size: 10)).foregroundStyle(Theme.secondary).frame(width: 54, alignment: .leading)
+                        Text(L("旧指纹")).font(.system(size: 10)).foregroundStyle(Theme.secondary).frame(width: 54, alignment: .leading)
                         Text(previous).font(.system(size: 10, design: .monospaced)).foregroundStyle(Theme.secondary)
                             .textSelection(.enabled)
                     }
                 }
                 HStack(alignment: .top, spacing: 6) {
-                    Text(prompt.isChanged ? "新指纹" : "SHA256")
+                    Text(prompt.isChanged ? L("新指纹") : "SHA256")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                         .frame(width: 54, alignment: .leading)
                     Text(prompt.info.fingerprintSHA256)
@@ -102,12 +102,12 @@ struct HostKeyPromptView: View {
 
             HStack {
                 Spacer()
-                Button("拒绝") { app.resolveHostKeyPrompt(.reject) }
+                Button(L("拒绝")) { app.resolveHostKeyPrompt(.reject) }
                     .keyboardShortcut(.cancelAction)
                 if !prompt.isChanged {
-                    Button("仅本次信任") { app.resolveHostKeyPrompt(.trust(remember: false)) }
+                    Button(L("仅本次信任")) { app.resolveHostKeyPrompt(.trust(remember: false)) }
                 }
-                Button(prompt.isChanged ? "确认变更并信任" : "信任并保存") {
+                Button(prompt.isChanged ? L("确认变更并信任") : L("信任并保存")) {
                     app.resolveHostKeyPrompt(.trust(remember: true))
                 }
                 .keyboardShortcut(.defaultAction)
@@ -134,7 +134,7 @@ struct ConflictPromptView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(conflict.title).font(.system(size: 14, weight: .semibold))
             Text(conflict.message).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-            Toggle("应用于全部冲突", isOn: $applyToAll)
+            Toggle(L("应用于全部冲突"), isOn: $applyToAll)
                 .font(.system(size: 11))
             HStack(spacing: 8) {
                 ForEach(ConflictPolicy.allCases, id: \.self) { policy in
@@ -143,7 +143,7 @@ struct ConflictPromptView: View {
                     }
                 }
                 Spacer()
-                Button("取消") { app.resolveConflict(nil, applyToAll: false) }
+                Button(L("取消")) { app.resolveConflict(nil, applyToAll: false) }
                     .keyboardShortcut(.cancelAction)
             }
         }
@@ -162,8 +162,8 @@ struct EditorView: View {
                 Image(systemName: "doc.text").foregroundStyle(Theme.secondary)
                 Text(context.path).font(.system(size: 11)).lineLimit(1)
                 Spacer()
-                Button("保存") { app.saveEditor() }
-                Button("关闭") { app.editor = nil }
+                Button(L("保存")) { app.saveEditor() }
+                Button(L("关闭")) { app.editor = nil }
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 12)
@@ -207,7 +207,7 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.secondary)
-                TextField("搜索主机或命令", text: $query)
+                TextField(L("搜索主机或命令"), text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .focused($focused)
@@ -352,22 +352,22 @@ struct KeyImporterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("导入私钥").font(.system(size: 14, weight: .semibold))
-            Text("支持 OpenSSH 新格式、PKCS#1、PKCS#8 与 SEC1；密钥类型含 Ed25519、ECDSA 与 RSA（rsa-sha2-256/512）。").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            Text(L("导入私钥")).font(.system(size: 14, weight: .semibold))
+            Text(L("支持 OpenSSH 新格式、PKCS#1、PKCS#8 与 SEC1；密钥类型含 Ed25519、ECDSA 与 RSA（rsa-sha2-256/512）。")).font(.system(size: 11)).foregroundStyle(Theme.secondary)
             HStack {
-                TextField("私钥路径", text: $path).textFieldStyle(.roundedBorder)
-                Button("选择…") { chooseFile() }
+                TextField(L("私钥路径"), text: $path).textFieldStyle(.roundedBorder)
+                Button(L("选择…")) { chooseFile() }
             }
-            TextField("显示名称", text: $name).textFieldStyle(.roundedBorder)
-            SecureField("口令（如私钥有加密）", text: $passphrase).textFieldStyle(.roundedBorder)
+            TextField(L("显示名称"), text: $name).textFieldStyle(.roundedBorder)
+            SecureField(L("口令（如私钥有加密）"), text: $passphrase).textFieldStyle(.roundedBorder)
             if let errorText {
                 Text(errorText).font(.system(size: 11)).foregroundStyle(Theme.danger)
             }
             HStack {
                 Spacer()
-                Button("取消") { app.showingKeyImporter = false }
+                Button(L("取消")) { app.showingKeyImporter = false }
                     .keyboardShortcut(.cancelAction)
-                Button("导入") { importKey() }
+                Button(L("导入")) { importKey() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(path.isEmpty)
             }
@@ -400,7 +400,7 @@ struct KeyImporterView: View {
                                           storageRef: "file:" + expanded)
             app.savePrivateKey(record)
             app.showingKeyImporter = false
-            app.presentMessage("私钥已导入", record.name + "  " + record.fingerprintSHA256)
+            app.presentMessage(L("私钥已导入"), record.name + "  " + record.fingerprintSHA256)
         } catch {
             errorText = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }

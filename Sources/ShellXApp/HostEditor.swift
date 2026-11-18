@@ -25,12 +25,12 @@ struct HostEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(host.name.isEmpty ? "新建主机" : host.name)
+                Text(host.name.isEmpty ? L("新建主机") : host.name)
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Button("取消") { app.editingHost = nil }
+                Button(L("取消")) { app.editingHost = nil }
                     .keyboardShortcut(.cancelAction)
-                Button("保存") { save() }
+                Button(L("保存")) { save() }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 16)
@@ -77,16 +77,16 @@ struct HostEditorView: View {
     // MARK: - Sections
 
     private var connectionSection: some View {
-        section("连接") {
-            labeled("名称") {
-                TextField("例如 生产环境 Web", text: $host.name)
+        section(L("连接")) {
+            labeled(L("名称")) {
+                TextField(L("例如 生产环境 Web"), text: $host.name)
                     .textFieldStyle(.roundedBorder)
             }
-            labeled("地址") {
+            labeled(L("地址")) {
                 HStack(spacing: 6) {
-                    TextField("example.com 或 10.0.0.1", text: $host.hostname)
+                    TextField(L("example.com 或 10.0.0.1"), text: $host.hostname)
                         .textFieldStyle(.roundedBorder)
-                    Text("端口")
+                    Text(L("端口"))
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.secondary)
                     TextField("22", value: $host.port, format: .number)
@@ -94,13 +94,13 @@ struct HostEditorView: View {
                         .frame(width: 62)
                 }
             }
-            labeled("用户名") {
+            labeled(L("用户名")) {
                 TextField("root", text: $host.username)
                     .textFieldStyle(.roundedBorder)
             }
-            labeled("分组") {
+            labeled(L("分组")) {
                 Picker("", selection: $host.groupID) {
-                    Text("未分组").tag(UUID?.none)
+                    Text(L("未分组")).tag(UUID?.none)
                     ForEach(app.groups) { group in
                         Text(app.groupPath(for: group.id)).tag(Optional(group.id))
                     }
@@ -111,8 +111,8 @@ struct HostEditorView: View {
     }
 
     private var authSection: some View {
-        section("认证") {
-            labeled("方式") {
+        section(L("认证")) {
+            labeled(L("方式")) {
                 Picker("", selection: $host.authMethod) {
                     ForEach(AuthMethod.allCases, id: \.self) { method in
                         Text(method.displayName).tag(method)
@@ -122,18 +122,18 @@ struct HostEditorView: View {
             }
             switch host.authMethod {
             case .password, .keyboardInteractive:
-                labeled("密码") {
-                    SecureField("留空则使用已保存的密码", text: $password)
+                labeled(L("密码")) {
+                    SecureField(L("留空则使用已保存的密码"), text: $password)
                         .textFieldStyle(.roundedBorder)
                 }
                 labeled("") {
-                    Toggle("保存密码到钥匙串", isOn: $host.savesPassword)
+                    Toggle(L("保存密码到钥匙串"), isOn: $host.savesPassword)
                         .font(.system(size: 11))
                 }
             case .privateKey:
-                labeled("私钥") {
+                labeled(L("私钥")) {
                     Picker("", selection: keySelection) {
-                        Text("磁盘上的私钥文件").tag(UUID?.none)
+                        Text(L("磁盘上的私钥文件")).tag(UUID?.none)
                         ForEach(app.keys) { key in
                             Text(key.name).tag(Optional(key.id))
                         }
@@ -141,21 +141,21 @@ struct HostEditorView: View {
                     .labelsHidden()
                 }
                 if host.keyID == nil {
-                    labeled("路径") {
+                    labeled(L("路径")) {
                         HStack(spacing: 6) {
                             TextField("~/.ssh/id_rsa", text: identityPath)
                                 .textFieldStyle(.roundedBorder)
-                            Button("选择…") { chooseKeyFile() }
+                            Button(L("选择…")) { chooseKeyFile() }
                                 .font(.system(size: 11))
                         }
                     }
                 }
-                labeled("口令") {
-                    SecureField("私钥口令（可选）", text: $passphrase)
+                labeled(L("口令")) {
+                    SecureField(L("私钥口令（可选）"), text: $passphrase)
                         .textFieldStyle(.roundedBorder)
                 }
             case .agent:
-                Text("使用 ssh-agent 里的密钥；需要系统 ssh 连接方式，或在内置实现里可用且已加载的 agent 密钥。")
+                Text(L("使用 ssh-agent 里的密钥；需要系统 ssh 连接方式，或在内置实现里可用且已加载的 agent 密钥。"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -164,24 +164,24 @@ struct HostEditorView: View {
     }
 
     private var proxySection: some View {
-        section("代理") {
-            labeled("代理") {
+        section(L("代理")) {
+            labeled(L("代理")) {
                 HStack(spacing: 6) {
                     Picker("", selection: proxySelection) {
-                        Text("不使用代理").tag("direct")
-                        Text("继承分组设置").tag("inherit")
+                        Text(L("不使用代理")).tag("direct")
+                        Text(L("继承分组设置")).tag("inherit")
                         ForEach(app.proxies) { proxy in
                             Text(proxy.name + " · " + proxy.endpointDescription).tag(proxy.id.uuidString)
                         }
                     }
                     .labelsHidden()
                     Menu {
-                        Button("HTTP 代理…") { beginNewProxy(.http) }
-                        Button("HTTPS 代理…") { beginNewProxy(.https) }
-                        Button("SOCKS5 代理…") { beginNewProxy(.socks5) }
-                        Button("SOCKS5（远端 DNS）…") { beginNewProxy(.socks5h) }
+                        Button(L("HTTP 代理…")) { beginNewProxy(.http) }
+                        Button(L("HTTPS 代理…")) { beginNewProxy(.https) }
+                        Button(L("SOCKS5 代理…")) { beginNewProxy(.socks5) }
+                        Button(L("SOCKS5（远端 DNS）…")) { beginNewProxy(.socks5h) }
                     } label: {
-                        Label("新建", systemImage: "plus")
+                        Label(L("新建"), systemImage: "plus")
                             .font(.system(size: 11))
                     }
                     .menuStyle(.borderlessButton)
@@ -195,9 +195,9 @@ struct HostEditorView: View {
                                   : host.hostname + ":" + String(host.port))
                     .padding(.leading, 72)
             }
-            Text("代理只作用于连接的第一跳 TCP，优先级：主机 > 分组 > 全局。"
-                 + "代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。"
-                 + "连接失败时先点上面的「测试连通性」，它能把代理不可达和代理拒绝隧道分开。")
+            Text(L("代理只作用于连接的第一跳 TCP，优先级：主机 > 分组 > 全局。")
+                 + L("代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。")
+                 + L("连接失败时先点上面的「测试连通性」，它能把代理不可达和代理拒绝隧道分开。"))
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -212,19 +212,19 @@ struct HostEditorView: View {
     }
 
     private var jumpSection: some View {
-        section("跳板机") {
-            labeled("方式") {
+        section(L("跳板机")) {
+            labeled(L("方式")) {
                 Picker("", selection: jumpSelection) {
-                    Text("直连").tag("direct")
-                    Text("继承分组设置").tag("inherit")
-                    Text("指定跳板机").tag("custom")
+                    Text(L("直连")).tag("direct")
+                    Text(L("继承分组设置")).tag("inherit")
+                    Text(L("指定跳板机")).tag("custom")
                 }
                 .labelsHidden()
             }
             if case .hosts(let ids) = host.jumpPolicy {
                 VStack(alignment: .leading, spacing: 8) {
                     if ids.isEmpty {
-                        Text("按顺序经过 1–3 台主机；在下面输入名称或地址搜索，不会列出全部主机。")
+                        Text(L("按顺序经过 1–3 台主机；在下面输入名称或地址搜索，不会列出全部主机。"))
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -235,7 +235,7 @@ struct HostEditorView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.secondary)
-                        TextField("搜索主机（名称或地址）", text: $jumpQuery)
+                        TextField(L("搜索主机（名称或地址）"), text: $jumpQuery)
                             .textFieldStyle(.plain)
                             .font(.system(size: 11))
                         if !jumpQuery.isEmpty {
@@ -268,9 +268,9 @@ struct HostEditorView: View {
                 HStack(spacing: 5) {
                     Image(systemName: showsAdvanced ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                    Text("高级")
+                    Text(L("高级"))
                         .font(.system(size: 11, weight: .semibold))
-                    Text("连接方式、终端、保活")
+                    Text(L("连接方式、终端、保活"))
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.secondary)
                     Spacer(minLength: 0)
@@ -282,9 +282,9 @@ struct HostEditorView: View {
 
             if showsAdvanced {
                 VStack(alignment: .leading, spacing: 8) {
-                    labeled("连接方式") {
+                    labeled(L("连接方式")) {
                         Picker("", selection: transportSelection) {
-                            Text("自动（推荐）").tag("auto")
+                            Text(L("自动（推荐）")).tag("auto")
                             ForEach(HostTransport.allCases, id: \.self) { transport in
                                 Text(transport.displayName).tag(transport.rawValue)
                             }
@@ -296,47 +296,47 @@ struct HostEditorView: View {
                         .foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.leading, 72)
-                    labeled("终端类型") {
+                    labeled(L("终端类型")) {
                         TextField("xterm-256color", text: terminalTypeText)
                             .textFieldStyle(.roundedBorder)
                     }
-                    labeled("编码") {
+                    labeled(L("编码")) {
                         Picker("", selection: encodingSelection) {
-                            Text("继承分组").tag("inherit")
+                            Text(L("继承分组")).tag("inherit")
                             ForEach(TextEncodingKind.allCases, id: \.self) { kind in
                                 Text(kind.displayName).tag(kind.rawValue)
                             }
                         }
                         .labelsHidden()
                     }
-                    labeled("起始目录") {
-                        TextField("（可选）", text: stringBinding(\.startDirectory))
+                    labeled(L("起始目录")) {
+                        TextField(L("（可选）"), text: stringBinding(\.startDirectory))
                             .textFieldStyle(.roundedBorder)
                     }
-                    labeled("启动命令") {
-                        TextField("（可选）", text: stringBinding(\.startupCommand))
+                    labeled(L("启动命令")) {
+                        TextField(L("（可选）"), text: stringBinding(\.startupCommand))
                             .textFieldStyle(.roundedBorder)
                     }
-                    labeled("上传目录") {
-                        TextField("（可选）", text: stringBinding(\.defaultUploadDirectory))
+                    labeled(L("上传目录")) {
+                        TextField(L("（可选）"), text: stringBinding(\.defaultUploadDirectory))
                             .textFieldStyle(.roundedBorder)
                     }
-                    labeled("保活") {
+                    labeled(L("保活")) {
                         Picker("", selection: keepaliveSelection) {
-                            Text("继承分组").tag(0)
-                            Text("关闭").tag(-1)
-                            Text("每 30 秒").tag(30)
-                            Text("每 60 秒").tag(60)
-                            Text("每 300 秒").tag(300)
+                            Text(L("继承分组")).tag(0)
+                            Text(L("关闭")).tag(-1)
+                            Text(L("每 30 秒")).tag(30)
+                            Text(L("每 60 秒")).tag(60)
+                            Text(L("每 300 秒")).tag(300)
                         }
                         .labelsHidden()
                     }
                     labeled("") {
-                        Toggle("复用连接（同一主机多个标签共享一条 SSH 连接）", isOn: $host.reuseConnection)
+                        Toggle(L("复用连接（同一主机多个标签共享一条 SSH 连接）"), isOn: $host.reuseConnection)
                             .font(.system(size: 11))
                     }
                     labeled("") {
-                        Toggle("记录会话日志", isOn: sessionLoggingBinding)
+                        Toggle(L("记录会话日志"), isOn: sessionLoggingBinding)
                             .font(.system(size: 11))
                     }
                 }
@@ -383,7 +383,7 @@ struct HostEditorView: View {
         let matches = jumpMatches(excluding: ids)
         return VStack(alignment: .leading, spacing: 0) {
             if matches.isEmpty {
-                Text("没有匹配的主机")
+                Text(L("没有匹配的主机"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .padding(8)
@@ -498,7 +498,7 @@ struct HostEditorView: View {
     private var transportHint: String {
         switch host.transport {
         case .none:
-            return "默认先用内置实现；遇到只支持旧算法（ssh-rsa / diffie-hellman-group14-sha1）的服务器，会在连接失败时提示并改用系统 ssh。"
+            return L("默认先用内置实现；遇到只支持旧算法（ssh-rsa / diffie-hellman-group14-sha1）的服务器，会在连接失败时提示并改用系统 ssh。")
         case .some(let transport):
             return transport.detail
         }
@@ -545,7 +545,7 @@ struct HostEditorView: View {
         if on {
             guard !ids.contains(id) else { return }
             guard ids.count < 3 else {
-                validationMessage = "最多只能串联 3 台跳板机"
+                validationMessage = L("最多只能串联 3 台跳板机")
                 return
             }
             ids.append(id)
@@ -564,7 +564,7 @@ struct HostEditorView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
-        panel.message = "选择用于认证的私钥文件"
+        panel.message = L("选择用于认证的私钥文件")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         host.identityFilePath = url.path
         host.keyID = nil
@@ -574,11 +574,11 @@ struct HostEditorView: View {
         let name = host.name.trimmingCharacters(in: .whitespaces)
         let address = host.hostname.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty || !address.isEmpty else {
-            validationMessage = "请至少填写名称或地址"
+            validationMessage = L("请至少填写名称或地址")
             return
         }
         if !address.isEmpty && host.port <= 0 {
-            validationMessage = "端口需要是大于 0 的整数"
+            validationMessage = L("端口需要是大于 0 的整数")
             return
         }
         host.name = name

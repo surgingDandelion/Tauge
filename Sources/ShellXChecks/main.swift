@@ -342,6 +342,10 @@ enum CheckError: Error {
     case message(String)
 }
 
+// MARK: - Localization
+
+runLocalizationChecks()
+
 // MARK: - Summary
 
 if failures == 0 {

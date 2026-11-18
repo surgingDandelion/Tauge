@@ -8,10 +8,10 @@ public enum ConflictPolicy: String, Codable, Sendable, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .overwrite: return "覆盖"
-        case .skip: return "跳过"
-        case .rename: return "重命名"
-        case .onlyIfNewer: return "仅较新"
+        case .overwrite: return L("覆盖")
+        case .skip: return L("跳过")
+        case .rename: return L("重命名")
+        case .onlyIfNewer: return L("仅较新")
         }
     }
 }

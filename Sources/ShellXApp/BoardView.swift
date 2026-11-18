@@ -63,15 +63,15 @@ private struct BoardHeader: View {
 
             if let board {
                 saveControl
-                Text("\(board.panes.count) 个窗格")
+                Text(L("%d 个窗格", board.panes.count))
                     .font(.system(size: 11))
                     .foregroundColor(Theme.secondary)
             }
 
-            iconButton("bolt.horizontal.circle", help: "连接全部窗格") {
+            iconButton("bolt.horizontal.circle", help: L("连接全部窗格")) {
                 app.connectAllBoardSessions()
             }
-            iconButton("square.grid.2x2", help: "自动网格排列") {
+            iconButton("square.grid.2x2", help: L("自动网格排列")) {
                 app.autoGridBoard()
             }
         }
@@ -84,21 +84,21 @@ private struct BoardHeader: View {
 
     private var boardMenu: some View {
         Menu {
-            Button("新建工作区…") { app.promptCreateBoard() }
+            Button(L("新建工作区…")) { app.promptCreateBoard() }
             if let board {
-                Button("重命名工作区…") {
-                    if let name = Prompt.text(title: "重命名工作区", message: "输入新的工作区名称。", defaultValue: board.name) {
+                Button(L("重命名工作区…")) {
+                    if let name = Prompt.text(title: L("重命名工作区"), message: L("输入新的工作区名称。"), defaultValue: board.name) {
                         app.renameBoard(board.id, name: name)
                     }
                 }
-                Button("删除工作区…", role: .destructive) {
+                Button(L("删除工作区…"), role: .destructive) {
                     guard app.boards.count > 1 else {
-                        app.presentMessage("无法删除", "至少保留一个工作区。")
+                        app.presentMessage(L("无法删除"), L("至少保留一个工作区。"))
                         return
                     }
-                    if Prompt.confirm(title: "删除「\(board.name)」？",
-                                      message: "工作区里的终端会断开，主机配置不受影响。",
-                                      destructiveTitle: "删除") {
+                    if Prompt.confirm(title: L("删除「%@」？", board.name),
+                                      message: L("工作区里的终端会断开，主机配置不受影响。"),
+                                      destructiveTitle: L("删除")) {
                         app.deleteBoard(board.id)
                     }
                 }
@@ -108,7 +108,7 @@ private struct BoardHeader: View {
                 Image(systemName: "rectangle.split.3x3")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Theme.secondary)
-                Text(board?.name ?? "工作区")
+                Text(board?.name ?? L("工作区"))
                     .font(.system(size: 12, weight: .semibold))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
@@ -125,16 +125,16 @@ private struct BoardHeader: View {
             let focusedID = app.currentBoard?.focusedPaneID ?? app.currentBoard?.panes.first?.id
             ForEach(app.hosts) { host in
                 Menu(host.name) {
-                    Button("右侧切分") { split(host, axis: .horizontal, newFirst: false, focusedID) }
-                    Button("左侧切分") { split(host, axis: .horizontal, newFirst: true, focusedID) }
+                    Button(L("右侧切分")) { split(host, axis: .horizontal, newFirst: false, focusedID) }
+                    Button(L("左侧切分")) { split(host, axis: .horizontal, newFirst: true, focusedID) }
                     Divider()
-                    Button("下方切分") { split(host, axis: .vertical, newFirst: false, focusedID) }
-                    Button("上方切分") { split(host, axis: .vertical, newFirst: true, focusedID) }
+                    Button(L("下方切分")) { split(host, axis: .vertical, newFirst: false, focusedID) }
+                    Button(L("上方切分")) { split(host, axis: .vertical, newFirst: true, focusedID) }
                 }
                 .disabled(focusedID == nil)
             }
         } label: {
-            Label("切分", systemImage: "rectangle.split.2x1")
+            Label(L("切分"), systemImage: "rectangle.split.2x1")
                 .font(.system(size: 11))
         }
         .menuStyle(.borderlessButton)
@@ -154,9 +154,9 @@ private struct BoardHeader: View {
         Menu {
             BoardAddHostMenuItems()
             Divider()
-            Button("新建工作区（选服务器）…") { app.promptCreateBoard() }
+            Button(L("新建工作区（选服务器）…")) { app.promptCreateBoard() }
         } label: {
-            Label("添加主机", systemImage: "plus.rectangle.on.rectangle")
+            Label(L("添加主机"), systemImage: "plus.rectangle.on.rectangle")
                 .font(.system(size: 11))
         }
         .menuStyle(.borderlessButton)
@@ -178,7 +178,7 @@ private struct BoardHeader: View {
             HStack(spacing: 4) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 10, weight: .semibold))
-                Text(on ? (peers > 0 ? "广播中 · \(peers)" : "广播中") : "广播")
+                Text(on ? (peers > 0 ? L("广播中 · %d", peers) : L("广播中")) : L("广播"))
                     .font(.system(size: 11, weight: on ? .medium : .regular))
                     .monospacedDigit()
             }
@@ -195,7 +195,7 @@ private struct BoardHeader: View {
         }
         .buttonStyle(.plain)
         .disabled(app.boardSessions.isEmpty)
-        .shortcutTip(on ? "命令广播已开启 · 点按关闭" : "命令广播 · 在一个窗格输入，其他窗格同步输入",
+        .shortcutTip(on ? L("命令广播已开启 · 点按关闭") : L("命令广播 · 在一个窗格输入，其他窗格同步输入"),
                      keys: ["⌥⌘B"])
     }
 
@@ -209,12 +209,12 @@ private struct BoardHeader: View {
                     Circle()
                         .fill(Theme.warning)
                         .frame(width: 6, height: 6)
-                    Text("未保存")
+                    Text(L("未保存"))
                         .font(.system(size: 11, weight: .medium))
                 } else {
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
-                    Text("已保存")
+                    Text(L("已保存"))
                         .font(.system(size: 11))
                 }
             }
@@ -228,7 +228,7 @@ private struct BoardHeader: View {
         }
         .buttonStyle(.plain)
         .disabled(!app.boardDirty)
-        .shortcutTip(app.boardDirty ? "保存工作区" : "工作区已保存", keys: app.boardDirty ? ["⌘S"] : [])
+        .shortcutTip(app.boardDirty ? L("保存工作区") : L("工作区已保存"), keys: app.boardDirty ? ["⌘S"] : [])
     }
 
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -250,8 +250,8 @@ private struct BoardLayoutToggle: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            segment("list.bullet.rectangle", active: !isGrid, help: "单窗格") { onChange(false) }
-            segment("square.split.2x1", active: isGrid, help: "分屏") { onChange(true) }
+            segment("list.bullet.rectangle", active: !isGrid, help: L("单窗格")) { onChange(false) }
+            segment("square.split.2x1", active: isGrid, help: L("分屏")) { onChange(true) }
         }
         .padding(2)
         .background(
@@ -288,7 +288,7 @@ private struct BoardAddHostMenuItems: View {
             groupMenu(node)
         }
         if !app.ungroupedHosts.isEmpty {
-            Menu("未分组") {
+            Menu(L("未分组")) {
                 ForEach(app.ungroupedHosts) { host in
                     Button(host.name) { app.addHostsToBoard([host.id]) }
                 }
@@ -300,7 +300,7 @@ private struct BoardAddHostMenuItems: View {
     private func groupMenu(_ node: SidebarGroupNode) -> some View {
         Menu(node.group.name) {
             if !node.hosts.isEmpty {
-                Button("添加全部 " + String(node.hosts.count) + " 台") {
+                Button(L("添加全部 ") + String(node.hosts.count) + L(" 台")) {
                     app.addHostsToBoard(node.hosts.map(\.id))
                 }
                 Divider()
@@ -324,7 +324,7 @@ private struct BoardSessionList: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("终端")
+                Text(L("终端"))
                     .font(.system(size: 11, weight: .semibold))
                 Text("\(app.boardSessions.count)")
                     .font(.system(size: 10, weight: .medium))
@@ -342,7 +342,7 @@ private struct BoardSessionList: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .frame(width: 18)
-                .help("添加主机到工作区")
+                .help(L("添加主机到工作区"))
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
@@ -403,7 +403,7 @@ private struct BoardSessionRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("关闭窗格")
+                .help(L("关闭窗格"))
             }
         }
         .padding(.horizontal, 7)
@@ -433,15 +433,15 @@ private struct BoardSessionRow: View {
             if session.connectionState == .idle { app.connectBoardSession(session) }
         }
         .contextMenu {
-            Button("连接") { app.connectBoardSession(session) }
-            Button("编辑主机…") { app.editingHost = app.host(id: session.host.id) }
-            Button(session.showsSFTP ? "隐藏文件面板" : "显示文件面板") {
+            Button(L("连接")) { app.connectBoardSession(session) }
+            Button(L("编辑主机…")) { app.editingHost = app.host(id: session.host.id) }
+            Button(session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
                 app.focusBoardPane(session.id)
                 app.toggleSFTP(session)
                 app.scheduleBoardPersist()
             }
             Divider()
-            Button("关闭窗格") { app.closeBoardPane(session.id) }
+            Button(L("关闭窗格")) { app.closeBoardPane(session.id) }
         }
     }
 
@@ -662,17 +662,17 @@ private struct BoardPaneView: View {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(session.connectionState.isConnected ? Theme.accent : Theme.secondary)
-                    .help("命令广播已开启：此窗格的输入会同步到工作区其他已连接窗格")
+                    .help(L("命令广播已开启：此窗格的输入会同步到工作区其他已连接窗格"))
             }
 
             if hovering || session.showsSFTP || isFocused {
                 paneButton(session.showsSFTP ? "folder.fill" : "folder",
                            active: session.showsSFTP,
-                           help: session.showsSFTP ? "隐藏文件面板" : "显示文件面板") {
+                           help: session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
                     app.toggleSFTP(session)
                     app.scheduleBoardPersist()
                 }
-                paneButton("xmark", help: "关闭窗格") {
+                paneButton("xmark", help: L("关闭窗格")) {
                     app.closeBoardPane(session.id)
                 }
             }
@@ -698,7 +698,7 @@ private struct BoardPaneView: View {
         .onDrag {
             NSItemProvider(object: session.id.uuidString as NSString)
         }
-        .help("拖动标题栏可移动窗格，双击最大化")
+        .help(L("拖动标题栏可移动窗格，双击最大化"))
     }
 
     /// Opaque so the title bar never picks up a shell colour drawn under it.
@@ -848,16 +848,16 @@ private struct BoardEmptyView: View {
             Image(systemName: "rectangle.split.3x3")
                 .font(.system(size: 30, weight: .light))
                 .foregroundColor(Theme.secondary.opacity(0.7))
-            Text("这个工作区还没有终端")
+            Text(L("这个工作区还没有终端"))
                 .font(.system(size: 15, weight: .semibold))
-            Text("从侧边栏拖一台主机到窗口里，或用下面的菜单添加。")
+            Text(L("从侧边栏拖一台主机到窗口里，或用下面的菜单添加。"))
                 .font(.system(size: 11))
                 .foregroundColor(Theme.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
 
             HStack(spacing: 10) {
-                Menu("添加主机") {
+                Menu(L("添加主机")) {
                     ForEach(app.hosts) { host in
                         Button(host.name) { app.addHostsToBoard([host.id]) }
                     }

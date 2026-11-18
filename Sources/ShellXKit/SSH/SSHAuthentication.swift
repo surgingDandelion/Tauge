@@ -10,9 +10,9 @@ public enum SSHAuthMaterial: Sendable {
 
     public var methodDescription: String {
         switch self {
-        case .password: return "密码"
-        case .privateKey: return "公钥"
-        case .none: return "无认证"
+        case .password: return L("密码")
+        case .privateKey: return L("公钥")
+        case .none: return L("无认证")
         }
     }
 }

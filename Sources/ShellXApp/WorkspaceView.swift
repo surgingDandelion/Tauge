@@ -121,28 +121,28 @@ struct TabStripView: View {
             }
             Divider().frame(height: 18)
             HStack(spacing: 2) {
-                StripMenu(systemName: "plus", help: "新建标签：SFTP 标签可以在一个窗口里同时连多个服务器", tip: "新建标签", keys: ["⌘T", "⇧⌘T"]) {
-                    Button("新建 SFTP 标签…（选择主机，可多选）") { app.beginNewSFTPTab() }
-                    Button("新建 SFTP 标签（当前主机）") { app.openSFTPTabForSelection() }
-                    Button("新建终端标签（当前主机）") {
+                StripMenu(systemName: "plus", help: L("新建标签：SFTP 标签可以在一个窗口里同时连多个服务器"), tip: L("新建标签"), keys: ["⌘T", "⇧⌘T"]) {
+                    Button(L("新建 SFTP 标签…（选择主机，可多选）")) { app.beginNewSFTPTab() }
+                    Button(L("新建 SFTP 标签（当前主机）")) { app.openSFTPTabForSelection() }
+                    Button(L("新建终端标签（当前主机）")) {
                         if let id = app.selectedSidebarHostID, let host = app.host(id: id) {
                             app.openTab(for: host)
                         }
                     }
                     Divider()
-                    Menu("为指定主机新建 SFTP 标签") {
+                    Menu(L("为指定主机新建 SFTP 标签")) {
                         ForEach(app.hosts) { host in
                             Button(host.name) { app.openSFTPTab(for: host) }
                         }
                     }
                 }
 
-                StripButton(systemName: "house", help: "起始页：所有主机和工作区（⇧⌘H）", tip: "起始页", keys: ["⇧⌘H"]) {
+                StripButton(systemName: "house", help: L("起始页：所有主机和工作区（⇧⌘H）"), tip: L("起始页"), keys: ["⇧⌘H"]) {
                     app.showStartPage()
                 }
 
-                StripMenu(systemName: "rectangle.grid.2x2", title: "工作区", help: "工作区：一块窗口里放多个分屏终端，和普通连接一样是顶部标签（⇧⌘B 新建）", tip: "工作区", keys: ["⇧⌘B"]) {
-                    Button("新建工作区…") { app.promptCreateBoard() }
+                StripMenu(systemName: "rectangle.grid.2x2", title: L("工作区"), help: L("工作区：一块窗口里放多个分屏终端，和普通连接一样是顶部标签（⇧⌘B 新建）"), tip: L("工作区"), keys: ["⇧⌘B"]) {
+                    Button(L("新建工作区…")) { app.promptCreateBoard() }
                     if !app.boards.isEmpty {
                         Divider()
                         ForEach(app.boards) { board in
@@ -163,7 +163,7 @@ struct TabStripView: View {
                     SftpToggleButton(tab: tab)
                 }
 
-                StripButton(systemName: "arrow.clockwise", help: "重新连接", tip: "重新连接", keys: ["⌘R"], isEnabled: app.selectedTab != nil) {
+                StripButton(systemName: "arrow.clockwise", help: L("重新连接"), tip: L("重新连接"), keys: ["⌘R"], isEnabled: app.selectedTab != nil) {
                     if app.isWorkspaceSelected {
                         app.connectAllBoardSessions()
                     } else if let tab = app.selectedTab {
@@ -173,7 +173,7 @@ struct TabStripView: View {
 
                 Rectangle().fill(Theme.separator.opacity(0.6)).frame(width: 1, height: 14).padding(.horizontal, 3)
 
-                StripButton(systemName: "arrow.up.arrow.down", title: "传输", help: "传输中心（⇧⌘J）", tip: "传输中心", keys: ["⇧⌘J"], badge: app.activeTransferCount) {
+                StripButton(systemName: "arrow.up.arrow.down", title: L("传输"), help: L("传输中心（⇧⌘J）"), tip: L("传输中心"), keys: ["⇧⌘J"], badge: app.activeTransferCount) {
                     app.showingTransferCenter = true
                 }
             }
@@ -200,7 +200,7 @@ private struct SftpToggleButton: View {
                 .foregroundStyle(tab.showsSFTP ? Theme.accent : Theme.secondary)
         }
         .buttonStyle(.plain)
-        .shortcutTip(tab.showsSFTP ? "隐藏 SFTP 面板" : "显示 SFTP 面板", keys: ["⇧⌘O"])
+        .shortcutTip(tab.showsSFTP ? L("隐藏 SFTP 面板") : L("显示 SFTP 面板"), keys: ["⇧⌘O"])
     }
 }
 
@@ -218,7 +218,7 @@ struct StartPageChipView: View {
             Image(systemName: "house")
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundColor(isSelected ? Theme.accent : Theme.secondary)
-            Text("起始页")
+            Text(L("起始页"))
                 .font(.system(size: 11.5, weight: isSelected ? .medium : .regular))
                 .lineLimit(1)
         }
@@ -237,7 +237,7 @@ struct StartPageChipView: View {
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
         }
-        .shortcutTip("起始页：所有主机和工作区", keys: ["⇧⌘H", "⌘0"], align: .leading)
+        .shortcutTip(L("起始页：所有主机和工作区"), keys: ["⇧⌘H", "⌘0"], align: .leading)
     }
 
     private var chipBackground: Color {
@@ -285,7 +285,7 @@ struct TabChipView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("关闭标签（⌘W）")
+                .help(L("关闭标签（⌘W）"))
             }
         }
         .padding(.leading, 9)
@@ -314,9 +314,9 @@ struct TabChipView: View {
             app.handleTabDrop(providers: providers, onto: tab)
         }
         .contextMenu {
-            Button("重新连接") { app.reconnect(tab) }
-            Button("关闭标签") { app.closeTab(tab) }
-            Button("关闭其他标签") {
+            Button(L("重新连接")) { app.reconnect(tab) }
+            Button(L("关闭标签")) { app.closeTab(tab) }
+            Button(L("关闭其他标签")) {
                 for other in app.tabs where other.id != tab.id { app.closeTab(other) }
             }
         }
@@ -371,7 +371,7 @@ struct BoardChipView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("关闭工作区标签（终端会断开，工作区配置保留）")
+                .help(L("关闭工作区标签（终端会断开，工作区配置保留）"))
             }
         }
         .padding(.leading, 9)
@@ -396,8 +396,8 @@ struct BoardChipView: View {
             app.handleTabDrop(providers: providers, ontoBoard: board.id)
         }
         .contextMenu {
-            Button("连接全部窗格") { app.openBoardTab(board.id) }
-            Button("关闭工作区标签") { app.closeBoardTab(board.id) }
+            Button(L("连接全部窗格")) { app.openBoardTab(board.id) }
+            Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
         }
     }
 
@@ -470,7 +470,7 @@ struct TerminalPane: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.secondary)
-            TextField("在终端中查找", text: $findQuery)
+            TextField(L("在终端中查找"), text: $findQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .frame(width: 160)
@@ -578,14 +578,14 @@ struct TerminalPane: View {
             .padding(12)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 8) {
-                Text("连接失败").font(.system(size: 13, weight: .semibold))
+                Text(L("连接失败")).font(.system(size: 13, weight: .semibold))
                 Text(message)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(4)
                 HStack {
-                    Button("重试") { app.reconnect(tab) }
-                    Button("编辑主机") { app.editingHost = tab.host }
+                    Button(L("重试")) { app.reconnect(tab) }
+                    Button(L("编辑主机")) { app.editingHost = tab.host }
                 }
                 .controlSize(.small)
             }
@@ -596,16 +596,16 @@ struct TerminalPane: View {
             .padding(16)
         case .disconnected(let reason):
             VStack(alignment: .leading, spacing: 8) {
-                Text("连接已断开").font(.system(size: 13, weight: .semibold))
+                Text(L("连接已断开")).font(.system(size: 13, weight: .semibold))
                 Text(reason)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
-                Text("提示：重连后如需恢复会话，可在终端执行 tmux attach 或 screen -r")
+                Text(L("提示：重连后如需恢复会话，可在终端执行 tmux attach 或 screen -r"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
                 HStack {
-                    Button("重新连接") { app.reconnect(tab) }
-                    Text("终端内容已保留，可滚动查看").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                    Button(L("重新连接")) { app.reconnect(tab) }
+                    Text(L("终端内容已保留，可滚动查看")).font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
                 .controlSize(.small)
             }
@@ -617,13 +617,13 @@ struct TerminalPane: View {
             // A tab restored from the workspace snapshot has no session until
             // something dials it. Never leave that as an unexplained blank pane.
             VStack(alignment: .leading, spacing: 8) {
-                Text("尚未连接").font(.system(size: 13, weight: .semibold))
-                Text("这个标签是上次退出时保存的，会话已经结束。")
+                Text(L("尚未连接")).font(.system(size: 13, weight: .semibold))
+                Text(L("这个标签是上次退出时保存的，会话已经结束。"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
                 HStack {
-                    Button("连接") { app.connect(tab: tab) }
-                    Button("编辑主机") { app.editingHost = tab.host }
+                    Button(L("连接")) { app.connect(tab: tab) }
+                    Button(L("编辑主机")) { app.editingHost = tab.host }
                 }
                 .controlSize(.small)
             }

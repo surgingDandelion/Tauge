@@ -1,4 +1,5 @@
 import AppKit
+import ShellXKit
 
 /// Developer hook that renders the main window to a PNG without a screen
 /// capture. Useful when the session is locked (screencapture returns

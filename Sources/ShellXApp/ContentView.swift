@@ -62,7 +62,7 @@ struct ContentView: View {
         .alert(item: $app.alert) { error in
             Alert(title: Text(error.title),
                   message: Text(error.suggestion.map { error.message + "\n\n" + $0 } ?? error.message),
-                  dismissButton: .default(Text("好"), action: { app.scheduleTerminalFocus(0.12) }))
+                  dismissButton: .default(Text(L("好")), action: { app.scheduleTerminalFocus(0.12) }))
         }
     }
 

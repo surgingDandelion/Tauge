@@ -56,7 +56,7 @@ public enum ProxyProbe {
                 outcome: .handshakeRejected,
                 elapsedMilliseconds: elapsed(),
                 summary: ProxyHandshakeError.unsupportedType("HTTPS").localizedDescription,
-                recommendation: "改用 HTTP CONNECT 或 SOCKS5 代理；HTTPS（TLS）代理暂未实现。"
+                recommendation: L("改用 HTTP CONNECT 或 SOCKS5 代理；HTTPS（TLS）代理暂未实现。")
             )
         }
 
@@ -72,8 +72,8 @@ public enum ProxyProbe {
             result = ProxyProbeResult(
                 outcome: .ok,
                 elapsedMilliseconds: elapsed(),
-                summary: "代理可用：经 " + proxy.host + ":" + String(proxy.port)
-                    + " 已打通到 " + targetHost + ":" + String(targetPort) + " 的隧道",
+                summary: L("代理可用：经 ") + proxy.host + ":" + String(proxy.port)
+                    + L(" 已打通到 ") + targetHost + ":" + String(targetPort) + L(" 的隧道"),
                 recommendation: nil
             )
         } catch let error as ProxyConnectionError {
@@ -81,7 +81,7 @@ public enum ProxyProbe {
                 outcome: .proxyUnreachable,
                 elapsedMilliseconds: elapsed(),
                 summary: error.localizedDescription,
-                recommendation: "这一步只验证到代理这一段；失败说明本机到代理地址/端口不通（VPN、端口或地址有误），与目标主机无关。"
+                recommendation: L("这一步只验证到代理这一段；失败说明本机到代理地址/端口不通（VPN、端口或地址有误），与目标主机无关。")
             )
         } catch let error as ProxyHandshakeError {
             result = ProxyProbeResult(
@@ -95,7 +95,7 @@ public enum ProxyProbe {
                 outcome: .handshakeRejected,
                 elapsedMilliseconds: elapsed(),
                 summary: error.localizedDescription,
-                recommendation: "代理已连通，但握手没有完成；确认代理类型与端口是否匹配。"
+                recommendation: L("代理已连通，但握手没有完成；确认代理类型与端口是否匹配。")
             )
         }
         try? await group.shutdownGracefully()
@@ -131,30 +131,30 @@ public enum ProxyProbe {
     private static func recommendation(for error: ProxyHandshakeError, proxy: ProxyEndpoint) -> String {
         switch error {
         case .unsupportedType:
-            return "改用 HTTP CONNECT 或 SOCKS5 代理；HTTPS（TLS）代理暂未实现。"
+            return L("改用 HTTP CONNECT 或 SOCKS5 代理；HTTPS（TLS）代理暂未实现。")
         case .timeout, .malformedResponse, .closedWithoutResponse:
-            return "TCP 能连上但对方没有按 " + proxy.type.displayName
-                + " 应答：确认「类型」与端口是否匹配（例如 8080 是 HTTP CONNECT，1080 才是 SOCKS5）。"
+            return L("TCP 能连上但对方没有按 ") + proxy.type.displayName
+                + L(" 应答：确认「类型」与端口是否匹配（例如 8080 是 HTTP CONNECT，1080 才是 SOCKS5）。")
         case .httpStatus(let code):
             if code == 407 {
-                return "代理要求认证：填写用户名和密码，并在「保存到钥匙串」后重新测试。"
+                return L("代理要求认证：填写用户名和密码，并在「保存到钥匙串」后重新测试。")
             }
             if code == 403 {
-                return "代理策略不允许访问该目标：换一个测试目标，或联系代理管理员放行。"
+                return L("代理策略不允许访问该目标：换一个测试目标，或联系代理管理员放行。")
             }
             if code == 502 || code == 503 || code == 504 {
-                return "代理自己连不到目标：说明代理这一段是通的，问题在目标地址或代理到目标的网络。"
+                return L("代理自己连不到目标：说明代理这一段是通的，问题在目标地址或代理到目标的网络。")
             }
-            return "代理返回了 " + String(code) + "：检查代理类型、端口与账号。"
+            return L("代理返回了 ") + String(code) + L("：检查代理类型、端口与账号。")
         case .socks5MethodRejected:
-            return "代理不接受免密/用户名密码认证：确认代理账号，或先不填用户名密码再试。"
+            return L("代理不接受免密/用户名密码认证：确认代理账号，或先不填用户名密码再试。")
         case .socks5AuthFailed:
-            return "SOCKS5 用户名或密码错误：重新填写密码后保存再测试。"
+            return L("SOCKS5 用户名或密码错误：重新填写密码后保存再测试。")
         case .socks5Reply(let code):
             if code == 0x05 {
-                return "代理连不到目标：说明代理这一段是通的，问题在目标地址或代理到目标的网络。"
+                return L("代理连不到目标：说明代理这一段是通的，问题在目标地址或代理到目标的网络。")
             }
-            return "SOCKS5 拒绝连接（错误码 " + String(code) + "）：确认目标端口在代理侧可用。"
+            return L("SOCKS5 拒绝连接（错误码 ") + String(code) + L("）：确认目标端口在代理侧可用。")
         }
     }
 }

@@ -22,12 +22,12 @@ struct TransferHUD: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.up.arrow.down")
-                        Text(active.count == 1 ? "传输中" : "传输中 · " + String(active.count))
+                        Text(active.count == 1 ? L("传输中") : L("传输中 · ") + String(active.count))
                         Spacer()
                         Button {
                             app.showingTransferCenter = true
                         } label: {
-                            Text("详情")
+                            Text(L("详情"))
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.accent)
@@ -38,7 +38,7 @@ struct TransferHUD: View {
                         row(progress)
                     }
                     if active.count > 3 {
-                        Text("另有 " + String(active.count - 3) + " 个传输…")
+                        Text(L("另有 ") + String(active.count - 3) + L(" 个传输…"))
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.secondary)
                     }
@@ -68,7 +68,7 @@ struct TransferHUD: View {
                     .truncationMode(.middle)
                 Spacer()
                 if progress.state == .failed {
-                    Text("失败")
+                    Text(L("失败"))
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.danger)
                 } else {
@@ -83,7 +83,7 @@ struct TransferHUD: View {
                         .font(.system(size: 10))
                 }
                 .buttonStyle(.plain)
-                .help("取消传输")
+                .help(L("取消传输"))
             }
             ProgressView(value: min(max(progress.fraction, 0), 1))
                 .controlSize(.small)
@@ -91,15 +91,15 @@ struct TransferHUD: View {
                 Text(FileAttributeFormatter.size(progress.bytesCompleted) + " / " + FileAttributeFormatter.size(progress.bytesTotal))
                 Text(FileAttributeFormatter.speed(bytesPerSecond: progress.bytesPerSecond))
                 if let remaining = progress.remainingTime {
-                    Text("剩余 " + FileAttributeFormatter.duration(remaining))
+                    Text(L("剩余 ") + FileAttributeFormatter.duration(remaining))
                 }
                 Spacer()
                 if progress.state == .paused {
-                    Button("继续") { app.resumeTransfer(progress) }
+                    Button(L("继续")) { app.resumeTransfer(progress) }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.accent)
                 } else if progress.state == .failed {
-                    Button("重试") { app.retryTransfer(progress) }
+                    Button(L("重试")) { app.retryTransfer(progress) }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.accent)
                 }

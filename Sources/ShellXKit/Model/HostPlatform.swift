@@ -39,7 +39,7 @@ public enum HostPlatform: String, Codable, CaseIterable, Sendable {
         case .freebsd: return "FreeBSD"
         case .linux: return "Linux"
         case .windows: return "Windows"
-        case .unknown: return "未知系统"
+        case .unknown: return L("未知系统")
         }
     }
 

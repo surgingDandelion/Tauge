@@ -16,7 +16,7 @@ struct StatusBarView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .shortcutTip(app.settings.sidebarVisible ? "隐藏侧边栏" : "显示侧边栏", keys: ["⌃⌘S"], below: false)
+            .shortcutTip(app.settings.sidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏"), keys: ["⌃⌘S"], below: false)
 
             if app.isWorkspaceSelected {
                 // A workspace is not tied to one tab, so showing the selected tab's route here
@@ -32,7 +32,7 @@ struct StatusBarView: View {
                 // status text needs a view that subscribes to it or it never refreshes.
                 TabStatusItems(tab: tab)
             } else {
-                Text("就绪")
+                Text(L("就绪"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }
@@ -43,13 +43,13 @@ struct StatusBarView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                        Text("数据库只读")
+                        Text(L("数据库只读"))
                     }
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.warning)
                 }
                 .buttonStyle(.plain)
-                .help("当前无法写入数据库位置：" + app.catalogPath)
+                .help(L("当前无法写入数据库位置：") + app.catalogPath)
             }
             if app.activeTransferCount > 0 {
                 Button {
@@ -66,7 +66,7 @@ struct StatusBarView: View {
             Button {
                 app.showingCommandPalette = true
             } label: {
-                Text("⌘K 命令面板")
+                Text(L("⌘K 命令面板"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }
@@ -83,19 +83,19 @@ struct StatusBarView: View {
     /// "3 个传输 · 4.2 MB/s" so throughput is visible without opening a panel.
     private var activeTransferLabel: String {
         let active = app.transfers.filter { !$0.state.isTerminal }
-        let label = String(app.activeTransferCount) + " 个传输"
+        let label = L("%d 个传输", app.activeTransferCount)
         let speed = active.reduce(0.0) { $0 + $1.bytesPerSecond }
         guard speed > 0 else { return label }
         return label + " · " + FileAttributeFormatter.speed(bytesPerSecond: speed)
     }
 
     private var boardSummary: String {
-        let name = app.currentBoard?.name ?? "工作区"
-        let layout = (app.currentBoard?.isGrid == true) ? "宫格" : "列表"
+        let name = app.currentBoard?.name ?? L("工作区")
+        let layout = (app.currentBoard?.isGrid == true) ? L("宫格") : L("列表")
         let connected = app.boardSessions.filter { $0.connectionState.isConnected }.count
-        let broadcast = app.settings.broadcastInput ? " · 广播" : ""
-        return "工作区“" + name + "” · " + String(app.boardSessions.count) + " 个窗格 · "
-            + String(connected) + " 已连接 · " + layout + broadcast
+        let broadcast = app.settings.broadcastInput ? L(" · 广播") : ""
+        return L("工作区“%@” · %d 个窗格 · %d 已连接 · %@%@",
+                 name, app.boardSessions.count, connected, layout, broadcast)
     }
 }
 
@@ -127,7 +127,7 @@ struct TabStatusItems: View {
             if tab.kind == .sftp {
                 // SFTP-only tab: encoding and $TERM mean nothing here, the
                 // panel count is what tells the user how many servers are open.
-                Text("SFTP · " + String(tab.allRemotes.count) + " 个面板")
+                Text("SFTP · " + String(tab.allRemotes.count) + L(" 个面板"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             } else if tab.connectionState.isConnected {

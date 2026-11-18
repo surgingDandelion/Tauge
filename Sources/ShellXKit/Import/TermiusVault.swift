@@ -274,13 +274,13 @@ public enum TermiusVaultError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .databaseNotFound(let detail):
-            return "没有找到 Termius 的本地数据库。" + detail
+            return L("没有找到 Termius 的本地数据库。") + detail
         case .keyUnavailable(let detail):
-            return "无法读取 Termius 的本地加密密钥。" + detail
+            return L("无法读取 Termius 的本地加密密钥。") + detail
         case .noRecords:
-            return "Termius 数据库里没有可导入的记录。可能还没有登录过任何账号。"
+            return L("Termius 数据库里没有可导入的记录。可能还没有登录过任何账号。")
         case .unsupportedLayout(let detail):
-            return "Termius 数据库格式无法识别：" + detail
+            return L("Termius 数据库格式无法识别：") + detail
         }
     }
 }
@@ -308,7 +308,7 @@ public enum TermiusVaultReader {
         if let key = keyFromKeychain() {
             return key
         }
-        let message = "可以在终端执行 security find-generic-password -s Termius -a localKey -w 取出密钥后粘贴到下面的输入框。"
+        let message = L("可以在终端执行 security find-generic-password -s Termius -a localKey -w 取出密钥后粘贴到下面的输入框。")
         throw TermiusVaultError.keyUnavailable(message)
     }
 
@@ -317,7 +317,7 @@ public enum TermiusVaultReader {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\"", with: "")
         guard let data = Data(base64Encoded: trimmed), data.count == Salsa20Poly1305.keyByteCount else {
-            throw TermiusVaultError.keyUnavailable("密钥应为 44 个 base64 字符（32 字节），实际长度 " + String(trimmed.count) + "。")
+            throw TermiusVaultError.keyUnavailable(L("密钥应为 44 个 base64 字符（32 字节），实际长度 ") + String(trimmed.count) + "。")
         }
         return [UInt8](data)
     }
@@ -377,7 +377,7 @@ public enum TermiusVaultReader {
     public static func read(directory: String, key: [UInt8]) throws -> TermiusCatalogue {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory) else {
-            throw TermiusVaultError.databaseNotFound("路径不存在：" + directory)
+            throw TermiusVaultError.databaseNotFound(L("路径不存在：") + directory)
         }
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
         let databaseFiles = entries.filter { name in
@@ -386,7 +386,7 @@ public enum TermiusVaultReader {
                 && !name.hasPrefix("MANIFEST") && !name.hasPrefix("LOG") && !name.hasPrefix("CURRENT") && !name.hasPrefix("LOCK")
         }
         guard !databaseFiles.isEmpty else {
-            throw TermiusVaultError.databaseNotFound("目录里没有 LevelDB 数据文件：" + directory)
+            throw TermiusVaultError.databaseNotFound(L("目录里没有 LevelDB 数据文件：") + directory)
         }
         let manifestPath = directory + "/MANIFEST-000001"
         let manifests = entries.filter { $0.hasPrefix("MANIFEST") }

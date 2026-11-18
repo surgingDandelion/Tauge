@@ -83,12 +83,12 @@ public enum SystemSSHError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .unsupportedProxy(let name):
-            return "系统 ssh 兼容模式无法使用 " + name + "：系统 ssh 只能借 nc 转发，带不了代理认证，也不支持把代理和跳板机串起来。"
-                + "请把「高级 → 连接方式」改回「自动」或「内置」——内置 SSH 栈支持 HTTP CONNECT / SOCKS5 的完整认证。"
+            return L("系统 ssh 兼容模式无法使用 ") + name + L("：系统 ssh 只能借 nc 转发，带不了代理认证，也不支持把代理和跳板机串起来。")
+                + L("请把「高级 → 连接方式」改回「自动」或「内置」——内置 SSH 栈支持 HTTP CONNECT / SOCKS5 的完整认证。")
         case .missingExecutable(let path):
-            return "找不到系统 ssh 客户端（" + path + "）。"
+            return L("找不到系统 ssh 客户端（") + path + "）。"
         case .keyUnavailable:
-            return "系统 ssh 兼容模式需要可用的私钥内容。"
+            return L("系统 ssh 兼容模式需要可用的私钥内容。")
         case .processFailed(let detail):
             return detail
         }
@@ -318,13 +318,13 @@ public enum SystemSSHCommandBuilder {
         guard let proxy = options.proxy else { return }
         if proxyCommand(for: proxy) == nil {
             if proxy.type == .https {
-                throw SystemSSHError.unsupportedProxy("HTTPS（TLS）代理")
+                throw SystemSSHError.unsupportedProxy(L("HTTPS（TLS）代理"))
             }
             let authenticated = proxy.username?.isEmpty == false || proxy.password?.isEmpty == false
-            throw SystemSSHError.unsupportedProxy((authenticated ? "带用户名或密码的 " : "") + proxy.type.displayName)
+            throw SystemSSHError.unsupportedProxy((authenticated ? L("带用户名或密码的 ") : "") + proxy.type.displayName)
         }
         if !options.jumps.isEmpty {
-            throw SystemSSHError.unsupportedProxy("代理 + 跳板机组合")
+            throw SystemSSHError.unsupportedProxy(L("代理 + 跳板机组合"))
         }
     }
 }
@@ -433,7 +433,7 @@ public final class SystemSSHTerminalProcess: SystemSSHChild, @unchecked Sendable
                            ws_xpixel: 0,
                            ws_ypixel: 0)
         guard openpty(&master, &slave, nil, nil, &size) == 0 else {
-            throw SystemSSHError.processFailed("无法创建本地伪终端（errno " + String(errno) + "）")
+            throw SystemSSHError.processFailed(L("无法创建本地伪终端（errno ") + String(errno) + "）")
         }
         self.masterFD = master
 
@@ -456,7 +456,7 @@ public final class SystemSSHTerminalProcess: SystemSSHChild, @unchecked Sendable
         } catch {
             close(master)
             close(slave)
-            throw SystemSSHError.processFailed("无法启动 ssh：" + error.localizedDescription)
+            throw SystemSSHError.processFailed(L("无法启动 ssh：") + error.localizedDescription)
         }
         // The child owns its copy of the slave end now; keeping ours open would
         // stop the master from ever seeing EOF.
@@ -599,7 +599,7 @@ public final class SystemSSHSFTPTransport: SFTPTransport, SystemSSHChild, @unche
         do {
             try process.run()
         } catch {
-            throw SystemSSHError.processFailed("无法启动 ssh：" + error.localizedDescription)
+            throw SystemSSHError.processFailed(L("无法启动 ssh：") + error.localizedDescription)
         }
 
         output.readabilityHandler = { [weak self] handle in

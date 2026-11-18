@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: Any?
     private var statusItem: NSStatusItem?
     private var windowObservers: [NSObjectProtocol] = []
+    private var languageObserver: NSObjectProtocol?
     /// The window that hosts `ContentView`. Only this one closing means "quit":
     /// SwiftUI also owns hidden host windows that come and go on their own.
     private weak var mainWindow: NSWindow?
@@ -59,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         installStatusItem()
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: .taugeLanguageDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.installStatusItem()
+        }
         observeWindowClosing()
         WindowSnapshot.runIfRequested()
         // Cmd+W belongs to tabs, not to the window. SwiftUI always installs a
@@ -95,22 +101,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A template ("black and white") squircle in the menu bar, so it adapts to
     /// light, dark and tinted menu bars instead of looking like a coloured photo.
     private func installStatusItem() {
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
             button.image = MenuBarIcon.image()
-            button.toolTip = "Tauge — 本地 SSH / SFTP 客户端"
+            button.toolTip = L("Tauge — 本地 SSH / SFTP 客户端")
         }
 
         let menu = NSMenu()
-        menu.addItem(statusItem("打开 Tauge 窗口", #selector(openWindowFromMenuBar)))
+        menu.addItem(statusItem(L("打开 Tauge 窗口"), #selector(openWindowFromMenuBar)))
         menu.addItem(.separator())
-        menu.addItem(statusItem("新建 SFTP 标签…", #selector(newSFTPTabFromMenuBar)))
-        menu.addItem(statusItem("新建终端标签", #selector(newTerminalTabFromMenuBar)))
+        menu.addItem(statusItem(L("新建 SFTP 标签…"), #selector(newSFTPTabFromMenuBar)))
+        menu.addItem(statusItem(L("新建终端标签"), #selector(newTerminalTabFromMenuBar)))
         menu.addItem(.separator())
-        menu.addItem(statusItem("命令面板…", #selector(commandPaletteFromMenuBar)))
-        menu.addItem(statusItem("传输中心…", #selector(transferCenterFromMenuBar)))
+        menu.addItem(statusItem(L("命令面板…"), #selector(commandPaletteFromMenuBar)))
+        menu.addItem(statusItem(L("传输中心…"), #selector(transferCenterFromMenuBar)))
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 Tauge", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L("退出 Tauge"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
         item.menu = menu
@@ -264,85 +274,85 @@ struct ShellXCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("新建主机") { app.editingHost = SSHHost(name: "新主机") }
+            Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
                 .keyboardShortcut("n", modifiers: .command)
-            Button("复制主机…") {
+            Button(L("复制主机…")) {
                 if let host = app.selectedSidebarHost ?? app.selectedTab?.host {
                     app.duplicateHost(host)
                 }
             }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(app.selectedSidebarHost == nil && app.selectedTab == nil)
-            Button("新建分组") { app.beginNewGroup() }
+            Button(L("新建分组")) { app.beginNewGroup() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Divider()
-            Button("从 ~/.ssh/config 导入") { app.importSSHConfig() }
-            Button("从 Termius 导入…") { app.beginTermiusImport() }
+            Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
+            Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
         }
 
         CommandGroup(replacing: .saveItem) {
             // A workspace assembled from dragged tabs has no name yet: saving
             // it asks for one first (see AppState.requestSaveCurrentBoard).
-            Button("保存工作区") { app.requestSaveCurrentBoard() }
+            Button(L("保存工作区")) { app.requestSaveCurrentBoard() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(app.currentBoard == nil || !app.boardDirty)
         }
 
-        CommandMenu("标签") {
-            Button("新建标签") { newTab() }
+        CommandMenu(L("标签")) {
+            Button(L("新建标签")) { newTab() }
                 .keyboardShortcut("t", modifiers: .command)
                 .disabled(app.hosts.isEmpty)
-            Button("新建 SFTP 标签…") { app.beginNewSFTPTab() }
+            Button(L("新建 SFTP 标签…")) { app.beginNewSFTPTab() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(app.hosts.isEmpty)
-            Button("关闭标签") {
+            Button(L("关闭标签")) {
                 if let tab = app.selectedTab { app.closeTab(tab) }
             }
             .keyboardShortcut("w", modifiers: .command)
             .disabled(app.selectedTab == nil)
             Divider()
-            Button("重新连接") {
+            Button(L("重新连接")) {
                 if let tab = app.selectedTab { app.reconnect(tab) }
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(app.selectedTab == nil)
-            Button("显示/隐藏 SFTP") {
+            Button(L("显示/隐藏 SFTP")) {
                 if let tab = app.selectedTab { app.toggleSFTP(tab) }
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(app.selectedTab == nil || app.selectedTab?.kind == .sftp)
             Divider()
-            Button("回到起始页") { app.showStartPage() }
+            Button(L("回到起始页")) { app.showStartPage() }
                 .keyboardShortcut("0", modifiers: .command)
             ForEach(1...9, id: \.self) { index in
-                Button("标签 " + String(index)) {
+                Button(L("标签 ") + String(index)) {
                     app.selectTab(at: index - 1)
                 }
                 .keyboardShortcut(KeyEquivalent(Character(String(index))), modifiers: .command)
             }
         }
 
-        CommandMenu("导航") {
-            Button("命令面板") { app.showingCommandPalette = true }
+        CommandMenu(L("导航")) {
+            Button(L("命令面板")) { app.showingCommandPalette = true }
                 .keyboardShortcut("k", modifiers: .command)
-            Button("传输中心") { app.showingTransferCenter = true }
+            Button(L("传输中心")) { app.showingTransferCenter = true }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
             Divider()
-            Button("起始页") { app.showStartPage() }
+            Button(L("起始页")) { app.showStartPage() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
-            Button("新建工作区…") { app.promptCreateBoard() }
+            Button(L("新建工作区…")) { app.promptCreateBoard() }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
             Divider()
-            Button(app.settings.broadcastInput ? "关闭命令广播" : "开启命令广播") {
+            Button(app.settings.broadcastInput ? L("关闭命令广播") : L("开启命令广播")) {
                 app.toggleBroadcastingInput()
             }
             .keyboardShortcut("b", modifiers: [.command, .option])
             .disabled(!app.isWorkspaceSelected || app.boardSessions.isEmpty)
             Divider()
-            Button(app.settings.sidebarVisible ? "隐藏侧边栏" : "显示侧边栏") { app.toggleSidebar() }
+            Button(app.settings.sidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏")) { app.toggleSidebar() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
             Divider()
-            Button("全部分组展开/折叠") {
+            Button(L("全部分组展开/折叠")) {
                 app.searchText = ""
             }
         }

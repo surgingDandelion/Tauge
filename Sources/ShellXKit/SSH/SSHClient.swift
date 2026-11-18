@@ -16,25 +16,25 @@ public enum SSHConnectionStage: String, Sendable {
 
     public var displayName: String {
         switch self {
-        case .dns: return "域名解析"
-        case .tcp: return "建立 TCP 连接"
-        case .proxy: return "代理握手"
-        case .keyExchange: return "算法协商"
-        case .hostKey: return "主机密钥校验"
-        case .authentication: return "身份认证"
-        case .channel: return "打开会话通道"
+        case .dns: return L("域名解析")
+        case .tcp: return L("建立 TCP 连接")
+        case .proxy: return L("代理握手")
+        case .keyExchange: return L("算法协商")
+        case .hostKey: return L("主机密钥校验")
+        case .authentication: return L("身份认证")
+        case .channel: return L("打开会话通道")
         }
     }
 
     public var suggestion: String {
         switch self {
-        case .dns: return "请检查主机地址拼写，或确认当前网络可以解析该域名。"
-        case .tcp: return "请确认主机在线、端口正确，并检查防火墙或安全组设置。"
-        case .proxy: return "请先在代理设置里点「测试」：它会把「到代理的 TCP 不通」和「代理拒绝这条隧道」区分开，再按提示检查地址、类型或账号。"
-        case .keyExchange: return "服务器可能只支持过时的算法，请升级服务器 SSH 版本。"
-        case .hostKey: return "主机密钥与记录不一致，可能存在中间人攻击；确认无误后可更新记录。"
-        case .authentication: return "请检查用户名、密码或私钥是否匹配，以及服务器是否允许该认证方式。"
-        case .channel: return "服务器拒绝打开会话，可能限制了会话数量或子系统。"
+        case .dns: return L("请检查主机地址拼写，或确认当前网络可以解析该域名。")
+        case .tcp: return L("请确认主机在线、端口正确，并检查防火墙或安全组设置。")
+        case .proxy: return L("请先在代理设置里点「测试」：它会把「到代理的 TCP 不通」和「代理拒绝这条隧道」区分开，再按提示检查地址、类型或账号。")
+        case .keyExchange: return L("服务器可能只支持过时的算法，请升级服务器 SSH 版本。")
+        case .hostKey: return L("主机密钥与记录不一致，可能存在中间人攻击；确认无误后可更新记录。")
+        case .authentication: return L("请检查用户名、密码或私钥是否匹配，以及服务器是否允许该认证方式。")
+        case .channel: return L("服务器拒绝打开会话，可能限制了会话数量或子系统。")
         }
     }
 }
@@ -53,7 +53,7 @@ public struct SSHConnectionError: Error, LocalizedError {
     }
 
     public var errorDescription: String? {
-        return stage.displayName + "失败（" + host + ":" + String(port) + "）：" + detail
+        return stage.displayName + L("失败（") + host + ":" + String(port) + "）：" + detail
     }
 
     public var recoverySuggestion: String? {
@@ -185,14 +185,14 @@ public actor SSHClient {
         } else if case .disconnected = state {
             state = .idle
         } else {
-            throw SSHConnectionError(stage: .channel, detail: "连接已存在或正在建立", host: options.host, port: options.port)
+            throw SSHConnectionError(stage: .channel, detail: L("连接已存在或正在建立"), host: options.host, port: options.port)
         }
         if options.transport == .system {
             try await connectWithSystemSSH(options)
             return
         }
         guard let group else {
-            throw SSHConnectionError(stage: .tcp, detail: "事件循环组已关闭", host: options.host, port: options.port)
+            throw SSHConnectionError(stage: .tcp, detail: L("事件循环组已关闭"), host: options.host, port: options.port)
         }
         state = .connecting
         openedChannelCount = 0
@@ -228,7 +228,7 @@ public actor SSHClient {
                 hopIndex += 1
                 activeHost = jump.host
                 activePort = jump.port
-                hopContext = "第 " + String(hopIndex) + " 跳 " + jump.username + "@" + jump.host + ":" + String(jump.port)
+                hopContext = L("第 ") + String(hopIndex) + L(" 跳 ") + jump.username + "@" + jump.host + ":" + String(jump.port)
                 stage = .keyExchange
                 let (jumpHandler, jumpAuthDelegate) = try await addSSHHandler(to: transport,
                                                                host: jump.host,
@@ -253,7 +253,7 @@ public actor SSHClient {
 
             // The destination handshake rides on the tunnel set up above.
             if hopIndex > 0 {
-                hopContext = "经 " + String(hopIndex) + " 跳"
+                hopContext = L("经 ") + String(hopIndex) + L(" 跳")
             }
             stage = .keyExchange
             let (handler, authDelegate) = try await addSSHHandler(to: transport,
@@ -422,12 +422,12 @@ public actor SSHClient {
         if let error = error as? SSHClientError, case .channelOpenTimedOut = error {
             if authDelegate?.didExhaustOffers ?? false {
                 return SSHConnectionError(stage: .authentication,
-                                          detail: "服务器拒绝了所有可用的认证方式（私钥或密码）",
+                                          detail: L("服务器拒绝了所有可用的认证方式（私钥或密码）"),
                                           host: "",
                                           port: 0)
             }
             return SSHConnectionError(stage: .channel,
-                                      detail: "服务器没有响应打开通道的请求，连接可能已被中断",
+                                      detail: L("服务器没有响应打开通道的请求，连接可能已被中断"),
                                       host: "",
                                       port: 0)
         }
@@ -606,9 +606,9 @@ public actor SSHClient {
         self.systemOptions = systemOptions
         self.systemWorkspace = workspace
         self.transportKind = .system
-        var description = ["系统 ssh " + systemOptions.destination + ":" + String(systemOptions.port)]
+        var description = [L("系统 ssh ") + systemOptions.destination + ":" + String(systemOptions.port)]
         if !systemOptions.jumps.isEmpty {
-            description.append("经 " + String(systemOptions.jumps.count) + " 跳")
+            description.append(L("经 ") + String(systemOptions.jumps.count) + L(" 跳"))
         }
         self.hopDescriptions = description
         self.state = .connected
@@ -685,7 +685,7 @@ public actor SSHClient {
     static func systemSSHFailure(_ result: SystemSSHResult, host: String, port: Int) -> SSHConnectionError {
         let raw = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = raw.isEmpty
-            ? (result.timedOut ? "连接超时，服务器没有回应" : "系统 ssh 以状态码 " + String(result.exitCode) + " 退出")
+            ? (result.timedOut ? L("连接超时，服务器没有回应") : L("系统 ssh 以状态码 ") + String(result.exitCode) + L(" 退出"))
             : raw
         let lower = text.lowercased()
         let stage: SSHConnectionStage
@@ -724,7 +724,7 @@ public actor SSHClient {
         rootChannel?.close(mode: .all, promise: nil)
         rootChannel = nil
         sshHandler = nil
-        state = .disconnected("已断开")
+        state = .disconnected(L("已断开"))
     }
 
     /// Closes the connection and releases the event loop group when owned.
@@ -761,14 +761,14 @@ public actor SSHClient {
             state = .disconnected(failure.detail)
             return
         }
-        state = .disconnected("连接已关闭")
+        state = .disconnected(L("连接已关闭"))
     }
 
     /// The error reported when a transport closes before its first channel opens.
     private static func handshakeFailure(for options: SSHConnectOptions) -> SSHConnectionError {
         SSHConnectionError(stage: .keyExchange,
-                           detail: "服务器在密钥交换阶段关闭了连接。若该服务器只提供 ssh-rsa（SHA-1）、ssh-dss 等旧算法，"
-                               + "Tauge 出于安全策略不会启用它们，请升级服务器 SSH 版本或改用 ed25519/ECDSA 主机密钥。",
+                           detail: L("服务器在密钥交换阶段关闭了连接。若该服务器只提供 ssh-rsa（SHA-1）、ssh-dss 等旧算法，")
+                               + L("Tauge 出于安全策略不会启用它们，请升级服务器 SSH 版本或改用 ed25519/ECDSA 主机密钥。"),
                            host: options.host,
                            port: options.port)
     }
@@ -789,9 +789,9 @@ public actor SSHClient {
         }
         guard closedImmediately else { return nil }
         return SSHConnectionError(stage: .keyExchange,
-                                  detail: hopContext + "：对端在 SSH 握手阶段关闭了连接。"
-                                      + "该机器可能只提供 ssh-rsa（SHA-1）等旧算法，Tauge 的内置 SSH 栈不会启用它们；"
-                                      + "请把「连接方式」改为系统 ssh，或直接连接让 Tauge 自动切换。",
+                                  detail: hopContext + L("：对端在 SSH 握手阶段关闭了连接。")
+                                      + L("该机器可能只提供 ssh-rsa（SHA-1）等旧算法，Tauge 的内置 SSH 栈不会启用它们；")
+                                      + L("请把「连接方式」改为系统 ssh，或直接连接让 Tauge 自动切换。"),
                                   host: host,
                                   port: port)
     }
@@ -833,9 +833,9 @@ public enum SSHClientError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .notConnected: return "SSH 连接尚未建立"
-        case .unsupported(let feature): return "暂不支持：" + feature
-        case .channelOpenTimedOut: return "打开 SSH 通道超时"
+        case .notConnected: return L("SSH 连接尚未建立")
+        case .unsupported(let feature): return L("暂不支持：") + feature
+        case .channelOpenTimedOut: return L("打开 SSH 通道超时")
         }
     }
 }

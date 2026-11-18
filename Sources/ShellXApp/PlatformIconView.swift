@@ -119,7 +119,7 @@ struct HostPlatformIcon: View {
     }
 
     private var helpText: String {
-        guard let platform else { return "登录后自动识别操作系统" }
+        guard let platform else { return L("登录后自动识别操作系统") }
         if let detail, !detail.isEmpty { return detail }
         return platform.displayName
     }

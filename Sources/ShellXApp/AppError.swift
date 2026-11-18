@@ -19,7 +19,7 @@ struct AppError: LocalizedError, Identifiable, Equatable {
         self.suggestion = suggestion
     }
 
-    init(_ error: Error, title: String = "操作失败") {
+    init(_ error: Error, title: String = L("操作失败")) {
         if let ssh = error as? SSHConnectionError {
             self.init(title: title,
                       message: ssh.errorDescription ?? ssh.detail,
@@ -27,17 +27,17 @@ struct AppError: LocalizedError, Identifiable, Equatable {
         } else if let app = error as? AppError {
             self.init(title: app.title, message: app.message, suggestion: app.suggestion)
         } else if let sqlite = error as? SQLiteError, sqlite.isReadOnly {
-            self.init(title: "数据库不可写",
-                      message: "Tauge 无法写入本地数据库，刚才的修改没有被保存。",
-                      suggestion: "常见原因是应用运行在受限沙盒中，或数据库文件与目录没有写权限。请从 Finder 直接启动 Tauge.app 后重试；也可以在“设置 → 高级”中把数据库迁移到可写位置。")
+            self.init(title: L("数据库不可写"),
+                      message: L("Tauge 无法写入本地数据库，刚才的修改没有被保存。"),
+                      suggestion: L("常见原因是应用运行在受限沙盒中，或数据库文件与目录没有写权限。请从 Finder 直接启动 Tauge.app 后重试；也可以在“设置 → 高级”中把数据库迁移到可写位置。"))
         } else if let sqlite = error as? SQLiteError, sqlite.isDiskFull {
-            self.init(title: "磁盘空间不足",
-                      message: "写入本地数据库失败：磁盘已满。",
-                      suggestion: "请清理磁盘空间后重试。数据库位于“设置 → 高级”显示的位置。")
+            self.init(title: L("磁盘空间不足"),
+                      message: L("写入本地数据库失败：磁盘已满。"),
+                      suggestion: L("请清理磁盘空间后重试。数据库位于“设置 → 高级”显示的位置。"))
         } else if let sqlite = error as? SQLiteError, sqlite.isUnopenable {
-            self.init(title: "无法打开数据库",
+            self.init(title: L("无法打开数据库"),
                       message: error.localizedDescription,
-                      suggestion: "请检查数据库文件是否被占用或损坏，可在“设置 → 高级”中导出或迁移数据库。")
+                      suggestion: L("请检查数据库文件是否被占用或损坏，可在“设置 → 高级”中导出或迁移数据库。"))
         } else {
             self.init(title: title, message: error.localizedDescription)
         }

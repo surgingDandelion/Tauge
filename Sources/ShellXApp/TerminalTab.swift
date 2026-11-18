@@ -16,11 +16,11 @@ enum TabConnectionState: Equatable {
 
     var label: String {
         switch self {
-        case .idle: return "未连接"
+        case .idle: return L("未连接")
         case .connecting(let stage): return stage
-        case .connected: return "已连接"
-        case .disconnected(let reason): return "已断开 · " + reason
-        case .failed(let reason): return "失败 · " + reason
+        case .connected: return L("已连接")
+        case .disconnected(let reason): return L("已断开 · %@", reason)
+        case .failed(let reason): return L("失败 · %@", reason)
         }
     }
 }

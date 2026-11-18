@@ -10,10 +10,10 @@ struct TransferCenterView: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .all: return "全部"
-            case .active: return "进行中"
-            case .completed: return "已完成"
-            case .failed: return "失败"
+            case .all: return L("全部")
+            case .active: return L("进行中")
+            case .completed: return L("已完成")
+            case .failed: return L("失败")
             }
         }
     }
@@ -21,7 +21,7 @@ struct TransferCenterView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("传输中心").font(.system(size: 14, weight: .semibold))
+                Text(L("传输中心")).font(.system(size: 14, weight: .semibold))
                 Picker("", selection: $filter) {
                     ForEach(TransferFilter.allCases) { item in
                         Text(item.title).tag(item)
@@ -31,11 +31,11 @@ struct TransferCenterView: View {
                 .labelsHidden()
                 .frame(width: 240)
                 Spacer()
-                Button("重试全部失败") { app.retryAllFailedTransfers() }
+                Button(L("重试全部失败")) { app.retryAllFailedTransfers() }
                     .disabled(!filtered.contains { $0.state == .failed })
-                Button("清除已完成") { app.clearFinishedTransfers() }
+                Button(L("清除已完成")) { app.clearFinishedTransfers() }
                     .disabled(!app.transfers.contains { $0.state == .completed || $0.state == .cancelled })
-                Button("关闭") { app.showingTransferCenter = false }
+                Button(L("关闭")) { app.showingTransferCenter = false }
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 16)
@@ -44,16 +44,16 @@ struct TransferCenterView: View {
             Divider()
 
             HStack {
-                Text("冲突策略").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                Text(L("冲突策略")).font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 Picker("", selection: $app.transferConflictPolicy) {
-                    Text("每次询问").tag(ConflictPolicy?.none)
+                    Text(L("每次询问")).tag(ConflictPolicy?.none)
                     ForEach(ConflictPolicy.allCases, id: \.self) { policy in
                         Text(policy.displayName).tag(Optional(policy))
                     }
                 }
                 .labelsHidden()
                 .frame(width: 150)
-                Text("对本窗口内新发起的传输生效")
+                Text(L("对本窗口内新发起的传输生效"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                 Spacer()
@@ -69,7 +69,7 @@ struct TransferCenterView: View {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 26))
                         .foregroundStyle(Theme.secondary)
-                    Text("暂无传输任务").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    Text(L("暂无传输任务")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -114,7 +114,7 @@ struct TransferRowView: View {
                     Text(URL(fileURLWithPath: progress.sourcePath).lastPathComponent)
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
-                    Text(progress.direction == .upload ? "上传" : "下载")
+                    Text(progress.direction == .upload ? L("上传") : L("下载"))
                         .font(.system(size: 9))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -140,10 +140,10 @@ struct TransferRowView: View {
                             Text(FileAttributeFormatter.speed(bytesPerSecond: progress.bytesPerSecond) + "/s")
                         }
                         if let remaining = progress.remainingTime {
-                            Text("剩余 " + FileAttributeFormatter.duration(remaining))
+                            Text(L("剩余 ") + FileAttributeFormatter.duration(remaining))
                         }
                         if progress.attempt > 1 {
-                            Text("第 \(progress.attempt) 次尝试")
+                            Text(L("第 %d 次尝试", progress.attempt))
                                 .foregroundStyle(Theme.warning)
                         }
                         Spacer()
@@ -167,18 +167,18 @@ struct TransferRowView: View {
             HStack(spacing: 6) {
                 switch progress.state {
                 case .running:
-                    Button("暂停") { app.pauseTransfer(progress) }
+                    Button(L("暂停")) { app.pauseTransfer(progress) }
                 case .paused:
-                    Button("继续") { app.resumeTransfer(progress) }
+                    Button(L("继续")) { app.resumeTransfer(progress) }
                 case .failed:
-                    Button("重试") { app.retryTransfer(progress) }
+                    Button(L("重试")) { app.retryTransfer(progress) }
                 case .queued:
-                    Button("取消") { app.cancelTransfer(progress) }
+                    Button(L("取消")) { app.cancelTransfer(progress) }
                 case .completed, .cancelled:
-                    Button("移除") { app.removeTransfer(progress) }
+                    Button(L("移除")) { app.removeTransfer(progress) }
                 }
                 if progress.state != .completed && progress.state != .cancelled {
-                    Button("取消") { app.cancelTransfer(progress) }
+                    Button(L("取消")) { app.cancelTransfer(progress) }
                 }
             }
             .font(.system(size: 10))

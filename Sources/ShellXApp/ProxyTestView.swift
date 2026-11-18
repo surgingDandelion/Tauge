@@ -28,11 +28,11 @@ struct ProxyTestView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                TextField("测试目标（主机:端口）", text: $target)
+                TextField(L("测试目标（主机:端口）"), text: $target)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11))
                     .frame(width: 186)
-                Button(testing ? "测试中…" : "测试连通性") { runTest() }
+                Button(testing ? L("测试中…") : L("测试连通性")) { runTest() }
                     .font(.system(size: 11))
                     .disabled(testing || proxy.host.trimmingCharacters(in: .whitespaces).isEmpty)
                 if testing {
@@ -76,12 +76,12 @@ struct ProxyTestView: View {
 
     private func runTest() {
         guard proxy.port > 0, proxy.port < 65536 else {
-            inputError = "代理端口需要是 1–65535 之间的整数"
+            inputError = L("代理端口需要是 1–65535 之间的整数")
             result = nil
             return
         }
         guard let parsed = ProxyProbe.parseTarget(target) else {
-            inputError = "测试目标格式应为 主机:端口，例如 example.com:443"
+            inputError = L("测试目标格式应为 主机:端口，例如 example.com:443")
             result = nil
             return
         }

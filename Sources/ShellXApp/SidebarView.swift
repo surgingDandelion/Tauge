@@ -28,7 +28,7 @@ struct SidebarView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.secondary)
                 .font(.system(size: 11))
-            TextField("搜索主机、地址、标签（支持拼音）", text: $app.searchText)
+            TextField(L("搜索主机、地址、标签（支持拼音）"), text: $app.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !app.searchText.isEmpty {
@@ -51,17 +51,17 @@ struct SidebarView: View {
             Image(systemName: "server.rack")
                 .font(.system(size: 28))
                 .foregroundStyle(Theme.secondary)
-            Text("还没有主机")
+            Text(L("还没有主机"))
                 .font(.system(size: 13, weight: .medium))
-            Text("新建一台主机，或从 ~/.ssh/config 导入已有配置。")
+            Text(L("新建一台主机，或从 ~/.ssh/config 导入已有配置。"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 18)
-            Button("新建主机") { app.editingHost = SSHHost(name: "新主机") }
+            Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-            Button("从 ~/.ssh/config 导入") { app.importSSHConfig() }
+            Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
                 .buttonStyle(.link)
                 .font(.system(size: 11))
             Spacer()
@@ -73,11 +73,11 @@ struct SidebarView: View {
         let results = app.hosts.filter { app.matchesSearch($0, query: app.searchText) }
         return List {
             if results.isEmpty {
-                Text("没有匹配的主机")
+                Text(L("没有匹配的主机"))
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.secondary)
             } else {
-                Section("搜索结果") {
+                Section(L("搜索结果")) {
                     ForEach(results) { host in
                         HostRowView(host: host)
                     }
@@ -90,14 +90,14 @@ struct SidebarView: View {
     private var browser: some View {
         List {
             if !app.favoriteHosts.isEmpty {
-                Section("收藏") {
+                Section(L("收藏")) {
                     ForEach(app.favoriteHosts) { host in
                         HostRowView(host: host)
                     }
                 }
             }
 
-            Section("分组") {
+            Section(L("分组")) {
                 ForEach(app.sidebarTree) { node in
                     GroupNodeView(node: node)
                 }
@@ -105,7 +105,7 @@ struct SidebarView: View {
                     HostRowView(host: host)
                 }
                 if app.sidebarTree.isEmpty && app.ungroupedHosts.isEmpty {
-                    Button("新建第一个分组") { app.beginNewGroup() }
+                    Button(L("新建第一个分组")) { app.beginNewGroup() }
                         .buttonStyle(.link)
                         .font(.system(size: 11))
                 }
@@ -118,7 +118,7 @@ struct SidebarView: View {
             }
 
             if !app.recentHosts.isEmpty {
-                Section("最近") {
+                Section(L("最近")) {
                     ForEach(app.recentHosts) { host in
                         HostRowView(host: host)
                     }
@@ -127,21 +127,21 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .contextMenu {
-            Button("新建主机") { app.editingHost = SSHHost(name: "新主机") }
-            Button("新建分组") { app.beginNewGroup() }
+            Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
+            Button(L("新建分组")) { app.beginNewGroup() }
             Divider()
-            Button("从 ~/.ssh/config 导入") { app.importSSHConfig() }
+            Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
         }
     }
 
     private var footer: some View {
         HStack(spacing: 4) {
             Menu {
-                Button("新建主机") { app.editingHost = SSHHost(name: "新主机") }
-                Button("新建分组") { app.beginNewGroup() }
+                Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
+                Button(L("新建分组")) { app.beginNewGroup() }
                 Divider()
-                Button("新建代理") { app.editingProxy = ProxyConfig(name: "新代理") }
-                Button("导入私钥") { app.showingKeyImporter = true }
+                Button(L("新建代理")) { app.editingProxy = ProxyConfig(name: L("新代理")) }
+                Button(L("导入私钥")) { app.showingKeyImporter = true }
             } label: {
                 Image(systemName: "plus")
             }
@@ -149,10 +149,10 @@ struct SidebarView: View {
             .frame(width: 28)
 
             Menu {
-                Button("从 ~/.ssh/config 导入") { app.importSSHConfig() }
-                Button("从 Termius 导入…") { app.beginTermiusImport() }
-                Button("导入 Tauge 配置文件") { app.importCatalog() }
-                Button("导出 Tauge 配置文件") { app.exportCatalog() }
+                Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
+                Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
+                Button(L("导入 Tauge 配置文件")) { app.importCatalog() }
+                Button(L("导出 Tauge 配置文件")) { app.exportCatalog() }
             } label: {
                 Image(systemName: "square.and.arrow.down")
             }
@@ -232,16 +232,16 @@ struct GroupNodeView: View {
                 .foregroundStyle(Theme.secondary)
         }
         .contextMenu {
-            Button("在此分组新建主机") {
-                app.editingHost = SSHHost(groupID: node.group.id, name: "新主机")
+            Button(L("在此分组新建主机")) {
+                app.editingHost = SSHHost(groupID: node.group.id, name: L("新主机"))
             }
-            Button("连接分组内全部主机") { app.openTabs(for: allHosts) }
-            Button("新建子分组") { app.beginNewGroup(parentID: node.group.id) }
-            Button("重命名分组") { app.editingGroup = node.group }
-            Button("删除分组", role: .destructive) {
-                let confirmed = Prompt.confirm(title: "删除分组“" + node.group.name + "”？",
-                                               message: "分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。",
-                                               destructiveTitle: "删除")
+            Button(L("连接分组内全部主机")) { app.openTabs(for: allHosts) }
+            Button(L("新建子分组")) { app.beginNewGroup(parentID: node.group.id) }
+            Button(L("重命名分组")) { app.editingGroup = node.group }
+            Button(L("删除分组"), role: .destructive) {
+                let confirmed = Prompt.confirm(title: L("删除分组“") + node.group.name + "”？",
+                                               message: L("分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。"),
+                                               destructiveTitle: L("删除"))
                 if confirmed { app.deleteGroup(node.group.id) }
             }
         }
@@ -324,28 +324,28 @@ struct HostRowView: View {
 
     @ViewBuilder
     private func menu() -> some View {
-        Button("连接") { app.openTab(for: host) }
-        Button("连接并打开 SFTP") { app.openTab(for: host, showsSFTP: true) }
-                                Button("新建 SFTP 标签") { app.openSFTPTab(for: host) }
-        Button("在工作区中打开") { app.openInBoard(hostID: host.id) }
+        Button(L("连接")) { app.openTab(for: host) }
+        Button(L("连接并打开 SFTP")) { app.openTab(for: host, showsSFTP: true) }
+                                Button(L("新建 SFTP 标签")) { app.openSFTPTab(for: host) }
+        Button(L("在工作区中打开")) { app.openInBoard(hostID: host.id) }
         Divider()
-        Button("编辑主机…") { app.editingHost = host }
+        Button(L("编辑主机…")) { app.editingHost = host }
         if app.platformInfo(for: host.id) != nil {
-            Button("重新识别操作系统") { app.redetectPlatform(hostID: host.id) }
+            Button(L("重新识别操作系统")) { app.redetectPlatform(hostID: host.id) }
         }
-        Button("复制主机…") { app.duplicateHost(host) }
-        Button(host.tags.contains("favorite") ? "取消收藏" : "收藏") { app.toggleFavorite(host) }
-        Menu("移动至分组") {
-            Button("未分组") { app.moveHost(host, toGroup: nil) }
+        Button(L("复制主机…")) { app.duplicateHost(host) }
+        Button(host.tags.contains("favorite") ? L("取消收藏") : L("收藏")) { app.toggleFavorite(host) }
+        Menu(L("移动至分组")) {
+            Button(L("未分组")) { app.moveHost(host, toGroup: nil) }
             ForEach(app.groups) { group in
                 Button(group.name) { app.moveHost(host, toGroup: group.id) }
             }
         }
         Divider()
-        Button("删除主机", role: .destructive) {
-            let confirmed = Prompt.confirm(title: "删除主机“" + host.name + "”？",
-                                           message: "主机的连接配置、保存的密码和私钥引用都会被删除。此操作不可撤销。",
-                                           destructiveTitle: "删除")
+        Button(L("删除主机"), role: .destructive) {
+            let confirmed = Prompt.confirm(title: L("删除主机“") + host.name + "”？",
+                                           message: L("主机的连接配置、保存的密码和私钥引用都会被删除。此操作不可撤销。"),
+                                           destructiveTitle: L("删除"))
             if confirmed { app.deleteHost(host.id) }
         }
     }

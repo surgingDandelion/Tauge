@@ -9,7 +9,7 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     let id = UUID()
     /// The host this pane talks to, and its display name.
     @Published var hostID: UUID?
-    @Published var hostName: String = "远端"
+    @Published var hostName: String = L("远端")
     /// Starting directory requested when the pane was added (nil = host default).
     var startDirectory: String?
     @Published var isConnecting = false
@@ -308,7 +308,7 @@ final class LocalBrowserModel: ObservableObject {
         if target.hasPrefix("~") { target = (target as NSString).expandingTildeInPath }
         if !target.hasPrefix("/") { target = POSIXPath.join(path, target) }
         guard service.isDirectory(target) else {
-            errorText = "目录不存在：" + target
+            errorText = L("目录不存在：") + target
             return
         }
         load(target)

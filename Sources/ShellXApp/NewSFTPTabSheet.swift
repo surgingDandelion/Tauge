@@ -22,7 +22,7 @@ struct NewSFTPTabSheet: View {
         }
         walk(app.sidebarTree)
         if !app.ungroupedHosts.isEmpty {
-            result.append(("未分组", app.ungroupedHosts))
+            result.append((L("未分组"), app.ungroupedHosts))
         }
         guard !query.isEmpty else { return result }
         return result.compactMap { section in
@@ -61,8 +61,8 @@ struct NewSFTPTabSheet: View {
             Image(systemName: "arrow.up.arrow.down")
                 .foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text("新建 SFTP 标签").font(.system(size: 13, weight: .semibold))
-                Text("勾选服务器，每台一个远端面板；面板之间可以直接拖拽传输")
+                Text(L("新建 SFTP 标签")).font(.system(size: 13, weight: .semibold))
+                Text(L("勾选服务器，每台一个远端面板；面板之间可以直接拖拽传输"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.secondary)
             }
@@ -78,19 +78,19 @@ struct NewSFTPTabSheet: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
-                TextField("搜索主机", text: $query)
+                TextField(L("搜索主机"), text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                 Spacer()
-                Text("已选 \(selection.count) 台")
+                Text(L("已选 %d 台", selection.count))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
-                Button("全选") {
+                Button(L("全选")) {
                     selection = Set(sections.flatMap { $0.hosts.map(\.id) })
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11))
-                Button("清空") { selection.removeAll() }
+                Button(L("清空")) { selection.removeAll() }
                     .buttonStyle(.plain)
                     .font(.system(size: 11))
                     .disabled(selection.isEmpty)
@@ -100,8 +100,8 @@ struct NewSFTPTabSheet: View {
             Divider()
             if sections.isEmpty {
                 VStack(spacing: 6) {
-                    Text("还没有主机").font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    Text("先在起始页新建主机，或者从 ~/.ssh/config 导入。")
+                    Text(L("还没有主机")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    Text(L("先在起始页新建主机，或者从 ~/.ssh/config 导入。"))
                         .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -131,7 +131,7 @@ struct NewSFTPTabSheet: View {
                 .foregroundStyle(Theme.secondary)
             Spacer()
             let ids = Set(section.hosts.map(\.id))
-            Button(selection.isSuperset(of: ids) ? "取消该组" : "选择该组") {
+            Button(selection.isSuperset(of: ids) ? L("取消该组") : L("选择该组")) {
                 if selection.isSuperset(of: ids) { selection.subtract(ids) } else { selection.formUnion(ids) }
             }
             .buttonStyle(.plain)
@@ -161,7 +161,7 @@ struct NewSFTPTabSheet: View {
                     .lineLimit(1)
                 Spacer()
                 if case .hosts(let ids) = host.jumpPolicy, !ids.isEmpty {
-                    Text("跳板")
+                    Text(L("跳板"))
                         .font(.system(size: 9.5))
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 5)
@@ -178,13 +178,13 @@ struct NewSFTPTabSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(selection.isEmpty ? "至少选择一台服务器" : "将打开 1 个本地面板与 \(selection.count) 个远端面板")
+            Text(selection.isEmpty ? L("至少选择一台服务器") : L("将打开 1 个本地面板与 %d 个远端面板", selection.count))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
             Spacer()
-            Button("取消") { dismiss() }
+            Button(L("取消")) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("打开") { open() }
+            Button(L("打开")) { open() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(selection.isEmpty)
         }

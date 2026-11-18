@@ -53,9 +53,9 @@ extension AppState {
             sourceClient = source.client
         }
         guard let sourceClient else {
-            presentMessage("无法传输",
-                           source.connectionError ?? "源服务器的 SFTP 会话尚未建立。",
-                           suggestion: "在源面板上点“重试”，连上之后再拖一次。")
+            presentMessage(L("无法传输"),
+                           source.connectionError ?? L("源服务器的 SFTP 会话尚未建立。"),
+                           suggestion: L("在源面板上点“重试”，连上之后再拖一次。"))
             return
         }
         var targetClient = target.client
@@ -64,9 +64,9 @@ extension AppState {
             targetClient = target.client
         }
         guard let targetClient else {
-            presentMessage("无法传输",
-                           target.connectionError ?? "目标服务器的 SFTP 会话尚未建立。",
-                           suggestion: "在目标面板上点“重试”，连上之后再拖一次。")
+            presentMessage(L("无法传输"),
+                           target.connectionError ?? L("目标服务器的 SFTP 会话尚未建立。"),
+                           suggestion: L("在目标面板上点“重试”，连上之后再拖一次。"))
             return
         }
 
@@ -239,9 +239,9 @@ extension AppState {
             let source = tab.allRemotes.first(where: { $0.id == sourcePaneID })
                 ?? self.remotePane(forDroppedPath: path, in: tab)
             guard let source, source.id != target.id else {
-                self.presentMessage("无法传输",
-                                    "源和目标在同一个面板里。",
-                                    suggestion: "拖到另一个远端面板，或直接拖到本地面板下载。")
+                self.presentMessage(L("无法传输"),
+                                    L("源和目标在同一个面板里。"),
+                                    suggestion: L("拖到另一个远端面板，或直接拖到本地面板下载。"))
                 return
             }
             var client = source.client
@@ -250,9 +250,9 @@ extension AppState {
                 client = source.client
             }
             guard let client else {
-                self.presentMessage("无法传输",
-                                    source.connectionError ?? "源服务器的 SFTP 会话尚未建立。",
-                                    suggestion: "在源面板上点“重试”后再拖。")
+                self.presentMessage(L("无法传输"),
+                                    source.connectionError ?? L("源服务器的 SFTP 会话尚未建立。"),
+                                    suggestion: L("在源面板上点“重试”后再拖。"))
                 return
             }
             if let entry = source.entries.first(where: { $0.path == path }) {
@@ -271,7 +271,7 @@ extension AppState {
                                       modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
                 self.copyRemotely(entries: [entry], from: source, to: target, tab: tab)
             } catch {
-                self.presentMessage("无法传输", self.describe(error), suggestion: "确认源路径仍然存在。")
+                self.presentMessage(L("无法传输"), self.describe(error), suggestion: L("确认源路径仍然存在。"))
             }
         }
     }

@@ -242,7 +242,7 @@ public enum TermiusImporter {
         var payload = text
         if !payload.hasSuffix("\n") { payload += "\n" }
         guard let data = payload.data(using: .utf8) else {
-            throw TermiusVaultError.unsupportedLayout("私钥不是合法的 UTF-8 文本")
+            throw TermiusVaultError.unsupportedLayout(L("私钥不是合法的 UTF-8 文本"))
         }
         let url = URL(fileURLWithPath: path)
         try data.write(to: url, options: [.atomic])

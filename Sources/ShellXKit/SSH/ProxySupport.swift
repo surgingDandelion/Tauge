@@ -32,34 +32,34 @@ public enum ProxyHandshakeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unsupportedType(let name):
-            return "暂不支持 " + name + " 代理"
+            return L("暂不支持 ") + name + L(" 代理")
         case .malformedResponse:
-            return "代理返回了无法解析的响应：端口上的服务可能不是所选类型的代理"
+            return L("代理返回了无法解析的响应：端口上的服务可能不是所选类型的代理")
         case .closedWithoutResponse:
-            return "代理在收到请求后直接关闭了连接：端口上可能不是该类型的代理，或代理拒绝了这次转发"
+            return L("代理在收到请求后直接关闭了连接：端口上可能不是该类型的代理，或代理拒绝了这次转发")
         case .timeout(let seconds):
-            return "代理在 " + String(seconds) + " 秒内没有完成握手：TCP 已连通，但端口上的服务没有按 "
-                + "所选代理类型应答"
+            return L("代理在 ") + String(seconds) + L(" 秒内没有完成握手：TCP 已连通，但端口上的服务没有按 ")
+                + L("所选代理类型应答")
         case .httpStatus(let code):
             if code == 407 {
-                return "HTTP 代理要求认证（407）：请填写代理用户名和密码，或确认密码是否正确"
+                return L("HTTP 代理要求认证（407）：请填写代理用户名和密码，或确认密码是否正确")
             }
             if code == 403 {
-                return "HTTP 代理拒绝了这次 CONNECT（403）：代理策略不允许访问该目标地址"
+                return L("HTTP 代理拒绝了这次 CONNECT（403）：代理策略不允许访问该目标地址")
             }
             if code == 502 || code == 503 || code == 504 {
-                return "HTTP 代理无法连到目标（状态码 " + String(code) + "）：目标地址对代理不可达"
+                return L("HTTP 代理无法连到目标（状态码 ") + String(code) + L("）：目标地址对代理不可达")
             }
-            return "HTTP 代理拒绝 CONNECT 请求（状态码 " + String(code) + "）"
+            return L("HTTP 代理拒绝 CONNECT 请求（状态码 ") + String(code) + "）"
         case .socks5MethodRejected:
-            return "代理不接受所支持的 SOCKS5 认证方式"
+            return L("代理不接受所支持的 SOCKS5 认证方式")
         case .socks5AuthFailed:
-            return "SOCKS5 用户名或密码错误"
+            return L("SOCKS5 用户名或密码错误")
         case .socks5Reply(let code):
             if code == 0x05 {
-                return "SOCKS5 代理拒绝连接（错误码 5：目标地址不可达）"
+                return L("SOCKS5 代理拒绝连接（错误码 5：目标地址不可达）")
             }
-            return "SOCKS5 代理连接失败（错误码 " + String(code) + "）"
+            return L("SOCKS5 代理连接失败（错误码 ") + String(code) + "）"
         }
     }
 }
@@ -74,9 +74,9 @@ public enum ProxyConnectionError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unreachable(let host, let port, let reason):
-            return "连不上代理 " + host + ":" + String(port) + "：" + reason
-                + "。代理是独立的一段网络，请先确认本机能直接访问代理地址和端口（必要时先连 VPN），"
-                + "并核对代理端口与类型"
+            return L("连不上代理 ") + host + ":" + String(port) + "：" + reason
+                + L("。代理是独立的一段网络，请先确认本机能直接访问代理地址和端口（必要时先连 VPN），")
+                + L("并核对代理端口与类型")
         }
     }
 }

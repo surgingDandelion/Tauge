@@ -82,7 +82,7 @@ struct SFTPBrowserView: View {
 
     private var compactSwitcher: some View {
         HStack(spacing: 4) {
-            compactChip(title: "本地", symbol: "folder", side: .local)
+            compactChip(title: L("本地"), symbol: "folder", side: .local)
             ForEach(tab.allRemotes) { pane in
                 compactChip(title: pane.hostName, symbol: "externaldrive.connected.to.line.below", side: .remote(pane.id))
             }
@@ -226,7 +226,7 @@ struct LocalBrowserPane: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 18)
-            Text("本地")
+            Text(L("本地"))
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
                 .fixedSize()
@@ -250,14 +250,14 @@ struct LocalBrowserPane: View {
 
     private var localWideControls: some View {
         HStack(spacing: 1) {
-            PaneIconButton(systemName: "chevron.backward", help: "后退", isEnabled: model.canGoBack) { model.goBack() }
-            PaneIconButton(systemName: "chevron.forward", help: "前进", isEnabled: model.canGoForward) { model.goForward() }
-            PaneIconButton(systemName: "arrow.up", help: "上级目录") { model.goUp() }
-            PaneIconButton(systemName: "arrow.clockwise", help: "刷新") { model.reload() }
+            PaneIconButton(systemName: "chevron.backward", help: L("后退"), isEnabled: model.canGoBack) { model.goBack() }
+            PaneIconButton(systemName: "chevron.forward", help: L("前进"), isEnabled: model.canGoForward) { model.goForward() }
+            PaneIconButton(systemName: "arrow.up", help: L("上级目录")) { model.goUp() }
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新")) { model.reload() }
             PaneDividerLine()
             localSortMenu
             PaneIconButton(systemName: model.showHidden ? "eye.fill" : "eye",
-                           help: "显示隐藏文件",
+                           help: L("显示隐藏文件"),
                            isOn: model.showHidden) { model.showHidden.toggle() }
             PaneDividerLine()
             uploadButton
@@ -266,21 +266,21 @@ struct LocalBrowserPane: View {
 
     private var localCompactControls: some View {
         HStack(spacing: 1) {
-            PaneIconButton(systemName: "arrow.up", help: "上级目录") { model.goUp() }
-            PaneIconButton(systemName: "arrow.clockwise", help: "刷新") { model.reload() }
+            PaneIconButton(systemName: "arrow.up", help: L("上级目录")) { model.goUp() }
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新")) { model.reload() }
             localOverflowMenu
             uploadButton
         }
     }
 
     private var localOverflowMenu: some View {
-        PaneMenuButton(systemName: "ellipsis", help: "更多操作") {
-            Button("后退") { model.goBack() }.disabled(!model.canGoBack)
-            Button("前进") { model.goForward() }.disabled(!model.canGoForward)
+        PaneMenuButton(systemName: "ellipsis", help: L("更多操作")) {
+            Button(L("后退")) { model.goBack() }.disabled(!model.canGoBack)
+            Button(L("前进")) { model.goForward() }.disabled(!model.canGoForward)
             Divider()
             localSortItems
             Divider()
-            Toggle("显示隐藏文件", isOn: $model.showHidden)
+            Toggle(L("显示隐藏文件"), isOn: $model.showHidden)
         }
     }
 
@@ -290,11 +290,11 @@ struct LocalBrowserPane: View {
             Button(field.displayName) { model.sort = FileSortOrder(field: field, ascending: model.sort.ascending) }
         }
         Divider()
-        Toggle("升序", isOn: Binding(get: { model.sort.ascending }, set: { model.sort.ascending = $0 }))
+        Toggle(L("升序"), isOn: Binding(get: { model.sort.ascending }, set: { model.sort.ascending = $0 }))
     }
 
     private var localSortMenu: some View {
-        PaneMenuButton(systemName: "arrow.up.arrow.down", help: "排序") {
+        PaneMenuButton(systemName: "arrow.up.arrow.down", help: L("排序")) {
             localSortItems
         }
     }
@@ -302,8 +302,8 @@ struct LocalBrowserPane: View {
     private var uploadButton: some View {
         PaneIconButton(systemName: "arrow.up.circle",
                        help: model.selection.isEmpty
-                       ? "选择要上传的文件或文件夹"
-                       : "上传所选项目到 " + uploadTarget.path,
+                       ? L("选择要上传的文件或文件夹")
+                       : L("上传所选项目到 ") + uploadTarget.path,
                        isEnabled: !model.selection.isEmpty) {
             let entries = model.entries.filter { model.selection.contains($0.path) }
             app.upload(entries: entries, to: tab, destination: uploadTarget.path, pane: uploadTarget)
@@ -312,7 +312,7 @@ struct LocalBrowserPane: View {
 
 
     private var pathBar: some View {
-        PanePathField(placeholder: "本地路径", text: $pathText) {
+        PanePathField(placeholder: L("本地路径"), text: $pathText) {
             model.goTo(pathText)
             pathText = model.path
         }
@@ -323,15 +323,15 @@ struct LocalBrowserPane: View {
             if let error = model.errorText {
                 Text(error).font(.system(size: 10)).foregroundStyle(Theme.danger).lineLimit(1)
             } else {
-                Text(String(model.sortedEntries.count) + " 项").font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                Text(String(model.sortedEntries.count) + L(" 项")).font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
             Spacer()
             if model.selection.isEmpty {
-                Text("把远端文件拖到这里即下载")
+                Text(L("把远端文件拖到这里即下载"))
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary.opacity(0.8))
                     .lineLimit(1)
             } else {
-                Text("已选 " + String(model.selection.count) + " 项")
+                Text(L("已选 ") + String(model.selection.count) + L(" 项"))
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
         }
@@ -358,33 +358,33 @@ struct LocalBrowserPane: View {
 
     @ViewBuilder
     private func menu(for entry: FileEntry) -> some View {
-        Button(entry.isDirectory ? "打开文件夹" : "在 Finder 中显示") { open(entry) }
+        Button(entry.isDirectory ? L("打开文件夹") : L("在 Finder 中显示")) { open(entry) }
         Divider()
-        Button("上传到 " + uploadTarget.hostName) {
+        Button(L("上传到 ") + uploadTarget.hostName) {
             app.upload(entries: [entry], to: tab, destination: uploadTarget.path, pane: uploadTarget)
         }
-        Button("重命名") {
-            if let name = Prompt.text(title: "重命名", message: entry.name, defaultValue: entry.name) {
+        Button(L("重命名")) {
+            if let name = Prompt.text(title: L("重命名"), message: entry.name, defaultValue: entry.name) {
                 app.renameLocal(entry, in: tab, to: name)
             }
         }
-        Button("删除", role: .destructive) {
-            if Prompt.confirm(title: "删除 " + entry.name + "？", message: "本地文件将被移到废纸篓。") {
+        Button(L("删除"), role: .destructive) {
+            if Prompt.confirm(title: L("删除 ") + entry.name + "？", message: L("本地文件将被移到废纸篓。")) {
                 app.deleteLocal([entry], in: tab)
             }
         }
         Divider()
-        Button("新建文件夹") {
-            if let name = Prompt.text(title: "新建文件夹", message: "名称") {
+        Button(L("新建文件夹")) {
+            if let name = Prompt.text(title: L("新建文件夹"), message: L("名称")) {
                 app.createLocalFolder(in: tab, name: name)
             }
         }
-        Button("新建空文件") {
-            if let name = Prompt.text(title: "新建空文件", message: "名称") {
+        Button(L("新建空文件")) {
+            if let name = Prompt.text(title: L("新建空文件"), message: L("名称")) {
                 app.createLocalFile(in: tab, name: name)
             }
         }
-        Button("复制路径") {
+        Button(L("复制路径")) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(entry.path, forType: .string)
         }
@@ -456,23 +456,23 @@ struct RemoteBrowserPane: View {
 
     private var remoteWideControls: some View {
         HStack(spacing: 1) {
-            PaneIconButton(systemName: "chevron.backward", help: "后退", isEnabled: model.canGoBack) {
+            PaneIconButton(systemName: "chevron.backward", help: L("后退"), isEnabled: model.canGoBack) {
                 Task { await model.goBack() }
             }
-            PaneIconButton(systemName: "chevron.forward", help: "前进", isEnabled: model.canGoForward) {
+            PaneIconButton(systemName: "chevron.forward", help: L("前进"), isEnabled: model.canGoForward) {
                 Task { await model.goForward() }
             }
-            PaneIconButton(systemName: "arrow.up", help: "上级目录", isEnabled: model.isReady) {
+            PaneIconButton(systemName: "arrow.up", help: L("上级目录"), isEnabled: model.isReady) {
                 Task { await model.goUp() }
             }
-            PaneIconButton(systemName: "arrow.clockwise", help: "刷新", isEnabled: model.isReady) {
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: model.isReady) {
                 Task { await model.refresh() }
             }
             historyMenu
             PaneDividerLine()
             remoteSortMenu
             PaneIconButton(systemName: model.showHidden ? "eye.fill" : "eye",
-                           help: "显示隐藏文件",
+                           help: L("显示隐藏文件"),
                            isOn: model.showHidden) { model.showHidden.toggle() }
             PaneDividerLine()
             downloadButton
@@ -482,10 +482,10 @@ struct RemoteBrowserPane: View {
 
     private var remoteCompactControls: some View {
         HStack(spacing: 1) {
-            PaneIconButton(systemName: "arrow.up", help: "上级目录", isEnabled: model.isReady) {
+            PaneIconButton(systemName: "arrow.up", help: L("上级目录"), isEnabled: model.isReady) {
                 Task { await model.goUp() }
             }
-            PaneIconButton(systemName: "arrow.clockwise", help: "刷新", isEnabled: model.isReady) {
+            PaneIconButton(systemName: "arrow.clockwise", help: L("刷新"), isEnabled: model.isReady) {
                 Task { await model.refresh() }
             }
             remoteOverflowMenu
@@ -494,16 +494,16 @@ struct RemoteBrowserPane: View {
     }
 
     private var remoteOverflowMenu: some View {
-        PaneMenuButton(systemName: "ellipsis", help: "更多操作") {
-            Button("后退") { Task { await model.goBack() } }.disabled(!model.canGoBack)
-            Button("前进") { Task { await model.goForward() } }.disabled(!model.canGoForward)
+        PaneMenuButton(systemName: "ellipsis", help: L("更多操作")) {
+            Button(L("后退")) { Task { await model.goBack() } }.disabled(!model.canGoBack)
+            Button(L("前进")) { Task { await model.goForward() } }.disabled(!model.canGoForward)
             Divider()
             historyItems
             Divider()
             remoteSortItems
             Divider()
-            Toggle("显示隐藏文件", isOn: $model.showHidden)
-            Button("下载所选到本地") {
+            Toggle(L("显示隐藏文件"), isOn: $model.showHidden)
+            Button(L("下载所选到本地")) {
                 let entries = model.entries.filter { model.selection.contains($0.path) }
                 app.download(entries: entries, from: tab, destination: tab.local.path, pane: model)
             }
@@ -515,20 +515,20 @@ struct RemoteBrowserPane: View {
     private var historyItems: some View {
         let history = model.hostID.map { app.sftpHistory(for: $0) } ?? []
         if history.isEmpty {
-            Text("暂无历史文件夹")
+            Text(L("暂无历史文件夹"))
         } else {
             ForEach(history) { entry in
                 Button(entry.path) { Task { await model.goTo(entry.path) } }
             }
             Divider()
-            Button("清除历史") {
+            Button(L("清除历史")) {
                 if let hostID = model.hostID { app.clearSFTPHistory(for: hostID) }
             }
         }
     }
 
     private var historyMenu: some View {
-        PaneMenuButton(systemName: "clock.arrow.circlepath", help: "最近访问过的文件夹") {
+        PaneMenuButton(systemName: "clock.arrow.circlepath", help: L("最近访问过的文件夹")) {
             historyItems
         }
     }
@@ -539,11 +539,11 @@ struct RemoteBrowserPane: View {
             Button(field.displayName) { model.sort = FileSortOrder(field: field, ascending: model.sort.ascending) }
         }
         Divider()
-        Toggle("升序", isOn: Binding(get: { model.sort.ascending }, set: { model.sort.ascending = $0 }))
+        Toggle(L("升序"), isOn: Binding(get: { model.sort.ascending }, set: { model.sort.ascending = $0 }))
     }
 
     private var remoteSortMenu: some View {
-        PaneMenuButton(systemName: "arrow.up.arrow.down", help: "排序") {
+        PaneMenuButton(systemName: "arrow.up.arrow.down", help: L("排序")) {
             remoteSortItems
         }
     }
@@ -551,8 +551,8 @@ struct RemoteBrowserPane: View {
     private var downloadButton: some View {
         PaneIconButton(systemName: "arrow.down.circle",
                        help: model.selection.isEmpty
-                       ? "选择要下载的文件或文件夹"
-                       : "下载所选项目到本地当前目录",
+                       ? L("选择要下载的文件或文件夹")
+                       : L("下载所选项目到本地当前目录"),
                        isEnabled: !model.selection.isEmpty) {
             let entries = model.entries.filter { model.selection.contains($0.path) }
             app.download(entries: entries, from: tab, destination: tab.local.path, pane: model)
@@ -562,9 +562,9 @@ struct RemoteBrowserPane: View {
     @ViewBuilder
     private var addOrCloseButton: some View {
         if isMain {
-            PaneMenuButton(systemName: "plus.rectangle.on.rectangle", help: "添加另一台服务器的 SFTP 面板") {
+            PaneMenuButton(systemName: "plus.rectangle.on.rectangle", help: L("添加另一台服务器的 SFTP 面板")) {
                 if app.hosts.isEmpty {
-                    Text("还没有主机")
+                    Text(L("还没有主机"))
                 }
                 ForEach(app.hosts) { host in
                     Button(host.name.isEmpty ? host.hostname : host.name) {
@@ -573,7 +573,7 @@ struct RemoteBrowserPane: View {
                 }
             }
         } else {
-            PaneIconButton(systemName: "xmark", help: "关闭该 SFTP 面板") {
+            PaneIconButton(systemName: "xmark", help: L("关闭该 SFTP 面板")) {
                 app.closeSFTPPane(tab, pane: model)
             }
         }
@@ -581,7 +581,7 @@ struct RemoteBrowserPane: View {
 
 
     private var pathBar: some View {
-        PanePathField(placeholder: "远端路径", text: $pathText, isEnabled: model.isReady) {
+        PanePathField(placeholder: L("远端路径"), text: $pathText, isEnabled: model.isReady) {
             Task {
                 await model.goTo(pathText)
                 pathText = model.path
@@ -594,11 +594,11 @@ struct RemoteBrowserPane: View {
         if let error = model.connectionError, !model.isReady {
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
-                Text("无法打开 SFTP").font(.system(size: 11, weight: .medium))
+                Text(L("无法打开 SFTP")).font(.system(size: 11, weight: .medium))
                 Text(error).font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
-                Button("重试") {
+                Button(L("重试")) {
                     Task { await app.openSFTP(tab: tab, pane: model) }
                 }
                 .controlSize(.small)
@@ -607,7 +607,7 @@ struct RemoteBrowserPane: View {
         } else if !model.isReady {
             VStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(model.isConnecting ? "正在连接 " + model.hostName + "…" : "准备中…")
+                Text(model.isConnecting ? L("正在连接 ") + model.hostName + "…" : L("准备中…"))
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -636,15 +636,15 @@ struct RemoteBrowserPane: View {
             if let error = model.errorText {
                 Text(error).font(.system(size: 10)).foregroundStyle(Theme.danger).lineLimit(1)
             } else {
-                Text(String(model.sortedEntries.count) + " 项").font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                Text(String(model.sortedEntries.count) + L(" 项")).font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
             Spacer()
             if model.selection.isEmpty {
-                Text("拖到其他面板即传输")
+                Text(L("拖到其他面板即传输"))
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary.opacity(0.8))
                     .lineLimit(1)
             } else {
-                Text("已选 " + String(model.selection.count) + " 项")
+                Text(L("已选 ") + String(model.selection.count) + L(" 项"))
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
         }
@@ -672,44 +672,44 @@ struct RemoteBrowserPane: View {
     @ViewBuilder
     private func menu(for entry: FileEntry) -> some View {
         if entry.isDirectory {
-            Button("打开") { Task { await model.open(entry) } }
+            Button(L("打开")) { Task { await model.open(entry) } }
         } else {
-            Button("编辑") { app.openEditor(entry, in: tab, pane: model) }
+            Button(L("编辑")) { app.openEditor(entry, in: tab, pane: model) }
         }
         Divider()
-        Button("下载到本地当前目录") {
+        Button(L("下载到本地当前目录")) {
             app.download(entries: [entry], from: tab, destination: tab.local.path, pane: model)
         }
         Divider()
-        Button("重命名") {
-            if let name = Prompt.text(title: "重命名远端文件", message: entry.name, defaultValue: entry.name) {
+        Button(L("重命名")) {
+            if let name = Prompt.text(title: L("重命名远端文件"), message: entry.name, defaultValue: entry.name) {
                 app.renameRemote(entry, in: tab, to: name, pane: model)
             }
         }
-        Button("修改权限…") {
-            if let octal = Prompt.text(title: "修改权限", message: "八进制，例如 755", defaultValue: entry.displayOctal) {
+        Button(L("修改权限…")) {
+            if let octal = Prompt.text(title: L("修改权限"), message: L("八进制，例如 755"), defaultValue: entry.displayOctal) {
                 if let mode = UInt16(octal, radix: 8) {
                     app.setRemotePermissions(entry, in: tab, mode: mode, pane: model)
                 }
             }
         }
-        Button("删除", role: .destructive) {
-            if Prompt.confirm(title: "删除 " + entry.name + "？", message: "远端文件将被永久删除。") {
+        Button(L("删除"), role: .destructive) {
+            if Prompt.confirm(title: L("删除 ") + entry.name + "？", message: L("远端文件将被永久删除。")) {
                 app.deleteRemote([entry], in: tab, pane: model)
             }
         }
         Divider()
-        Button("新建文件夹") {
-            if let name = Prompt.text(title: "新建远端文件夹", message: "名称") {
+        Button(L("新建文件夹")) {
+            if let name = Prompt.text(title: L("新建远端文件夹"), message: L("名称")) {
                 app.createRemoteFolder(in: tab, name: name, pane: model)
             }
         }
-        Button("新建空文件") {
-            if let name = Prompt.text(title: "新建远端空文件", message: "名称") {
+        Button(L("新建空文件")) {
+            if let name = Prompt.text(title: L("新建远端空文件"), message: L("名称")) {
                 app.createRemoteFile(in: tab, name: name, pane: model)
             }
         }
-        Button("复制路径") {
+        Button(L("复制路径")) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(entry.path, forType: .string)
         }
@@ -759,10 +759,10 @@ struct TransferActivityBar: View {
                 }
                 if active.count > 3 {
                     HStack {
-                        Text("另有 " + String(active.count - 3) + " 个传输…")
+                        Text(L("另有 ") + String(active.count - 3) + L(" 个传输…"))
                             .font(.system(size: 9)).foregroundStyle(Theme.secondary)
                         Spacer()
-                        Button("传输中心") { app.showingTransferCenter = true }
+                        Button(L("传输中心")) { app.showingTransferCenter = true }
                             .buttonStyle(.plain).font(.system(size: 9)).foregroundStyle(Theme.accent)
                     }
                     .padding(.horizontal, 8)
@@ -795,7 +795,7 @@ struct TransferActivityBar: View {
                 .font(.system(size: 9).monospacedDigit())
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 66, alignment: .trailing)
-            Text(progress.state == .paused ? "已暂停" : "剩余 " + (progress.remainingTime.map { FileAttributeFormatter.duration($0) } ?? "—"))
+            Text(progress.state == .paused ? L("已暂停") : L("剩余 ") + (progress.remainingTime.map { FileAttributeFormatter.duration($0) } ?? "—"))
                 .font(.system(size: 9).monospacedDigit())
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 78, alignment: .trailing)
@@ -825,10 +825,10 @@ struct FileListHeader: View {
             // Offsets "名称" past the 14pt icon + 6pt gap so the header sits
             // exactly above the file names instead of above the icons.
             Color.clear.frame(width: 14)
-            Text("名称").frame(maxWidth: .infinity, alignment: .leading)
+            Text(L("名称")).frame(maxWidth: .infinity, alignment: .leading)
             if showsDetails {
-                Text("大小").frame(width: 66, alignment: .trailing)
-                Text("修改时间").frame(width: 96, alignment: .trailing)
+                Text(L("大小")).frame(width: 66, alignment: .trailing)
+                Text(L("修改时间")).frame(width: 96, alignment: .trailing)
             }
         }
         .font(.system(size: 10, weight: .medium))

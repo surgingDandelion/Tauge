@@ -34,7 +34,8 @@ public enum HostKeyError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .rejected(let info):
-            return "主机密钥校验失败：" + info.host + ":" + String(info.port) + " 的 " + info.keyType + " 指纹 " + info.fingerprintSHA256 + " 未被信任"
+            return L("主机密钥校验失败：%@:%@ 的 %@ 密钥指纹 %@ 未被信任",
+                     info.host, String(info.port), info.keyType, info.fingerprintSHA256)
         }
     }
 }

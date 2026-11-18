@@ -28,7 +28,7 @@ extension AppState {
 
     private func performConnect(tab: TerminalTab) async {
         let host = tab.host
-        tab.markConnecting("解析配置")
+        tab.markConnecting(L("解析配置"))
         do {
             let resolver = ConfigResolver(catalog: Catalog(groups: groups, hosts: hosts, proxies: proxies, keys: keys))
             let config = try resolver.effective(for: host)
@@ -48,7 +48,7 @@ extension AppState {
                 // The server only offers algorithms the in-process stack refuses
                 // (ssh-rsa host keys, group14-sha1 KEX). Hand the session to the
                 // local OpenSSH client and remember the choice for next time.
-                tab.markConnecting("改用系统 ssh 兼容模式")
+                tab.markConnecting(L("改用系统 ssh 兼容模式"))
                 established = try await establishConnection(host: host,
                                                             config: config,
                                                             transport: .system,
@@ -58,13 +58,13 @@ extension AppState {
                     tab.host.transport = .system
                     try? store.save(host: tab.host)
                     reloadCatalog()
-                    tab.statusDetail = error.detail.contains("跳")
-                        ? "系统 ssh 兼容模式：跳板机只支持 ssh-rsa / SHA-1 旧算法"
-                        : "系统 ssh 兼容模式：服务器仅支持 ssh-rsa / SHA-1 旧算法"
+                    tab.statusDetail = config.jumps.isEmpty
+                        ? L("系统 ssh 兼容模式：服务器仅支持 ssh-rsa / SHA-1 旧算法")
+                        : L("系统 ssh 兼容模式：跳板机只支持 ssh-rsa / SHA-1 旧算法")
                 }
             }
             guard let established else {
-                tab.markDisconnected("已取消认证")
+                tab.markDisconnected(L("已取消认证"))
                 return
             }
             let client = established.client
@@ -121,7 +121,7 @@ extension AppState {
             // this the first keystroke after a connect went to the window.
             scheduleTerminalFocus(0.2)
         } catch is CancellationError {
-            tab.markDisconnected("已取消")
+            tab.markDisconnected(L("已取消"))
         } catch {
             tab.markFailed(describe(error))
             present(error)
@@ -221,7 +221,7 @@ extension AppState {
                                      config: EffectiveHostConfig,
                                      transport: HostTransport,
                                      tab: TerminalTab) async throws -> EstablishedConnection? {
-        tab.markConnecting(transport == .system ? "准备系统 ssh" : "身份认证")
+        tab.markConnecting(transport == .system ? L("准备系统 ssh") : L("身份认证"))
         guard let prepared = try await preparedConnection(host: host,
                                                           config: config,
                                                           allowPrompt: true,
@@ -230,9 +230,9 @@ extension AppState {
         }
         try Task.checkCancellation()
         if transport == .system {
-            tab.markConnecting("通过系统 ssh 连接")
+            tab.markConnecting(L("通过系统 ssh 连接"))
         } else {
-            tab.markConnecting(prepared.jumpCount == 0 ? "建立 SSH 连接" : "经过 " + String(prepared.jumpCount) + " 级跳板连接")
+            tab.markConnecting(prepared.jumpCount == 0 ? L("建立 SSH 连接") : L("经过 ") + String(prepared.jumpCount) + L(" 级跳板连接"))
         }
         let client = SSHClient(eventLoopGroup: environment.eventLoopGroup)
         do {
@@ -279,7 +279,7 @@ extension AppState {
         guard let tab, !tab.isClosing else { return }
         // A close triggered by our own teardown already updated the state.
         if case .idle = tab.connectionState { return }
-        let reason = error.map { describe($0) } ?? "连接已断开"
+        let reason = error.map { describe($0) } ?? L("连接已断开")
         tab.markDisconnected(reason)
         tab.logger?.close()
         scheduleReconnectIfNeeded(tab: tab)
@@ -297,7 +297,7 @@ extension AppState {
               tab.reconnectAttempt < 6 else { return }
         tab.reconnectAttempt += 1
         let delay = min(30, pow(2.0, Double(tab.reconnectAttempt - 1)))
-        tab.markConnecting("连接断开，" + String(Int(delay)) + " 秒后第 " + String(tab.reconnectAttempt) + " 次重连")
+        tab.markConnecting(L("连接断开，") + String(Int(delay)) + L(" 秒后第 ") + String(tab.reconnectAttempt) + L(" 次重连"))
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !tab.isClosing, let self, self.isLive(tab: tab) else { return }
@@ -324,7 +324,7 @@ extension AppState {
             }
             if let fallback { return fallback }
             guard allowPrompt else { return nil }
-            guard let value = await promptForSecret(title: "输入登录密码",
+            guard let value = await promptForSecret(title: L("输入登录密码"),
                                                     detail: host.name + "（" + host.displayAddress + "）",
                                                     isPassphrase: false) else { return nil }
             if host.savesPassword {
@@ -337,9 +337,9 @@ extension AppState {
             }
             return fallback
         case .agent:
-            throw AppError(title: "暂不支持 SSH Agent 认证",
-                           message: "当前版本使用 SwiftNIO SSH，尚未实现 agent 协议转发。",
-                           suggestion: "请在主机设置中改用私钥或密码认证。")
+            throw AppError(title: L("暂不支持 SSH Agent 认证"),
+                           message: L("当前版本使用 SwiftNIO SSH，尚未实现 agent 协议转发。"),
+                           suggestion: L("请在主机设置中改用私钥或密码认证。"))
         }
     }
 
@@ -372,9 +372,9 @@ extension AppState {
             data = try? Data(contentsOf: URL(fileURLWithPath: expanded))
         }
         guard let data else {
-            throw AppError(title: "缺少私钥",
-                           message: "主机 " + host.name + " 使用私钥认证，但没有可用的私钥文件。",
-                           suggestion: "请在主机设置中选择私钥，或先导入 ~/.ssh 下的密钥。")
+            throw AppError(title: L("缺少私钥"),
+                           message: L("主机 ") + host.name + L(" 使用私钥认证，但没有可用的私钥文件。"),
+                           suggestion: L("请在主机设置中选择私钥，或先导入 ~/.ssh 下的密钥。"))
         }
 
         var passphrase: String?
@@ -382,12 +382,12 @@ extension AppState {
         if needsPassphrase {
             passphrase = try? environment.secrets.secret(for: .hostPassphrase(host.id))
             if passphrase == nil && allowPrompt {
-                passphrase = await promptForSecret(title: "输入私钥口令",
-                                                   detail: record?.name ?? "私钥",
+                passphrase = await promptForSecret(title: L("输入私钥口令"),
+                                                   detail: record?.name ?? L("私钥"),
                                                    isPassphrase: true)
             }
         }
-        return PrivateKeySource(data: data, passphrase: passphrase, name: record?.name ?? "私钥")
+        return PrivateKeySource(data: data, passphrase: passphrase, name: record?.name ?? L("私钥"))
     }
 
     private func privateKeyMaterial(for host: SSHHost, allowPrompt: Bool) async throws -> SSHAuthMaterial? {
@@ -397,7 +397,7 @@ extension AppState {
             return .privateKey(parsed.key)
         } catch SSHKeyError.encrypted {
             guard allowPrompt, source.passphrase == nil else { throw SSHKeyError.encrypted }
-            guard let entered = await promptForSecret(title: "输入私钥口令",
+            guard let entered = await promptForSecret(title: L("输入私钥口令"),
                                                       detail: source.name,
                                                       isPassphrase: true) else { return nil }
             let parsed = try SSHKeyParser.parse(data: source.data, passphrase: entered)
@@ -417,7 +417,7 @@ extension AppState {
                 return .password(password)
             }
             guard allowPrompt else { return nil }
-            guard let value = await promptForSecret(title: "输入登录密码",
+            guard let value = await promptForSecret(title: L("输入登录密码"),
                                                     detail: host.name + "（" + host.displayAddress + "）",
                                                     isPassphrase: false) else { return nil }
             if host.savesPassword {
@@ -431,7 +431,7 @@ extension AppState {
                 _ = try SSHKeyParser.parse(data: source.data, passphrase: passphrase)
             } catch SSHKeyError.encrypted {
                 guard allowPrompt, passphrase == nil else { throw SSHKeyError.encrypted }
-                guard let entered = await promptForSecret(title: "输入私钥口令",
+                guard let entered = await promptForSecret(title: L("输入私钥口令"),
                                                           detail: source.name,
                                                           isPassphrase: true) else { return nil }
                 passphrase = entered
@@ -462,7 +462,7 @@ extension AppState {
         if proxy.savesPassword {
             password = try? environment.secrets.secret(for: .proxyPassword(proxy.id))
             if password == nil && !proxy.username.isEmpty {
-                password = await promptForSecret(title: "输入代理密码",
+                password = await promptForSecret(title: L("输入代理密码"),
                                                  detail: proxy.name + "（" + proxy.host + ":" + String(proxy.port) + "）",
                                                  isPassphrase: false)
                 if let password {
@@ -578,16 +578,16 @@ extension AppState {
             guard tab.client != nil else {
                 // Keep the browser visible with an explanation: closing it
                 // silently made a failed attempt look like the panel vanished.
-                pane.connectionError = "尚未建立 SSH 连接，面板会在连接成功后自动载入。"
+                pane.connectionError = L("尚未建立 SSH 连接，面板会在连接成功后自动载入。")
                 return
             }
         } else {
             guard let ssh = tab.remoteClients[pane.id] else {
-                pane.connectionError = "该面板的连接已断开，请关闭后重新添加。"
+                pane.connectionError = L("该面板的连接已断开，请关闭后重新添加。")
                 return
             }
             if !(await ssh.isConnected) {
-                pane.connectionError = "该面板的连接已断开，请关闭后重新添加。"
+                pane.connectionError = L("该面板的连接已断开，请关闭后重新添加。")
                 return
             }
         }
@@ -632,7 +632,7 @@ extension AppState {
             let text = describe(error)
             pane.connectionError = text
             if isMain {
-                presentMessage("打开 SFTP 失败", text)
+                presentMessage(L("打开 SFTP 失败"), text)
             }
         }
     }
@@ -680,11 +680,11 @@ extension AppState {
             await pane.attach(client: sftp, startDirectory: start)
             recordSFTPPath(pane.path, for: pane.hostID)
         } catch is CancellationError {
-            pane.connectionError = "已取消连接"
+            pane.connectionError = L("已取消连接")
         } catch {
             let text = describe(error)
             pane.connectionError = text
-            presentMessage("打开 SFTP 失败（" + host.name + "）", text)
+            presentMessage(L("打开 SFTP 失败（") + host.name + "）", text)
         }
     }
 

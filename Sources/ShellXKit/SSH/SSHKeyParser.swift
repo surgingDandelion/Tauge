@@ -11,13 +11,13 @@ public enum SSHKeyError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .fileNotFound(let path):
-            return "找不到私钥文件：" + path
+            return L("找不到私钥文件：") + path
         case .unsupported(let message):
             return message
         case .encrypted:
-            return "私钥已加密，请输入私钥口令。"
+            return L("私钥已加密，请输入私钥口令。")
         case .malformed(let message):
-            return "私钥格式无法解析：" + message
+            return L("私钥格式无法解析：") + message
         }
     }
 }
@@ -58,7 +58,7 @@ public enum SSHKeyParser {
         rsaAlgorithm: NIOSSHRSASignatureAlgorithm = .rsaSHA2_512
     ) throws -> ParsedPrivateKey {
         guard let text = String(data: data, encoding: .utf8), text.contains("-----BEGIN ") else {
-            throw SSHKeyError.malformed("不是 PEM 或 OpenSSH 私钥")
+            throw SSHKeyError.malformed(L("不是 PEM 或 OpenSSH 私钥"))
         }
         if text.contains("BEGIN OPENSSH PRIVATE KEY") {
             return try parseOpenSSH(text: text, passphrase: passphrase, rsaAlgorithm: rsaAlgorithm)
@@ -75,7 +75,7 @@ public enum SSHKeyParser {
         if text.contains("BEGIN EC PRIVATE KEY") {
             return try parseSEC1(text: text)
         }
-        throw SSHKeyError.unsupported("不支持的私钥格式，仅支持 OpenSSH 格式与 PEM（Ed25519 / ECDSA / RSA）。")
+        throw SSHKeyError.unsupported(L("不支持的私钥格式，仅支持 OpenSSH 格式与 PEM（Ed25519 / ECDSA / RSA）。"))
     }
 
     // MARK: - OpenSSH container
@@ -89,14 +89,14 @@ public enum SSHKeyParser {
         let magic = "openssh-key-v1"
         let magicBytes = try reader.readBytes(magic.utf8.count)
         guard String(bytes: magicBytes, encoding: .utf8) == magic else {
-            throw SSHKeyError.malformed("缺少 openssh-key-v1 标识")
+            throw SSHKeyError.malformed(L("缺少 openssh-key-v1 标识"))
         }
         _ = try reader.readBytes(1)
         let cipherName = try reader.readUTF8String()
         _ = try reader.readUTF8String()
         _ = try reader.readString()
         let keyCount = try reader.readUInt32()
-        guard keyCount >= 1 else { throw SSHKeyError.malformed("私钥不包含任何密钥") }
+        guard keyCount >= 1 else { throw SSHKeyError.malformed(L("私钥不包含任何密钥")) }
         var firstPublicBlob = [UInt8]()
         for index in 0..<Int(keyCount) {
             let blob = try reader.readString()
@@ -104,7 +104,7 @@ public enum SSHKeyParser {
         }
         guard cipherName == "none" else {
             if passphrase == nil { throw SSHKeyError.encrypted }
-            throw SSHKeyError.unsupported("暂不支持带口令的 OpenSSH 私钥，请使用 ssh-keygen -p -N \"\" -f <keyfile> 移除口令，或改用未加密密钥。")
+            throw SSHKeyError.unsupported(L("暂不支持带口令的 OpenSSH 私钥，请使用 ssh-keygen -p -N \"\" -f <keyfile> 移除口令，或改用未加密密钥。"))
         }
         let privateSection = try reader.readString()
         var keyReader = SSHKeyByteReader(bytes: privateSection)
@@ -116,7 +116,7 @@ public enum SSHKeyParser {
             _ = try keyReader.readString()
             let privateBlob = try keyReader.readString()
             let comment = try? keyReader.readUTF8String()
-            guard privateBlob.count >= 64 else { throw SSHKeyError.malformed("Ed25519 私钥长度不正确") }
+            guard privateBlob.count >= 64 else { throw SSHKeyError.malformed(L("Ed25519 私钥长度不正确")) }
             let seed = Data(privateBlob.prefix(32))
             let key = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
             return try finish(key: NIOSSHPrivateKey(ed25519Key: key), keyType: keyType, comment: comment)
@@ -146,11 +146,11 @@ public enum SSHKeyParser {
             )
             let expected = "ssh-rsa " + Data(firstPublicBlob).base64EncodedString()
             guard parsed.publicKeyOpenSSH == expected else {
-                throw SSHKeyError.malformed("RSA 公钥与私钥不匹配")
+                throw SSHKeyError.malformed(L("RSA 公钥与私钥不匹配"))
             }
             return parsed
         default:
-            throw SSHKeyError.unsupported("不支持的私钥类型：" + keyType)
+            throw SSHKeyError.unsupported(L("不支持的私钥类型：") + keyType)
         }
     }
 
@@ -181,7 +181,7 @@ public enum SSHKeyParser {
         if isEd25519OID(oid) {
             var inner = DERReader(bytes: privateBytes)
             let nested = try inner.expect(tag: 0x04)
-            guard nested.count >= 32 else { throw SSHKeyError.malformed("Ed25519 私钥长度不正确") }
+            guard nested.count >= 32 else { throw SSHKeyError.malformed(L("Ed25519 私钥长度不正确")) }
             let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(nested.prefix(32)))
             return try finish(key: NIOSSHPrivateKey(ed25519Key: key), keyType: "ssh-ed25519", comment: nil)
         }
@@ -218,7 +218,7 @@ public enum SSHKeyParser {
             }
         }
         guard let curve = curveName else {
-            throw SSHKeyError.malformed("无法识别 ECDSA 曲线")
+            throw SSHKeyError.malformed(L("无法识别 ECDSA 曲线"))
         }
         return try makeECDSAKey(keyType: curve.0, scalar: scalar, comment: nil)
     }
@@ -249,7 +249,7 @@ public enum SSHKeyParser {
         case [0x2B, 0x81, 0x04, 0x00, 0x23]:
             return ("ecdsa-sha2-nistp521", 66)
         default:
-            throw SSHKeyError.unsupported("不支持的 ECDSA 曲线")
+            throw SSHKeyError.unsupported(L("不支持的 ECDSA 曲线"))
         }
     }
 
@@ -259,7 +259,7 @@ public enum SSHKeyParser {
         case "ecdsa-sha2-nistp256": size = 32
         case "ecdsa-sha2-nistp384": size = 48
         case "ecdsa-sha2-nistp521": size = 66
-        default: throw SSHKeyError.unsupported("不支持的私钥类型：" + keyType)
+        default: throw SSHKeyError.unsupported(L("不支持的私钥类型：") + keyType)
         }
         let trimmed = Array(scalar.suffix(size))
         var padded = [UInt8](repeating: 0, count: max(0, size - trimmed.count))
@@ -290,7 +290,7 @@ public enum SSHKeyParser {
         do {
             key = try NIOSSHPrivateKey(rsaPrivateKeyDER: pkcs1DER, algorithm: algorithm)
         } catch {
-            throw SSHKeyError.malformed("RSA 私钥无法导入（" + (error.localizedDescription) + "）")
+            throw SSHKeyError.malformed(L("RSA 私钥无法导入（") + (error.localizedDescription) + "）")
         }
         return try finish(key: key, keyType: "ssh-rsa", comment: comment)
     }
@@ -313,7 +313,7 @@ public enum SSHKeyParser {
         let prime2Value = SSHBigUInt(bytes: prime2)
         let privateValue = SSHBigUInt(bytes: privateExponent)
         guard !prime1Value.isZero, !prime2Value.isZero, !privateValue.isZero else {
-            throw SSHKeyError.malformed("RSA 私钥缺少必需的参数")
+            throw SSHKeyError.malformed(L("RSA 私钥缺少必需的参数"))
         }
         let exponent1 = SSHBigUInt.modulo(privateValue, prime1Value.subtractingOne())
         let exponent2 = SSHBigUInt.modulo(privateValue, prime2Value.subtractingOne())
@@ -340,12 +340,12 @@ public enum SSHKeyParser {
         let end = "-----END " + label + "-----"
         guard let beginRange = text.range(of: begin), let endRange = text.range(of: end),
               beginRange.upperBound <= endRange.lowerBound else {
-            throw SSHKeyError.malformed("缺少 PEM 头尾标记")
+            throw SSHKeyError.malformed(L("缺少 PEM 头尾标记"))
         }
         let body = text[beginRange.upperBound..<endRange.lowerBound]
         let cleaned = body.components(separatedBy: .whitespacesAndNewlines).joined()
         guard let data = Data(base64Encoded: cleaned) else {
-            throw SSHKeyError.malformed("Base64 内容无效")
+            throw SSHKeyError.malformed(L("Base64 内容无效"))
         }
         return [UInt8](data)
     }
@@ -362,7 +362,7 @@ struct SSHKeyByteReader {
 
     mutating func readBytes(_ count: Int) throws -> [UInt8] {
         guard count >= 0, index + count <= bytes.count else {
-            throw SSHKeyError.malformed("私钥数据被截断")
+            throw SSHKeyError.malformed(L("私钥数据被截断"))
         }
         let slice = Array(bytes[index..<(index + count)])
         index += count
@@ -535,13 +535,13 @@ struct DERReader {
         var length = Int(try readByte())
         if length & 0x80 != 0 {
             let byteCount = length & 0x7F
-            guard byteCount > 0, byteCount <= 4 else { throw SSHKeyError.malformed("DER 长度无效") }
+            guard byteCount > 0, byteCount <= 4 else { throw SSHKeyError.malformed(L("DER 长度无效")) }
             length = 0
             for _ in 0..<byteCount {
                 length = (length << 8) | Int(try readByte())
             }
         }
-        guard index + length <= bytes.count else { throw SSHKeyError.malformed("DER 数据被截断") }
+        guard index + length <= bytes.count else { throw SSHKeyError.malformed(L("DER 数据被截断")) }
         let value = Array(bytes[index..<(index + length)])
         index += length
         return (tag, value)
@@ -550,13 +550,13 @@ struct DERReader {
     mutating func expect(tag: UInt8) throws -> [UInt8] {
         let element = try next()
         guard element.tag == tag else {
-            throw SSHKeyError.malformed("DER 标签不匹配（期望 " + String(tag) + "，实际 " + String(element.tag) + "）")
+            throw SSHKeyError.malformed(L("DER 标签不匹配（期望 ") + String(tag) + L("，实际 ") + String(element.tag) + "）")
         }
         return element.value
     }
 
     private mutating func readByte() throws -> UInt8 {
-        guard index < bytes.count else { throw SSHKeyError.malformed("DER 数据被截断") }
+        guard index < bytes.count else { throw SSHKeyError.malformed(L("DER 数据被截断")) }
         let byte = bytes[index]
         index += 1
         return byte

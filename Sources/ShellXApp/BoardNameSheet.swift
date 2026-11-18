@@ -1,4 +1,5 @@
 import SwiftUI
+import ShellXKit
 
 /// Asked once, when a workspace assembled by dragging one tab onto another is
 /// saved for the first time: until it has a name it only lives in the tab strip.
@@ -22,11 +23,11 @@ struct BoardNameSheet: View {
             header
             Divider()
             VStack(alignment: .leading, spacing: 9) {
-                Text("这两个终端已经并排打开。起个名字，它就会留在工作区列表里，下次一键恢复；不保存关掉也没关系。")
+                Text(L("这两个终端已经并排打开。起个名字，它就会留在工作区列表里，下次一键恢复；不保存关掉也没关系。"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                TextField("工作区名称", text: name)
+                TextField(L("工作区名称"), text: name)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
                     .onSubmit { commit() }
@@ -44,7 +45,7 @@ struct BoardNameSheet: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "rectangle.split.2x1").foregroundStyle(Theme.accent)
-            Text("保存工作区").font(.system(size: 13, weight: .semibold))
+            Text(L("保存工作区")).font(.system(size: 13, weight: .semibold))
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -53,13 +54,13 @@ struct BoardNameSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text("⌘S 保存到工作区列表")
+            Text(L("⌘S 保存到工作区列表"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
             Spacer()
-            Button("取消") { app.cancelBoardNamePrompt() }
+            Button(L("取消")) { app.cancelBoardNamePrompt() }
                 .keyboardShortcut(.cancelAction)
-            Button("保存") { commit() }
+            Button(L("保存")) { commit() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
         }

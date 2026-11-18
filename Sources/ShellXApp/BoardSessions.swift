@@ -13,11 +13,11 @@ enum BoardDropZone: Equatable {
 
     var label: String {
         switch self {
-        case .left: return "左侧分屏"
-        case .right: return "右侧分屏"
-        case .top: return "上方分屏"
-        case .bottom: return "下方分屏"
-        case .center: return "交换窗格"
+        case .left: return L("左侧分屏")
+        case .right: return L("右侧分屏")
+        case .top: return L("上方分屏")
+        case .bottom: return L("下方分屏")
+        case .center: return L("交换窗格")
         }
     }
 }
@@ -48,7 +48,7 @@ extension AppState {
     func restoreBoards() {
         var loaded = (try? store.boards()) ?? []
         if loaded.isEmpty {
-            let fresh = BoardDefinition(name: "工作区 1")
+            let fresh = BoardDefinition(name: L("工作区 1"))
             try? store.save(board: fresh)
             loaded = [fresh]
         }
@@ -253,7 +253,7 @@ extension AppState {
             }
             boardDirty = false
         } catch {
-            present(error, title: "保存工作区失败")
+            present(error, title: L("保存工作区失败"))
         }
     }
 
@@ -270,7 +270,7 @@ extension AppState {
                      isGrid: Bool = false,
                      connect: Bool = false) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        var board = BoardDefinition(name: trimmed.isEmpty ? "新工作区" : trimmed)
+        var board = BoardDefinition(name: trimmed.isEmpty ? L("新工作区") : trimmed)
         if isGrid { board.layout = "grid" }
         try? store.save(board: board)
         boards.append(board)
@@ -347,7 +347,7 @@ extension AppState {
             if let first = boards.first {
                 openBoardTab(first.id, connect: false)
             } else {
-                createBoard(name: "工作区 1")
+                createBoard(name: L("工作区 1"))
             }
         }
         addHostsToBoard([hostID])

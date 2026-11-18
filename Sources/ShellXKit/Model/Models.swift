@@ -468,12 +468,12 @@ public enum TransferState: String, Codable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .queued: return "等待中"
-        case .running: return "进行中"
-        case .paused: return "已暂停"
-        case .completed: return "已完成"
-        case .failed: return "失败"
-        case .cancelled: return "已取消"
+        case .queued: return L("等待中")
+        case .running: return L("进行中")
+        case .paused: return L("已暂停")
+        case .completed: return L("已完成")
+        case .failed: return L("失败")
+        case .cancelled: return L("已取消")
         }
     }
 }
@@ -599,7 +599,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var autoReconnect: Bool = false
     public var editorMaxFileSize: Int = 2 * 1024 * 1024
     public var showHiddenFiles: Bool = false
-    public var language: String = "zh-Hans"
+    public var language: String = TaugeLanguage.systemDefault.rawValue
     public var appearance: String = "system"
     public var confirmCloseRunning: Bool = true
     public var telemetryEnabled: Bool = false
@@ -773,7 +773,7 @@ public enum BoardNaming {
         let right = second.trimmingCharacters(in: .whitespaces)
         let base: String
         if left == right {
-            base = left.isEmpty ? "分屏工作区" : left + " ×2"
+            base = left.isEmpty ? L("分屏工作区") : left + " ×2"
         } else {
             base = (left.isEmpty ? "?" : left) + " + " + (right.isEmpty ? "?" : right)
         }

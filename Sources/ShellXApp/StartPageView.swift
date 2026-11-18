@@ -76,10 +76,10 @@ struct StartPageView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.secondary)
             VStack(alignment: .leading, spacing: 1) {
-                Text("起始页")
+                Text(L("起始页"))
                     .font(.system(size: 13.5, weight: .semibold))
-                Text(String(app.hosts.count) + " 台主机 · " + String(app.groups.count) + " 个分组 · "
-                     + String(app.boards.count) + " 个工作区")
+                Text(String(app.hosts.count) + L(" 台主机 · ") + String(app.groups.count) + L(" 个分组 · ")
+                     + String(app.boards.count) + L(" 个工作区"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
             }
@@ -88,32 +88,32 @@ struct StartPageView: View {
             Button {
                 app.beginNewSFTPTab()
             } label: {
-                Label("新建 SFTP", systemImage: "arrow.up.arrow.down")
+                Label(L("新建 SFTP"), systemImage: "arrow.up.arrow.down")
             }
             .disabled(app.hosts.isEmpty)
-            .help("选择一台或多台服务器，打开 SFTP 标签")
+            .help(L("选择一台或多台服务器，打开 SFTP 标签"))
             Button {
-                app.editingHost = SSHHost(name: "新主机")
+                app.editingHost = SSHHost(name: L("新主机"))
             } label: {
-                Label("新建主机", systemImage: "plus")
+                Label(L("新建主机"), systemImage: "plus")
             }
             Menu {
-                Button("新建分组…") { app.beginNewGroup() }
-                Button("新建工作区…") { app.promptCreateBoard() }
+                Button(L("新建分组…")) { app.beginNewGroup() }
+                Button(L("新建工作区…")) { app.promptCreateBoard() }
                 Divider()
-                Button("导入 ~/.ssh/config") { app.importSSHConfig() }
-                Button("从 Termius 导入…") { app.beginTermiusImport() }
+                Button(L("导入 ~/.ssh/config")) { app.importSSHConfig() }
+                Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
                 Divider()
-                Button("命令面板") { app.showingCommandPalette = true }
-                Button("传输中心") { app.showingTransferCenter = true }
-                Button("设置…") { app.showingSettings = true }
+                Button(L("命令面板")) { app.showingCommandPalette = true }
+                Button(L("传输中心")) { app.showingTransferCenter = true }
+                Button(L("设置…")) { app.showingSettings = true }
             } label: {
                 Image(systemName: "ellipsis")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 26)
-            .help("更多")
+            .help(L("更多"))
         }
         .controlSize(.small)
         .padding(.horizontal, 18)
@@ -125,7 +125,7 @@ struct StartPageView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.secondary)
-            TextField("搜索主机、地址、标签", text: $query)
+            TextField(L("搜索主机、地址、标签"), text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11.5))
             if !query.isEmpty {
@@ -193,7 +193,7 @@ struct StartPageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
                 if !app.boards.isEmpty {
-                    sectionLabel("工作区")
+                    sectionLabel(L("工作区"), addHelp: L("新建工作区"), addAction: { app.promptCreateBoard() })
                     ForEach(app.boards) { board in
                         StartListRow(symbol: "rectangle.split.3x3",
                                      title: board.name,
@@ -203,22 +203,22 @@ struct StartPageView: View {
                     }
                 }
 
-                sectionLabel("分组")
+                sectionLabel(L("分组"), addHelp: L("新建分组"), addAction: { app.beginNewGroup() })
                 StartListRow(symbol: "square.grid.2x2",
-                             title: "全部主机",
+                             title: L("全部主机"),
                              detail: String(app.hosts.count),
                              isSelected: selection == .all,
                              action: { selection = .all })
                 if !app.favoriteHosts.isEmpty {
                     StartListRow(symbol: "star",
-                                 title: "收藏",
+                                 title: L("收藏"),
                                  detail: String(app.favoriteHosts.count),
                                  isSelected: selection == .favorites,
                                  action: { selection = .favorites })
                 }
                 if !app.recentHosts.isEmpty {
                     StartListRow(symbol: "clock",
-                                 title: "最近连接",
+                                 title: L("最近连接"),
                                  detail: String(app.recentHosts.count),
                                  isSelected: selection == .recent,
                                  action: { selection = .recent })
@@ -234,31 +234,31 @@ struct StartPageView: View {
                                  onDropHost: { app.moveHost($0, onto: nil, in: row.group.id) },
                                  action: { selection = .group(row.group.id) })
                         .contextMenu {
-                            Button("连接组内全部主机") {
+                            Button(L("连接组内全部主机")) {
                                 app.openTabs(for: app.hosts(inGroup: row.group.id))
                             }
-                            Button("新建主机到此分组") {
-                                var host = SSHHost(name: "新主机")
+                            Button(L("新建主机到此分组")) {
+                                var host = SSHHost(name: L("新主机"))
                                 host.groupID = row.group.id
                                 app.editingHost = host
                             }
                             Divider()
-                            Button("新建子分组") { app.beginNewGroup(parentID: row.group.id) }
-                            Button("重命名分组") {
+                            Button(L("新建子分组")) { app.beginNewGroup(parentID: row.group.id) }
+                            Button(L("重命名分组")) {
                                 app.editingGroup = app.group(id: row.group.id) ?? row.group
                             }
-                            Button("删除分组", role: .destructive) {
+                            Button(L("删除分组"), role: .destructive) {
                                 let confirmed = Prompt.confirm(
-                                    title: "删除分组“" + row.group.name + "”？",
-                                    message: "分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。",
-                                    destructiveTitle: "删除")
+                                    title: L("删除分组“") + row.group.name + "”？",
+                                    message: L("分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。"),
+                                    destructiveTitle: L("删除"))
                                 if confirmed { app.deleteGroup(row.group.id) }
                             }
                         }
                 }
                 if !app.ungroupedHosts.isEmpty {
                     StartListRow(symbol: "tray",
-                                 title: "未分组",
+                                 title: L("未分组"),
                                  detail: String(app.ungroupedHosts.count),
                                  isSelected: selection == .ungrouped,
                                  onDropHost: { app.moveHost($0, onto: nil, in: nil) },
@@ -281,19 +281,14 @@ struct StartPageView: View {
         .help(help)
     }
 
-    private func sectionLabel(_ title: String) -> some View {
+    private func sectionLabel(_ title: String, addHelp: String? = nil, addAction: (() -> Void)? = nil) -> some View {
         HStack(spacing: 6) {
             Text(title)
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(Theme.secondary)
             Spacer(minLength: 0)
-            switch title {
-            case "工作区":
-                addButton("新建工作区") { app.promptCreateBoard() }
-            case "分组":
-                addButton("新建分组") { app.beginNewGroup() }
-            default:
-                EmptyView()
+            if let addHelp, let addAction {
+                addButton(addHelp, action: addAction)
             }
         }
         .padding(.horizontal, 8)
@@ -321,11 +316,11 @@ struct StartPageView: View {
 
     private var selectionTitle: String {
         switch selection {
-        case .all: return "全部主机"
-        case .favorites: return "收藏"
-        case .recent: return "最近连接"
+        case .all: return L("全部主机")
+        case .favorites: return L("收藏")
+        case .recent: return L("最近连接")
         case .group(let id): return app.groupPath(for: id)
-        case .ungrouped: return "未分组"
+        case .ungrouped: return L("未分组")
         }
     }
 
@@ -356,42 +351,42 @@ struct StartPageView: View {
     private var hostArea: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text(query.isEmpty ? selectionTitle : "搜索结果")
+                Text(query.isEmpty ? selectionTitle : L("搜索结果"))
                     .font(.system(size: 12.5, weight: .semibold))
                 Text(query.isEmpty
-                     ? String(visibleHosts.count) + " 台"
-                     : String(visibleHosts.count) + " 个结果")
+                     ? String(visibleHosts.count) + L(" 台")
+                     : String(visibleHosts.count) + L(" 个结果"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.secondary)
                 if query.isEmpty, !showsDescendants, selectedGroupDescendants > 0,
                    case .group = selection {
-                    Text("不含 " + String(selectedGroupDescendants) + " 个子分组")
+                    Text(L("不含 ") + String(selectedGroupDescendants) + L(" 个子分组"))
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.secondary)
                 }
                 Spacer(minLength: 8)
                 if !query.isEmpty {
-                    Text("在整个目录中搜索")
+                    Text(L("在整个目录中搜索"))
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.secondary)
                 } else if case .group(let id) = selection {
                     if selectedGroupDescendants > 0 {
                         areaButton(showsDescendants
-                                   ? "仅本组"
-                                   : "含子分组（" + String(selectedGroupDescendants) + "）") {
+                                   ? L("仅本组")
+                                   : L("含子分组（") + String(selectedGroupDescendants) + "）") {
                             showsDescendants.toggle()
                         }
                     }
-                    areaButton("全部连接") {
+                    areaButton(L("全部连接")) {
                         app.openTabs(for: app.hosts(inGroup: id,
                                                     includingDescendants: showsDescendants))
                     }
-                    areaButton("新建主机") {
-                        var host = SSHHost(name: "新主机")
+                    areaButton(L("新建主机")) {
+                        var host = SSHHost(name: L("新主机"))
                         host.groupID = id
                         app.editingHost = host
                     }
-                    areaButton("新建子分组") { app.beginNewGroup(parentID: id) }
+                    areaButton(L("新建子分组")) { app.beginNewGroup(parentID: id) }
                 }
             }
             .padding(.horizontal, 20)
@@ -461,22 +456,22 @@ struct StartPageView: View {
 
     private var emptySelection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(query.isEmpty ? "这里还没有主机" : "没有匹配的主机")
+            Text(query.isEmpty ? L("这里还没有主机") : L("没有匹配的主机"))
                 .font(.system(size: 12.5, weight: .medium))
             Text(query.isEmpty
-                 ? "可以从其他分组拖动主机进来，或直接在这里新建一台。"
-                 : "换个关键词试试，搜索会匹配名称、地址、用户名、标签与备注。")
+                 ? L("可以从其他分组拖动主机进来，或直接在这里新建一台。")
+                 : L("换个关键词试试，搜索会匹配名称、地址、用户名、标签与备注。"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
             if case .group(let id) = selection, query.isEmpty {
                 if selectedGroupDescendants > 0, !showsDescendants {
-                    Text("这个分组下还有 " + String(selectedGroupDescendants)
-                         + " 个子分组；点右上角「含子分组」可以一起查看。")
+                    Text(L("这个分组下还有 ") + String(selectedGroupDescendants)
+                         + L(" 个子分组；点右上角「含子分组」可以一起查看。"))
                         .font(.system(size: 10.5))
                         .foregroundStyle(Theme.secondary)
                 }
-                Button("新建主机到此分组") {
-                    var host = SSHHost(name: "新主机")
+                Button(L("新建主机到此分组")) {
+                    var host = SSHHost(name: L("新主机"))
                     host.groupID = id
                     app.editingHost = host
                 }
@@ -489,20 +484,20 @@ struct StartPageView: View {
     private var emptyHosts: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("还没有主机")
+                Text(L("还没有主机"))
                     .font(.system(size: 13, weight: .semibold))
-                Text("先加一台服务器，之后就能在左侧按分组浏览。")
+                Text(L("先加一台服务器，之后就能在左侧按分组浏览。"))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }
             HStack(spacing: 12) {
-                setupCard("新建主机", "地址、认证与终端设置", "plus.circle") {
-                    app.editingHost = SSHHost(name: "新主机")
+                setupCard(L("新建主机"), L("地址、认证与终端设置"), "plus.circle") {
+                    app.editingHost = SSHHost(name: L("新主机"))
                 }
-                setupCard("导入 ~/.ssh/config", "复用已有的主机配置与跳板", "square.and.arrow.down") {
+                setupCard(L("导入 ~/.ssh/config"), L("复用已有的主机配置与跳板"), "square.and.arrow.down") {
                     app.importSSHConfig()
                 }
-                setupCard("新建工作区", "一次铺开一组服务器", "rectangle.split.3x3") {
+                setupCard(L("新建工作区"), L("一次铺开一组服务器"), "rectangle.split.3x3") {
                     app.promptCreateBoard()
                 }
             }
@@ -555,7 +550,7 @@ struct StartPageView: View {
     }
 
     private func groupPath(for host: SSHHost) -> String {
-        guard let groupID = host.groupID else { return "未分组" }
+        guard let groupID = host.groupID else { return L("未分组") }
         return app.groupPath(for: groupID)
     }
 
@@ -576,15 +571,15 @@ struct StartPageView: View {
 
     private func footerRow(showsDragHelp: Bool) -> some View {
         HStack(spacing: 14) {
-            hint("⇧⌘T", "新建 SFTP")
-            hint("⌘N", "新建主机")
-            hint("⌘T", "新建标签")
-            hint("⇧⌘B", "新建工作区")
-            hint("⌘K", "命令面板")
-            hint("⌘F", "终端查找")
+            hint("⇧⌘T", L("新建 SFTP"))
+            hint("⌘N", L("新建主机"))
+            hint("⌘T", L("新建标签"))
+            hint("⇧⌘B", L("新建工作区"))
+            hint("⌘K", L("命令面板"))
+            hint("⌘F", L("终端查找"))
             Spacer(minLength: 0)
             if showsDragHelp {
-                Text("双击连接 · 拖动卡片可排序，拖到左侧分组即移动")
+                Text(L("双击连接 · 拖动卡片可排序，拖到左侧分组即移动"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
@@ -722,19 +717,20 @@ private struct StartHostCard: View {
     private var proxyChip: String? {
         guard case .use(let id) = host.proxyPolicy else { return nil }
         let name = app.proxies.first { $0.id == id }?.name
-        return name.map { "代理 " + $0 } ?? "代理"
+        return name.map { L("代理 %@", $0) } ?? L("代理")
     }
 
     private var lastUsedText: String {
-        guard let date = host.lastUsedAt else { return "尚未连接" }
+        guard let date = host.lastUsedAt else { return L("尚未连接") }
         let seconds = Date().timeIntervalSince(date)
-        if seconds < 60 { return "刚刚连接" }
-        if seconds < 3600 { return "上次连接 " + String(Int(seconds / 60)) + " 分钟前" }
-        if seconds < 86400 { return "上次连接 " + String(Int(seconds / 3600)) + " 小时前" }
-        if seconds < 86400 * 30 { return "上次连接 " + String(Int(seconds / 86400)) + " 天前" }
+        if seconds < 60 { return L("刚刚连接") }
+        if seconds < 3600 { return L("上次连接 %d 分钟前", Int(seconds / 60)) }
+        if seconds < 86400 { return L("上次连接 %d 小时前", Int(seconds / 3600)) }
+        if seconds < 86400 * 30 { return L("上次连接 %d 天前", Int(seconds / 86400)) }
         let formatter = DateFormatter()
+        formatter.locale = TaugeL10n.shared.locale
         formatter.dateFormat = "yyyy-MM-dd"
-        return "上次连接 " + formatter.string(from: date)
+        return L("上次连接 %@", formatter.string(from: date))
     }
 
     private var visibleTags: [String] {
@@ -797,7 +793,7 @@ private struct StartHostCard: View {
                             .background(Circle().fill(Color.primary.opacity(0.09)))
                     }
                     .buttonStyle(.plain)
-                    .help("连接")
+                    .help(L("连接"))
                     Button {
                         app.openSFTPTab(for: host)
                     } label: {
@@ -808,7 +804,7 @@ private struct StartHostCard: View {
                             .background(Circle().fill(Color.primary.opacity(0.06)))
                     }
                     .buttonStyle(.plain)
-                    .help("新建 SFTP 标签")
+                    .help(L("新建 SFTP 标签"))
                 }
             }
 
@@ -821,7 +817,7 @@ private struct StartHostCard: View {
                     chip(caption)
                 }
                 if let jumpCount {
-                    chip("跳板 ×" + String(jumpCount))
+                    chip(L("跳板 ×") + String(jumpCount))
                 }
                 if let proxyChip {
                     chip(proxyChip)
@@ -838,7 +834,7 @@ private struct StartHostCard: View {
                     .foregroundStyle(Theme.secondary.opacity(0.85))
                 Spacer(minLength: 0)
                 if host.useCount > 0 {
-                    Text("用过 " + String(host.useCount) + " 次")
+                    Text(L("用过 ") + String(host.useCount) + L(" 次"))
                         .font(.system(size: 9.5).monospacedDigit())
                         .foregroundStyle(Theme.secondary.opacity(0.85))
                 }
@@ -875,19 +871,19 @@ private struct StartHostCard: View {
             app.selectedSidebarHostID = host.id
         }
         .contextMenu {
-            Button("连接") { app.openTab(for: host) }
-            Button("连接并打开 SFTP") { app.openTab(for: host, showsSFTP: true) }
-            Button("新建 SFTP 标签") { app.openSFTPTab(for: host) }
-            Button("在工作区中打开") { app.openInBoard(hostID: host.id) }
+            Button(L("连接")) { app.openTab(for: host) }
+            Button(L("连接并打开 SFTP")) { app.openTab(for: host, showsSFTP: true) }
+            Button(L("新建 SFTP 标签")) { app.openSFTPTab(for: host) }
+            Button(L("在工作区中打开")) { app.openInBoard(hostID: host.id) }
             Divider()
-            Button("编辑主机…") { app.editingHost = host }
-            Button("复制主机…") { app.duplicateHost(host) }
-            Button(isFavorite ? "取消收藏" : "收藏") { app.toggleFavorite(host) }
+            Button(L("编辑主机…")) { app.editingHost = host }
+            Button(L("复制主机…")) { app.duplicateHost(host) }
+            Button(isFavorite ? L("取消收藏") : L("收藏")) { app.toggleFavorite(host) }
             Divider()
-            Button("删除主机…", role: .destructive) {
-                if Prompt.confirm(title: "删除「" + host.name + "」？",
-                                  message: "会同时关闭它的终端。",
-                                  destructiveTitle: "删除") {
+            Button(L("删除主机…"), role: .destructive) {
+                if Prompt.confirm(title: L("删除「") + host.name + "」？",
+                                  message: L("会同时关闭它的终端。"),
+                                  destructiveTitle: L("删除")) {
                     app.deleteHost(host.id)
                 }
             }

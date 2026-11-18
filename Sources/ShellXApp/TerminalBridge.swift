@@ -142,11 +142,11 @@ final class ShellXTerminalView: TerminalView {
         }
         let lines = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).filter { !$0.isEmpty }.count
         let alert = NSAlert()
-        alert.messageText = "粘贴 \(lines) 行内容？"
-        alert.informativeText = "内容包含换行，粘贴后可能立即执行多条命令。"
+        alert.messageText = L("粘贴 %d 行内容？", lines)
+        alert.informativeText = L("内容包含换行，粘贴后可能立即执行多条命令。")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "粘贴")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L("粘贴"))
+        alert.addButton(withTitle: L("取消"))
         if alert.runModal() == .alertFirstButtonReturn {
             super.paste(sender)
         }

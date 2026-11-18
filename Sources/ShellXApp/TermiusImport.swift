@@ -50,7 +50,7 @@ extension AppState {
             guard let self, var current = self.termiusImport, current.id == sessionID, current.isLoading else { return }
             current.isLoading = false
             current.slowHint = false
-            current.errorText = "读取 Termius 数据库超时。系统可能弹出了钥匙串授权提示，请点“始终允许”后重试；也可以粘贴密钥手动读取。"
+            current.errorText = L("读取 Termius 数据库超时。系统可能弹出了钥匙串授权提示，请点“始终允许”后重试；也可以粘贴密钥手动读取。")
             self.termiusImport = current
         }
         defer {
@@ -75,7 +75,7 @@ extension AppState {
             updated.isLoading = false
             updated.errorText = catalogue.decryptedCount > 0
                 ? nil
-                : "数据库里没有解密出任何记录。若 Termius 从未登录过，或本地库刚刚被重建，请先在 Termius 里登录一次再导入。"
+                : L("数据库里没有解密出任何记录。若 Termius 从未登录过，或本地库刚刚被重建，请先在 Termius 里登录一次再导入。")
             termiusImport = updated
         } catch {
             guard var updated = termiusImport, updated.id == sessionID else { return }
@@ -149,7 +149,7 @@ extension AppState {
             )
             reloadCatalog()
             termiusImport = nil
-            presentMessage("Termius 导入完成", importSummaryText(summary))
+            presentMessage(L("Termius 导入完成"), importSummaryText(summary))
         } catch {
             guard var failed = termiusImport else { return }
             failed.isImporting = false
@@ -160,22 +160,22 @@ extension AppState {
 
     private func importSummaryText(_ summary: TermiusImportSummary) -> String {
         var lines = [
-            "分组：" + summary.groupName,
-            "新建主机 " + String(summary.importedHosts) + " 台",
-            "导入私钥 " + String(summary.importedKeys) + " 个",
-            "导入 known_hosts " + String(summary.importedKnownHosts) + " 条"
+            L("分组：%@", summary.groupName),
+            L("新建主机 %d 台", summary.importedHosts),
+            L("导入私钥 %d 个", summary.importedKeys),
+            L("导入 known_hosts %d 条", summary.importedKnownHosts)
         ]
         if summary.passwordsStored > 0 {
-            lines.append("保存密码 " + String(summary.passwordsStored) + " 组（钥匙串）")
+            lines.append(L("保存密码 %d 组（钥匙串）", summary.passwordsStored))
         }
         if !summary.skippedHosts.isEmpty {
-            lines.append("已存在、跳过的同主机 " + String(summary.skippedHosts.count) + " 台")
+            lines.append(L("已存在、跳过的同主机 %d 台", summary.skippedHosts.count))
         }
         if !summary.skippedKeys.isEmpty {
-            lines.append("已存在的私钥 " + String(summary.skippedKeys.count) + " 个")
+            lines.append(L("已存在的私钥 %d 个", summary.skippedKeys.count))
         }
         if !summary.failedKeys.isEmpty {
-            lines.append("无法写入的私钥：" + summary.failedKeys.joined(separator: "；"))
+            lines.append(L("无法写入的私钥：%@", summary.failedKeys.joined(separator: "；")))
         }
         return lines.joined(separator: "\n")
     }

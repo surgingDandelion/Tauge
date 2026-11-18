@@ -162,10 +162,10 @@ public enum FileSortField: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .name: return "名称"
-        case .size: return "大小"
-        case .modified: return "修改时间"
-        case .kind: return "类型"
+        case .name: return L("名称")
+        case .size: return L("大小")
+        case .modified: return L("修改时间")
+        case .kind: return L("类型")
         }
     }
 }

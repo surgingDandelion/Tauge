@@ -26,7 +26,7 @@ struct BoardCreateSheet: View {
         }
         walk(app.sidebarTree)
         if !app.ungroupedHosts.isEmpty {
-            result.append(("未分组", app.ungroupedHosts))
+            result.append((L("未分组"), app.ungroupedHosts))
         }
         guard !query.isEmpty else { return result }
         let needle = query.lowercased()
@@ -52,7 +52,7 @@ struct BoardCreateSheet: View {
         .background(Theme.windowBackground)
         .onAppear {
             if name.trimmingCharacters(in: .whitespaces).isEmpty {
-                name = "工作区 \(app.boards.count + 1)"
+                name = L("工作区 %d", app.boards.count + 1)
             }
         }
     }
@@ -60,7 +60,7 @@ struct BoardCreateSheet: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "rectangle.split.3x3").foregroundStyle(Theme.accent)
-            Text("新建工作区").font(.system(size: 13, weight: .semibold))
+            Text(L("新建工作区")).font(.system(size: 13, weight: .semibold))
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -70,24 +70,24 @@ struct BoardCreateSheet: View {
     private var form: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
-                Text("名称").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                Text(L("名称")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     .frame(width: 52, alignment: .leading)
-                TextField("工作区名称", text: $name)
+                TextField(L("工作区名称"), text: $name)
                     .textFieldStyle(.roundedBorder)
             }
             HStack(spacing: 8) {
-                Text("布局").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                Text(L("布局")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     .frame(width: 52, alignment: .leading)
                 Picker("", selection: $isGrid) {
-                    Text("宫格（每个服务器一个窗格）").tag(true)
-                    Text("单窗格（列表里切换）").tag(false)
+                    Text(L("宫格（每个服务器一个窗格）")).tag(true)
+                    Text(L("单窗格（列表里切换）")).tag(false)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
             HStack(spacing: 8) {
                 Text("").frame(width: 52)
-                Toggle("创建后立即连接", isOn: $connect)
+                Toggle(L("创建后立即连接"), isOn: $connect)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
                 Spacer()
@@ -103,19 +103,19 @@ struct BoardCreateSheet: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
-                TextField("搜索主机", text: $query)
+                TextField(L("搜索主机"), text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                 Spacer()
-                Text("已选 \(selection.count) 台")
+                Text(L("已选 %d 台", selection.count))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
-                Button("全选") {
+                Button(L("全选")) {
                     selection = Set(sections.flatMap { $0.hosts.map(\.id) })
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11))
-                Button("清空") { selection.removeAll() }
+                Button(L("清空")) { selection.removeAll() }
                     .buttonStyle(.plain)
                     .font(.system(size: 11))
                     .disabled(selection.isEmpty)
@@ -125,8 +125,8 @@ struct BoardCreateSheet: View {
             Divider()
             if sections.isEmpty {
                 VStack(spacing: 6) {
-                    Text("还没有主机").font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    Text("先在侧边栏新建主机，或者从 ~/.ssh/config 导入。")
+                    Text(L("还没有主机")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    Text(L("先在侧边栏新建主机，或者从 ~/.ssh/config 导入。"))
                         .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -156,7 +156,7 @@ struct BoardCreateSheet: View {
                 .foregroundStyle(Theme.secondary)
             Spacer()
             let ids = Set(section.hosts.map(\.id))
-            Button(selection.isSuperset(of: ids) ? "取消该组" : "选择该组") {
+            Button(selection.isSuperset(of: ids) ? L("取消该组") : L("选择该组")) {
                 if selection.isSuperset(of: ids) { selection.subtract(ids) } else { selection.formUnion(ids) }
             }
             .buttonStyle(.plain)
@@ -195,13 +195,13 @@ struct BoardCreateSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(selection.isEmpty ? "不选服务器也可以，创建后再添加" : "将打开 \(selection.count) 个窗格")
+            Text(selection.isEmpty ? L("不选服务器也可以，创建后再添加") : "将打开 \(selection.count) 个窗格")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
             Spacer()
-            Button("取消") { dismiss() }
+            Button(L("取消")) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("创建") { create() }
+            Button(L("创建")) { create() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }

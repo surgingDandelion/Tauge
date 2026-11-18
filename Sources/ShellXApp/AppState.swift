@@ -156,6 +156,7 @@ final class AppState: ObservableObject {
         self.catalogReadOnly = environment.isReadOnlyCatalog
         store = environment.store
         settings = (try? environment.store.settings()) ?? AppSettings()
+        TaugeL10n.shared.language = TaugeLanguage(rawValue: settings.language) ?? .systemDefault
         reloadCatalog()
         expandedGroups = Set(groups.filter { $0.isExpanded }.map { $0.id })
         loadTransferHistory()
@@ -167,26 +168,26 @@ final class AppState: ObservableObject {
         if catalogReadOnly {
             presentCatalogReadOnlyNotice()
         } else if environment.isEphemeralDatabase {
-            let reason = environment.catalogOpenFailure.map { "\n原因：" + $0 } ?? ""
-            presentMessage("正在使用临时数据库",
-                           "无法打开原数据库：\n" + CatalogLocation.currentURL.path + reason
-                               + "\n\n本次运行使用的是临时数据库，退出后数据会丢失。",
-                           suggestion: "请检查该文件是否被占用或损坏；也可以在“设置 → 高级”中迁移数据库到可写位置。")
+            let reason = environment.catalogOpenFailure.map { L("\n原因：") + $0 } ?? ""
+            presentMessage(L("正在使用临时数据库"),
+                           L("无法打开原数据库：\n") + CatalogLocation.currentURL.path + reason
+                               + L("\n\n本次运行使用的是临时数据库，退出后数据会丢失。"),
+                           suggestion: L("请检查该文件是否被占用或损坏；也可以在“设置 → 高级”中迁移数据库到可写位置。"))
         }
     }
 
     /// The catalog is opened but not writable, which would otherwise surface as a raw
     /// "attempt to write a readonly database" SQL error on the first save.
     func presentCatalogReadOnlyNotice() {
-        var detail = "Tauge 已打开数据库：\n" + environment.databaseURL.path
+        var detail = L("Tauge 已打开数据库：\n") + environment.databaseURL.path
         if let reason = environment.catalogOpenFailure {
-            detail += "\n\n无法以可写方式打开：" + reason
-            detail += "\n\n已按只读方式加载，主机与分组仍可查看和使用，但任何修改都不会被保存。"
+            detail += L("\n\n无法以可写方式打开：") + reason
+            detail += L("\n\n已按只读方式加载，主机与分组仍可查看和使用，但任何修改都不会被保存。")
         } else {
-            detail += "\n\n当前进程没有写入权限，新建主机、修改分组或保存设置都不会被保存。"
+            detail += L("\n\n当前进程没有写入权限，新建主机、修改分组或保存设置都不会被保存。")
         }
-        presentMessage("数据库不可写（只读）", detail,
-                       suggestion: "请从 Finder 直接启动 Tauge.app（不要在受限沙盒或只读环境中运行）；也可以在“设置 → 高级”中把数据库迁移到可写位置。")
+        presentMessage(L("数据库不可写（只读）"), detail,
+                       suggestion: L("请从 Finder 直接启动 Tauge.app（不要在受限沙盒或只读环境中运行）；也可以在“设置 → 高级”中把数据库迁移到可写位置。"))
     }
 
     var catalogPath: String { environment.databaseURL.path }
@@ -198,17 +199,17 @@ final class AppState: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "迁移到这里"
-        panel.message = "选择一个可写文件夹，Tauge 会复制当前数据库，并在下次启动时使用新位置。"
+        panel.prompt = L("迁移到这里")
+        panel.message = L("选择一个可写文件夹，Tauge 会复制当前数据库，并在下次启动时使用新位置。")
         guard panel.runModal() == .OK, let directory = panel.url else { return }
         do {
             let target = try environment.relocateCatalog(to: directory)
             catalogReadOnly = false
-            presentMessage("数据库已迁移",
-                           "数据库已复制到：\n" + target.path,
-                           suggestion: "请退出 Tauge 并重新启动，之后的所有修改都会保存到新位置。")
+            presentMessage(L("数据库已迁移"),
+                           L("数据库已复制到：\n") + target.path,
+                           suggestion: L("请退出 Tauge 并重新启动，之后的所有修改都会保存到新位置。"))
         } catch {
-            present(error, title: "迁移数据库失败")
+            present(error, title: L("迁移数据库失败"))
         }
     }
 
@@ -294,23 +295,23 @@ final class AppState: ObservableObject {
     }
 
     func hostName(for id: UUID?) -> String {
-        host(id: id)?.name ?? "未知主机"
+        host(id: id)?.name ?? L("未知主机")
     }
 
     func proxyName(for policy: ProxyPolicy) -> String {
         switch policy {
-        case .direct: return "不使用代理"
-        case .inherit: return "继承分组设置"
-        case .use(let id): return proxies.first { $0.id == id }?.name ?? "已删除的代理"
+        case .direct: return L("不使用代理")
+        case .inherit: return L("继承分组设置")
+        case .use(let id): return proxies.first { $0.id == id }?.name ?? L("已删除的代理")
         }
     }
 
     func jumpDescription(for policy: JumpPolicy) -> String {
         switch policy {
-        case .direct: return "直连"
-        case .inherit: return "继承分组设置"
+        case .direct: return L("直连")
+        case .inherit: return L("继承分组设置")
         case .hosts(let ids):
-            if ids.isEmpty { return "直连" }
+            if ids.isEmpty { return L("直连") }
             return ids.compactMap { host(id: $0)?.name }.joined(separator: " → ")
         }
     }
@@ -363,7 +364,7 @@ final class AppState: ObservableObject {
 
     /// Full "A / B / C" path for a group, used in pickers and board titles.
     func groupPath(for id: UUID?) -> String {
-        guard let id else { return "未分组" }
+        guard let id else { return L("未分组") }
         var components: [String] = []
         var current = group(id: id)
         var guardCounter = 0
@@ -372,7 +373,7 @@ final class AppState: ObservableObject {
             current = node.parentID.flatMap { group(id: $0) }
             guardCounter += 1
         }
-        return components.isEmpty ? "未分组" : components.joined(separator: " / ")
+        return components.isEmpty ? L("未分组") : components.joined(separator: " / ")
     }
 
     /// Every host directly inside a group, optionally including descendant groups.
@@ -533,9 +534,9 @@ final class AppState: ObservableObject {
     /// "name 副本", then "name 副本 2", "name 副本 3"… so repeated copies of the
     /// same host stay distinguishable in the sidebar and the start page.
     private func duplicateName(basedOn name: String) -> String {
-        let base = name.trimmingCharacters(in: .whitespaces).isEmpty ? "主机" : name
+        let base = name.trimmingCharacters(in: .whitespaces).isEmpty ? L("主机") : name
         let taken = Set(hosts.map { $0.name })
-        let first = base + " 副本"
+        let first = base + L(" 副本")
         if !taken.contains(first) { return first }
         var index = 2
         while taken.contains(first + " " + String(index)) { index += 1 }
@@ -570,7 +571,7 @@ final class AppState: ObservableObject {
     /// through here so a new child group is nested under its parent and the
     /// parent is expanded, otherwise the sheet would just create a sibling.
     func beginNewGroup(parentID: UUID? = nil) {
-        editingGroup = HostGroup(parentID: parentID, name: "新分组")
+        editingGroup = HostGroup(parentID: parentID, name: L("新分组"))
         if let parentID, let parent = group(id: parentID) {
             setGroupExpanded(parent, expanded: true)
         }
@@ -877,9 +878,9 @@ final class AppState: ObservableObject {
     /// Opens an SFTP tab for the current sidebar selection, if any.
     func openSFTPTabForSelection() {
         guard let id = selectedSidebarHostID, let host = host(id: id) else {
-            presentMessage("没有选中的主机",
-                           "先在起始页或侧边栏里选一台主机，再新建 SFTP 标签。",
-                           suggestion: "也可以在主机上右键选择“新建 SFTP 标签”。")
+            presentMessage(L("没有选中的主机"),
+                           L("先在起始页或侧边栏里选一台主机，再新建 SFTP 标签。"),
+                           suggestion: L("也可以在主机上右键选择“新建 SFTP 标签”。"))
             return
         }
         openSFTPTab(for: host)
@@ -962,7 +963,11 @@ final class AppState: ObservableObject {
     // MARK: - Settings
 
     func updateSettings(_ newValue: AppSettings) {
+        let languageChanged = newValue.language != settings.language
         settings = newValue
+        if languageChanged {
+            TaugeL10n.shared.language = TaugeLanguage(rawValue: newValue.language) ?? .systemDefault
+        }
         do {
             try store.save(settings: newValue)
         } catch {
@@ -984,7 +989,7 @@ final class AppState: ObservableObject {
         do {
             try store.save(settings: settings)
         } catch {
-            present(error, title: "无法保存侧边栏状态")
+            present(error, title: L("无法保存侧边栏状态"))
         }
     }
 
@@ -1000,7 +1005,7 @@ final class AppState: ObservableObject {
             do {
                 try store.save(settings: settings)
             } catch {
-                present(error, title: "无法保存默认视图")
+                present(error, title: L("无法保存默认视图"))
             }
         }
         if wantsBoard {
@@ -1154,9 +1159,9 @@ final class AppState: ObservableObject {
 
     func pauseTransfer(_ progress: TransferProgress) {
         if relayTasks[progress.id] != nil {
-            presentMessage("不能暂停",
-                           "远端到远端的传输是流式的，不支持暂停。",
-                           suggestion: "可以取消后重新拖一次。")
+            presentMessage(L("不能暂停"),
+                           L("远端到远端的传输是流式的，不支持暂停。"),
+                           suggestion: L("可以取消后重新拖一次。"))
             return
         }
         Task {
@@ -1226,7 +1231,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Errors
 
-    func present(_ error: Error, title: String = "操作失败") {
+    func present(_ error: Error, title: String = L("操作失败")) {
         alert = AppError(error, title: title)
     }
 
@@ -1275,11 +1280,11 @@ final class AppState: ObservableObject {
         for board in boards.sorted(by: { $0.name < $1.name }) {
             items.append(CommandPaletteItem(id: "board-" + board.id.uuidString,
                                             title: board.name,
-                                            subtitle: "工作区 · " + String(board.panes.count) + " 个窗格",
+                                            subtitle: L("工作区 · %d 个窗格", board.panes.count),
                                             kind: .action,
                                             host: nil,
                                             action: { [weak self] in self?.openBoardTab(board.id) },
-                                            groupTitle: "工作区"))
+                                            groupTitle: L("工作区")))
         }
 
         func appendHost(_ host: SSHHost, groupTitle: String, depth: Int) {
@@ -1319,17 +1324,17 @@ final class AppState: ObservableObject {
             walk(node, path: "", depth: 0)
         }
         for host in ungroupedHosts {
-            appendHost(host, groupTitle: "未分组", depth: 0)
+            appendHost(host, groupTitle: L("未分组"), depth: 0)
         }
 
         let actions: [(String, String, () -> Void)] = [
-            ("新建主机", "⌘N", { [weak self] in self?.editingHost = SSHHost(name: "", hostname: "") }),
-            ("新建分组…", "⇧⌘N", { [weak self] in self?.beginNewGroup() }),
-            ("新建工作区…", "⇧⌘B", { [weak self] in self?.promptCreateBoard() }),
-            ("打开设置", "⌘,", { [weak self] in self?.showingSettings = true }),
-            ("传输中心", "⇧⌘J", { [weak self] in self?.showingTransferCenter = true }),
-            ("从 ~/.ssh/config 导入", "", { [weak self] in self?.importSSHConfig() }),
-            ("从 Termius 导入…", "", { [weak self] in self?.beginTermiusImport() })
+            (L("新建主机"), "⌘N", { [weak self] in self?.editingHost = SSHHost(name: "", hostname: "") }),
+            (L("新建分组…"), "⇧⌘N", { [weak self] in self?.beginNewGroup() }),
+            (L("新建工作区…"), "⇧⌘B", { [weak self] in self?.promptCreateBoard() }),
+            (L("打开设置"), "⌘,", { [weak self] in self?.showingSettings = true }),
+            (L("传输中心"), "⇧⌘J", { [weak self] in self?.showingTransferCenter = true }),
+            (L("从 ~/.ssh/config 导入"), "", { [weak self] in self?.importSSHConfig() }),
+            (L("从 Termius 导入…"), "", { [weak self] in self?.beginTermiusImport() })
         ]
         for (index, action) in actions.enumerated() {
             items.append(CommandPaletteItem(id: "action-" + String(index),
@@ -1338,7 +1343,7 @@ final class AppState: ObservableObject {
                                             kind: .action,
                                             host: nil,
                                             action: action.2,
-                                            groupTitle: "命令"))
+                                            groupTitle: L("命令")))
         }
         return items
     }

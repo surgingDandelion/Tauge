@@ -19,9 +19,9 @@ extension AppState {
             client = pane.client
         }
         guard let client else {
-            presentMessage("无法上传",
-                           "SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。",
-                           suggestion: "使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。")
+            presentMessage(L("无法上传"),
+                           L("SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。"),
+                           suggestion: L("使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。"))
             return
         }
         let destinationDirectory = destination ?? pane.path
@@ -98,9 +98,9 @@ extension AppState {
         traceTransfer("drop path=" + path + " -> " + destination + " host=" + (hostID?.uuidString ?? "-"))
         Task { @MainActor in
             guard let pane = self.remotePane(forDroppedPath: path, in: tab, preferringHost: hostID) else {
-                self.presentMessage("无法下载",
-                                    "这条路径来自已经关闭的远端面板。",
-                                    suggestion: "重新打开远端面板后再拖拽。")
+                self.presentMessage(L("无法下载"),
+                                    L("这条路径来自已经关闭的远端面板。"),
+                                    suggestion: L("重新打开远端面板后再拖拽。"))
                 return
             }
             var client = pane.client
@@ -109,9 +109,9 @@ extension AppState {
                 client = pane.client
             }
             guard let client else {
-                self.presentMessage("无法下载",
-                                    pane.connectionError ?? "SFTP 会话尚未建立，请先在远端面板上点“重试”。",
-                                    suggestion: "确认远端面板已连接后再拖拽。")
+                self.presentMessage(L("无法下载"),
+                                    pane.connectionError ?? L("SFTP 会话尚未建立，请先在远端面板上点“重试”。"),
+                                    suggestion: L("确认远端面板已连接后再拖拽。"))
                 return
             }
             if let entry = pane.entries.first(where: { $0.path == path }) {
@@ -132,9 +132,9 @@ extension AppState {
                                       modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
                 await self.performDownload(entries: [entry], tab: tab, destination: destination, pane: pane)
             } catch {
-                self.presentMessage("无法下载",
+                self.presentMessage(L("无法下载"),
                                     self.describe(error),
-                                    suggestion: "确认远端路径仍然存在。")
+                                    suggestion: L("确认远端路径仍然存在。"))
             }
         }
     }
@@ -146,9 +146,9 @@ extension AppState {
             client = pane.client
         }
         guard let client else {
-            presentMessage("无法下载",
-                           "SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。",
-                           suggestion: "使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。")
+            presentMessage(L("无法下载"),
+                           L("SFTP 会话尚未建立，请先在标签中打开 SFTP 面板并确认连接正常。"),
+                           suggestion: L("使用 ⇧⌘O 打开 SFTP；若连接失败，状态栏会显示原因。"))
             return
         }
         let directory = destination ?? tab.local.path
@@ -190,9 +190,9 @@ extension AppState {
                 }
             }
             guard !entries.isEmpty else {
-                self.presentMessage("无法上传",
-                                    "拖拽的内容不是可读取的本地文件或目录。",
-                                    suggestion: "从 Finder 拖拽文件，或使用面板上的“上传”按钮。")
+                self.presentMessage(L("无法上传"),
+                                    L("拖拽的内容不是可读取的本地文件或目录。"),
+                                    suggestion: L("从 Finder 拖拽文件，或使用面板上的“上传”按钮。"))
                 return
             }
             await self.performUpload(entries: entries, tab: tab, destination: destination, pane: target)
@@ -207,15 +207,15 @@ extension AppState {
             guard !Task.isCancelled, let self else { return }
             guard self.conflictContinuation != nil else { return }
             self.resolveConflict(nil, applyToAll: false)
-            self.presentMessage("冲突处理已超时",
-                                "没有收到冲突处理方式，传输已取消。",
-                                suggestion: "重新拖拽或点击上传即可再次触发。")
+            self.presentMessage(L("冲突处理已超时"),
+                                L("没有收到冲突处理方式，传输已取消。"),
+                                suggestion: L("重新拖拽或点击上传即可再次触发。"))
         }
         defer { timeout.cancel() }
         return await withCheckedContinuation { continuation in
             self.conflictContinuation = continuation
-            self.pendingConflict = PendingConflict(title: "目标位置已存在同名文件",
-                                                   message: "共有 " + String(fileCount) + " 个项目需要传输，请选择冲突处理方式。",
+            self.pendingConflict = PendingConflict(title: L("目标位置已存在同名文件"),
+                                                   message: L("共有 ") + String(fileCount) + L(" 个项目需要传输，请选择冲突处理方式。"),
                                                    fileCount: fileCount)
         }
     }
@@ -245,7 +245,7 @@ extension AppState {
                 try await client.createDirectory(POSIXPath.join(target.path, name))
                 await target.refresh()
             } catch {
-                await MainActor.run { self.present(error, title: "新建文件夹失败") }
+                await MainActor.run { self.present(error, title: L("新建文件夹失败")) }
             }
         }
     }
@@ -259,7 +259,7 @@ extension AppState {
                 try await client.writeFile(path, data: Data())
                 await target.refresh()
             } catch {
-                await MainActor.run { self.present(error, title: "新建文件失败") }
+                await MainActor.run { self.present(error, title: L("新建文件失败")) }
             }
         }
     }
@@ -273,7 +273,7 @@ extension AppState {
                 try await client.rename(entry.path, to: newPath)
                 await target.refresh()
             } catch {
-                await MainActor.run { self.present(error, title: "重命名失败") }
+                await MainActor.run { self.present(error, title: L("重命名失败")) }
             }
         }
     }
@@ -290,7 +290,7 @@ extension AppState {
                         try await client.removeFile(entry.path)
                     }
                 } catch {
-                    await MainActor.run { self.present(error, title: "删除 " + entry.name + " 失败") }
+                    await MainActor.run { self.present(error, title: L("删除 ") + entry.name + L(" 失败")) }
                     break
                 }
             }
@@ -306,7 +306,7 @@ extension AppState {
                 try await client.setPermissions(entry.path, mode: mode)
                 await target.refresh()
             } catch {
-                await MainActor.run { self.present(error, title: "修改权限失败") }
+                await MainActor.run { self.present(error, title: L("修改权限失败")) }
             }
         }
     }
@@ -316,7 +316,7 @@ extension AppState {
             try environment.localFiles.createDirectory(at: POSIXPath.join(tab.local.path, name))
             tab.local.reload()
         } catch {
-            present(error, title: "新建文件夹失败")
+            present(error, title: L("新建文件夹失败"))
         }
     }
 
@@ -325,7 +325,7 @@ extension AppState {
             try environment.localFiles.createEmptyFile(at: POSIXPath.join(tab.local.path, name))
             tab.local.reload()
         } catch {
-            present(error, title: "新建文件失败")
+            present(error, title: L("新建文件失败"))
         }
     }
 
@@ -334,7 +334,7 @@ extension AppState {
             try environment.localFiles.rename(entry.path, to: POSIXPath.join(tab.local.path, newName))
             tab.local.reload()
         } catch {
-            present(error, title: "重命名失败")
+            present(error, title: L("重命名失败"))
         }
     }
 
@@ -343,7 +343,7 @@ extension AppState {
             do {
                 try environment.localFiles.remove(at: entry.path, recursive: entry.kind == .directory)
             } catch {
-                present(error, title: "删除 " + entry.name + " 失败")
+                present(error, title: L("删除 ") + entry.name + L(" 失败"))
                 break
             }
         }
@@ -356,8 +356,8 @@ extension AppState {
         let target = pane ?? tab.remote
         guard entry.kind == .file else { return }
         guard entry.size <= Int64(settings.editorMaxFileSize) else {
-            presentMessage("文件过大", "该文件超过内置编辑器上限（" + String(settings.editorMaxFileSize / 1024 / 1024) + " MB）。",
-                           suggestion: "请使用外部编辑器或先把文件下载到本地。")
+            presentMessage(L("文件过大"), L("该文件超过内置编辑器上限（") + String(settings.editorMaxFileSize / 1024 / 1024) + " MB）。",
+                           suggestion: L("请使用外部编辑器或先把文件下载到本地。"))
             return
         }
         guard let client = target.client else { return }
@@ -370,7 +370,7 @@ extension AppState {
                 }
                 guard let text else {
                     await MainActor.run {
-                        self.presentMessage("无法预览", "该文件不是文本文件或以不支持的编码保存。")
+                        self.presentMessage(L("无法预览"), L("该文件不是文本文件或以不支持的编码保存。"))
                     }
                     return
                 }
@@ -378,7 +378,7 @@ extension AppState {
                     self.editor = EditorContext(tabID: tab.id, paneID: target.id, path: entry.path, text: text)
                 }
             } catch {
-                await MainActor.run { self.present(error, title: "读取文件失败") }
+                await MainActor.run { self.present(error, title: L("读取文件失败")) }
             }
         }
     }
@@ -393,11 +393,11 @@ extension AppState {
                 try await client.writeFile(context.path, data: data)
                 await MainActor.run {
                     self.editor = nil
-                    self.presentMessage("已保存", "文件 " + context.path + " 已写入远端。")
+                    self.presentMessage(L("已保存"), L("文件 ") + context.path + L(" 已写入远端。"))
                 }
                 await pane.refresh()
             } catch {
-                await MainActor.run { self.present(error, title: "保存失败") }
+                await MainActor.run { self.present(error, title: L("保存失败")) }
             }
         }
     }
@@ -413,7 +413,7 @@ extension AppState {
             let data = try store.exportCatalog()
             try data.write(to: url)
         } catch {
-            present(error, title: "导出失败")
+            present(error, title: L("导出失败"))
         }
     }
 
@@ -426,9 +426,9 @@ extension AppState {
             let data = try Data(contentsOf: url)
             try store.importCatalog(data: data)
             reloadCatalog()
-            presentMessage("导入完成", "已合并 " + url.lastPathComponent + " 中的主机、分组与代理。")
+            presentMessage(L("导入完成"), L("已合并 ") + url.lastPathComponent + L(" 中的主机、分组与代理。"))
         } catch {
-            present(error, title: "导入失败")
+            present(error, title: L("导入失败"))
         }
     }
 
@@ -472,7 +472,7 @@ extension AppState {
                     host.authMethod = .password
                 }
                 if let command = effective.proxyCommand, !command.isEmpty {
-                    host.notes = "ProxyCommand 暂不支持：" + command
+                    host.notes = L("ProxyCommand 暂不支持：") + command
                 }
                 created[alias.lowercased()] = host.id
                 imported.append(host)
@@ -503,9 +503,9 @@ extension AppState {
                 try store.save(host: host)
             }
             reloadCatalog()
-            presentMessage("导入完成", imported.isEmpty ? "没有发现新的 SSH 配置别名。" : "已导入 " + String(imported.count) + " 台主机。")
+            presentMessage(L("导入完成"), imported.isEmpty ? L("没有发现新的 SSH 配置别名。") : L("已导入 ") + String(imported.count) + L(" 台主机。"))
         } catch {
-            present(error, title: "读取 ~/.ssh/config 失败")
+            present(error, title: L("读取 ~/.ssh/config 失败"))
         }
     }
 }

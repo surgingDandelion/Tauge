@@ -15,11 +15,11 @@ struct GroupEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("分组").font(.system(size: 14, weight: .semibold))
+                Text(L("分组")).font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Button("取消") { app.editingGroup = nil }
+                Button(L("取消")) { app.editingGroup = nil }
                     .keyboardShortcut(.cancelAction)
-                Button("保存") {
+                Button(L("保存")) {
                     group.defaults = defaults
                     app.saveGroup(group)
                     app.editingGroup = nil
@@ -30,15 +30,15 @@ struct GroupEditorView: View {
             .frame(height: 44)
             Divider()
             Form {
-                TextField("名称", text: $group.name)
-                Picker("上级分组", selection: $group.parentID) {
-                    Text("顶级分组").tag(UUID?.none)
+                TextField(L("名称"), text: $group.name)
+                Picker(L("上级分组"), selection: $group.parentID) {
+                    Text(L("顶级分组")).tag(UUID?.none)
                     ForEach(app.groups.filter { $0.id != group.id }) { candidate in
                         Text(app.groupPath(for: candidate.id)).tag(Optional(candidate.id))
                     }
                 }
-                Section("默认值（向下继承）") {
-                    Picker("代理", selection: Binding(
+                Section(L("默认值（向下继承）")) {
+                    Picker(L("代理"), selection: Binding(
                         get: {
                             switch defaults.proxyPolicy {
                             case .inherit: return "inherit"
@@ -55,23 +55,23 @@ struct GroupEditorView: View {
                             }
                         }
                     )) {
-                        Text("继承").tag("inherit")
-                        Text("不使用代理").tag("direct")
+                        Text(L("继承")).tag("inherit")
+                        Text(L("不使用代理")).tag("direct")
                         ForEach(app.proxies) { proxy in
                             Text(proxy.name).tag(proxy.id.uuidString)
                         }
                     }
-                    Picker("编码", selection: $defaults.encoding) {
-                        Text("继承").tag(TextEncodingKind?.none)
+                    Picker(L("编码"), selection: $defaults.encoding) {
+                        Text(L("继承")).tag(TextEncodingKind?.none)
                         ForEach(TextEncodingKind.allCases, id: \.self) { kind in
                             Text(kind.displayName).tag(Optional(kind))
                         }
                     }
-                    TextField("终端类型", text: Binding(
+                    TextField(L("终端类型"), text: Binding(
                         get: { defaults.terminalType ?? "" },
                         set: { defaults.terminalType = $0.isEmpty ? nil : $0 }
                     ))
-                    TextField("默认上传目录", text: Binding(
+                    TextField(L("默认上传目录"), text: Binding(
                         get: { defaults.defaultUploadDirectory ?? "" },
                         set: { defaults.defaultUploadDirectory = $0.isEmpty ? nil : $0 }
                     ))
@@ -104,13 +104,13 @@ struct ProxyEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("代理").font(.system(size: 14, weight: .semibold))
+                Text(L("代理")).font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Button("取消") {
+                Button(L("取消")) {
                     if let onCancel { onCancel() } else { app.editingProxy = nil }
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("保存") {
+                Button(L("保存")) {
                     if let onSave {
                         onSave(proxy, password)
                     } else {
@@ -127,28 +127,28 @@ struct ProxyEditorView: View {
             .frame(height: 44)
             Divider()
             Form {
-                TextField("名称", text: $proxy.name)
-                Picker("类型", selection: $proxy.type) {
+                TextField(L("名称"), text: $proxy.name)
+                Picker(L("类型"), selection: $proxy.type) {
                     ForEach(ProxyType.allCases, id: \.self) { type in
                         Text(type.displayName).tag(type)
                     }
                 }
-                TextField("地址", text: $proxy.host)
-                TextField("端口", value: $proxy.port, format: .number)
-                TextField("用户名（可选）", text: $proxy.username)
-                SecureField("密码（可选）", text: $password)
-                Toggle("保存密码到钥匙串", isOn: $proxy.savesPassword)
-                Text("作用域：主机 > 分组 > 全局；代理仅用于连接第一跳 TCP。选了代理的主机不再经过跳板机。")
+                TextField(L("地址"), text: $proxy.host)
+                TextField(L("端口"), value: $proxy.port, format: .number)
+                TextField(L("用户名（可选）"), text: $proxy.username)
+                SecureField(L("密码（可选）"), text: $password)
+                Toggle(L("保存密码到钥匙串"), isOn: $proxy.savesPassword)
+                Text(L("作用域：主机 > 分组 > 全局；代理仅用于连接第一跳 TCP。选了代理的主机不再经过跳板机。"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                 if proxy.type == .https {
-                    Text("HTTPS（TLS）代理暂未实现，连接与测试都会提示不支持；请改用 HTTP CONNECT 或 SOCKS5。")
+                    Text(L("HTTPS（TLS）代理暂未实现，连接与测试都会提示不支持；请改用 HTTP CONNECT 或 SOCKS5。"))
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.warning)
                 }
                 // Inside the Form so it scrolls: a sheet taller than its parent
                 // window gets clipped, which hid the test button entirely.
-                Section("连接测试") {
+                Section(L("连接测试")) {
                     ProxyTestView(proxy: proxy,
                                   password: password.isEmpty ? nil : password,
                                   defaultTarget: "example.com:443")

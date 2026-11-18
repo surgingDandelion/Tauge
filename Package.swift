@@ -33,7 +33,8 @@ let package = Package(
                 .product(name: "NIOFoundationCompat", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Logging", package: "swift-log"),
-            ]
+            ],
+            resources: [.process("Localization")]
         ),
         .executableTarget(
             name: "ShellXApp",
