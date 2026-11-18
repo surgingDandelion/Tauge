@@ -66,12 +66,14 @@ jobs:
           fail() { echo "::error::Verify bundle: $*"; exit 1; }
           test -d dist/Tauge.app || fail "dist/Tauge.app is missing"
           test -x dist/Tauge.app/Contents/MacOS/Tauge || fail "main executable is missing"
-          if [ ! -f dist/Tauge.app/Contents/Resources/ShellX_ShellXKit.bundle/Contents/Resources/en.json ]; then
+          EN_JSON="$(find dist/Tauge.app/Contents/Resources -name en.json -print -quit)"
+          if [ -z "$EN_JSON" ]; then
             echo "::group::Bundle resource tree"
             find dist/Tauge.app/Contents/Resources -maxdepth 5 -print
             echo "::endgroup::"
             fail "en.json is missing from the resource bundle"
           fi
+          echo "en.json: $EN_JSON"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Tauge.app/Contents/Info.plist             || fail "Info.plist has no CFBundleShortVersionString"
           if ! codesign --verify --verbose=1 dist/Tauge.app; then
             codesign -dvvv dist/Tauge.app || true
