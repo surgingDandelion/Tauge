@@ -208,9 +208,10 @@ Vendor/             SwiftTerm and the patched swift-nio-ssh fork
 Chinese source strings are the keys; English lives in
 [`Sources/ShellXKit/Localization/en.json`](Sources/ShellXKit/Localization/en.json).
 Every user-visible string is wrapped in `L("中文")`, and the language setting
-takes effect immediately without a restart. `python3 scripts/check-localization.py`
-verifies that every source key has an English entry with matching placeholders. Missing entries fall back to
-Chinese rather than showing a key. See
+takes effect immediately without a restart.
+`python3 scripts/check-localization.py` verifies that every source key has an
+English entry with matching placeholders. Missing entries fall back to Chinese
+rather than showing a key. See
 [CONTRIBUTING.md](CONTRIBUTING.md#localisation) before adding strings.
 
 ## Known limitations
