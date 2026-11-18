@@ -195,7 +195,7 @@ struct BoardCreateSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(selection.isEmpty ? L("不选服务器也可以，创建后再添加") : "将打开 \(selection.count) 个窗格")
+            Text(selection.isEmpty ? L("不选服务器也可以，创建后再添加") : L("将打开 %d 个窗格", selection.count))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.secondary)
             Spacer()

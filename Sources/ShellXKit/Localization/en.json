@@ -342,6 +342,7 @@
   "导出主机配置": "Export Hosts",
   "导出失败": "Couldn't Export",
   "导航": "Navigate",
+  "将打开 %d 个窗格": "Will open %d panes",
   "将打开 1 个本地面板与 %d 个远端面板": "Will open 1 local pane and %d remote panes",
   "将新建 ": "Will create ",
   "尚未导入私钥。支持 OpenSSH 新格式、PKCS#1、PKCS#8 与 SEC1（Ed25519 / ECDSA / RSA）。": "No private keys imported yet. Supports the new OpenSSH format, PKCS#1, PKCS#8, and SEC1 (Ed25519 / ECDSA / RSA).",

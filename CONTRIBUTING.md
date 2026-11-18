@@ -82,6 +82,8 @@ Chinese source strings are the keys; English translations live in
    the `收藏` filter tag or `case "工作区"` discriminators). If a value is both
    displayed and stored, keep the stored value stable and translate only the
    presentation.
+4. Run `python3 scripts/check-localization.py`. It fails when a source key is
+   missing from `en.json` or when placeholder counts differ; CI runs it too.
 
 ### Commit messages
 

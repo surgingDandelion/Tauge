@@ -132,7 +132,7 @@ Command Line Tools 不提供 XCTest 与 swift-testing，因此自检是一个可
 swift run --disable-sandbox ShellXChecks
 ```
 
-目前包含 **1999 项检查**，覆盖 SFTP v3 编解码往返、`ssh_config` 解析
+目前包含 **超过 2,000 项检查**，覆盖 SFTP v3 编解码往返、`ssh_config` 解析
 （OpenSSH 首值优先）、分组继承与跳板链、工作区分割树计算、传输引擎行为
 （续传、递归、冲突、进度）、RSA 公钥与 `ssh-keygen` 指纹比对、
 XSalsa20-Poly1305 测试向量、本地化表完整性，以及针对进程内模拟 SSH 服务器的

@@ -29,6 +29,9 @@ jobs:
           /usr/bin/xcodebuild -version || true
           sw_vers
 
+      - name: Verify localisation coverage
+        run: python3 scripts/check-localization.py
+
       - name: Build (debug)
         run: swift build --disable-sandbox
 

@@ -155,7 +155,7 @@ suite is an executable target:
 swift run --disable-sandbox ShellXChecks
 ```
 
-It currently runs **1999 checks**, including SFTP v3 codec round trips,
+It currently runs **over 2,000 checks**, including SFTP v3 codec round trips,
 `ssh_config` parsing (OpenSSH first-value-wins semantics), group inheritance
 and jump chains, workspace split-tree maths, transfer-engine behaviour
 (resume, recursion, conflicts, progress), RSA key parsing against `ssh-keygen`
@@ -206,7 +206,8 @@ Vendor/             SwiftTerm and the patched swift-nio-ssh fork
 Chinese source strings are the keys; English lives in
 [`Sources/ShellXKit/Localization/en.json`](Sources/ShellXKit/Localization/en.json).
 Every user-visible string is wrapped in `L("中文")`, and the language setting
-takes effect immediately without a restart. Missing entries fall back to
+takes effect immediately without a restart. `python3 scripts/check-localization.py`
+verifies that every source key has an English entry with matching placeholders. Missing entries fall back to
 Chinese rather than showing a key. See
 [CONTRIBUTING.md](CONTRIBUTING.md#localisation) before adding strings.
 
