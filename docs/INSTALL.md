@@ -8,7 +8,8 @@ Tauge requires **macOS 13 Ventura or later** on Apple silicon or Intel.
 2. Open the disk image and drag **Tauge** into **Applications**.
 3. Eject the disk image and launch Tauge from Applications.
 
-Every release publishes `SHA256SUMS.txt`. To verify a download:
+Every release publishes `SHA256SUMS.txt`. The updater checks it
+automatically; to verify a download by hand:
 
 ```bash
 shasum -a 256 -c SHA256SUMS.txt
@@ -43,10 +44,22 @@ you verified.
 
 ### Updating
 
-Replace `/Applications/Tauge.app` with the new copy. Hosts, groups, settings,
-and transfer history live outside the bundle (see below) and are preserved.
-After an update signed by a different certificate, macOS may ask once for
-Keychain access again; choose **Always Allow**.
+Tauge updates itself. It checks GitHub releases once a day in the background,
+and **Tauge → Check for Updates…** runs a check immediately. When a newer
+version exists, the update window shows its release notes; **Download and
+Install** fetches `Tauge-<version>.zip`, verifies it against the release's
+`SHA256SUMS.txt`, validates the new bundle, then quits, swaps the app in place,
+and relaunches it. No administrator password is normally required for
+`/Applications`.
+
+An app running from the disk image, a read-only volume, or a quarantined
+translocated path cannot update itself. Move it to Applications first.
+
+To update by hand instead, quit Tauge, replace `/Applications/Tauge.app` with
+the copy from the newer disk image, and launch it again. Hosts, groups,
+settings, and transfer history live outside the bundle (see below) and are
+preserved in both paths. After an update signed by a different certificate,
+macOS may ask once for Keychain access again; choose **Always Allow**.
 
 ## Build from source
 
@@ -62,57 +75,6 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/modulecache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/modulecache"
 
 swift build --disable-sandbox
-./scripts/build-app.sh release
-open dist/Tauge.app
-```
-
-`--disable-sandbox` is only required when `sandbox-exec` is unavailable in
-the build environment (for example inside another sandbox). A normal Terminal
-session can omit it.
-
-For a universal build:
-
-```bash
-TAUGE_ARCHS="arm64 x86_64" ./scripts/build-app.sh release
-```
-
-Create a DMG, ZIP, and checksums with:
-
-```bash
-./scripts/package-release.sh
-```
-
-## Signing for distribution
-
-A seamless first launch requires an Apple Developer ID Application certificate
-and notarisation. To produce a signed build locally:
-
-```bash
-export TAUGE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-export TAUGE_SIGN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
-export TAUGE_NOTARY_APPLE_ID="you@example.com"
-export TAUGE_NOTARY_TEAM_ID="TEAMID"
-export TAUGE_NOTARY_PASSWORD="app-specific-password"
-./scripts/package-release.sh
-```
-
-The GitHub release workflow can do this automatically when these repository
-secrets are configured:
-
-| Secret | Purpose |
-| ------ | ------- |
-| `MACOS_CERT_P12_BASE64` | Base64 of the exported Developer ID `.p12` |
-| `MACOS_CERT_PASSWORD` | Password of the `.p12` |
-| `KEYCHAIN_PASSWORD` | Any temporary password for the CI keychain |
-| `APPLE_ID` | Apple ID used for notarisation |
-| `APPLE_TEAM_ID` | Apple Developer team identifier |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple ID |
-
-Without them the workflow still builds and publishes artifacts, but macOS will
-require the manual approval described above.
-
-For local development, `./scripts/setup-signing.sh` creates a self-signed
-certificate so that Keychain “Always Allow” grants survive rebuilds.
 
 ## Uninstalling
 

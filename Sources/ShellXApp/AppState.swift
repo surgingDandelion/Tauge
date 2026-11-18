@@ -980,6 +980,18 @@ final class AppState: ObservableObject {
         applyAppearance()
     }
 
+    /// Remembers when the updater last reached GitHub. The timestamp is what
+    /// throttles the launch check to once a day; a manual check also refreshes
+    /// it, so opening the update window always counts as a check.
+    func recordUpdateCheck(_ date: Date = Date()) {
+        settings.lastUpdateCheck = date
+        do {
+            try store.save(settings: settings)
+        } catch {
+            present(error, title: L("无法保存更新检查时间"))
+        }
+    }
+
     /// Shows or hides the host sidebar. Pure UI state, saved on its own so it
     /// does not re-run appearance or transfer configuration.
     func toggleSidebar(_ visible: Bool? = nil) {

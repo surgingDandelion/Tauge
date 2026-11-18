@@ -14,6 +14,31 @@ enum TaugeMain {
             FileHandle.standardError.write(Data("localization entries: \(count)\n".utf8))
             exit(count > 700 ? 0 : 1)
         }
+        // Scriptable update probe: asks GitHub for the latest release without
+        // starting AppKit. Used by packaging checks and by anyone verifying
+        // that a build can reach the update feed.
+        if CommandLine.arguments.contains("--check-updates") {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var status: Int32 = 0
+            Task.detached {
+                do {
+                    let result = try await TaugeUpdateService.shared.checkForUpdate(currentVersion: TaugeAppInfo.version)
+                    switch result {
+                    case .upToDate(let current):
+                        print("up to date: \(current)")
+                    case .available(let update):
+                        print("update available: \(update.version) (current \(TaugeAppInfo.version))")
+                        print("archive: \(update.archiveURL.absoluteString)")
+                    }
+                } catch {
+                    FileHandle.standardError.write(Data("update check failed: \(error.localizedDescription)\n".utf8))
+                    status = 1
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            exit(status)
+        }
         ShellXApp.main()
     }
 }
@@ -101,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
         FocusSelfTest.runIfRequested()
+        // GitHub-tag updater: check once shortly after launch, at most daily.
+        UpdateController.shared.scheduleAutomaticCheck()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -288,6 +315,10 @@ struct ShellXCommands: Commands {
     @ObservedObject var app: AppState
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button(L("检查更新…")) { UpdateController.shared.checkForUpdates(manual: true) }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
                 .keyboardShortcut("n", modifiers: .command)

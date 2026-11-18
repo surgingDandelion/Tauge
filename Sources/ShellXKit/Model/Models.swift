@@ -615,6 +615,11 @@ public struct AppSettings: Codable, Sendable, Equatable {
     /// into every other connected pane. Off by default — a shared prompt is
     /// powerful and easy to fire by accident, so it is strictly opt-in.
     public var broadcastInput: Bool = false
+    /// Check GitHub for a newer release shortly after launch, at most once a
+    /// day. Manual checks from the menu or About panel always run.
+    public var automaticallyChecksForUpdates: Bool = true
+    /// Timestamp of the last successful update check; drives the daily throttle.
+    public var lastUpdateCheck: Date?
 
     public init() {}
 
@@ -651,6 +656,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
         lastLocalDirectory = (try? c.decodeIfPresent(String.self, forKey: .lastLocalDirectory)) ?? lastLocalDirectory
         sidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)) ?? sidebarVisible
         broadcastInput = (try? c.decodeIfPresent(Bool.self, forKey: .broadcastInput)) ?? broadcastInput
+        automaticallyChecksForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .automaticallyChecksForUpdates)) ?? automaticallyChecksForUpdates
+        lastUpdateCheck = (try? c.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)) ?? lastUpdateCheck
     }
 }
 

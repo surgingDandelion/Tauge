@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-18
+
+### Added
+
+- In-app updates driven by GitHub tags and releases. Tauge checks the latest
+  stable release, compares semantic versions, shows the release notes, downloads
+  `Tauge-<version>.zip`, verifies it against the release's `SHA256SUMS.txt`,
+  validates the new bundle's identifier, version, and code signature, then
+  replaces the app after it quits and relaunches it.
+- **Tauge → Check for Updates…**, a daily background check that can be disabled
+  in Settings → General, and a dedicated update window with progress,
+  cancellation, retry, and a link to the release on GitHub.
+- The About pane now reports the real bundle version and build number and can
+  start an update check.
+
+### Notes
+
+- An app launched directly from the disk image or another read-only location
+  cannot update itself; move it to Applications first.
+- Installing into `/Applications` normally needs no administrator password. If
+  the destination is owned by another user, macOS asks for authorisation once.
+
 ## [1.0.1] — 2026-11-18
 
 ### Fixed

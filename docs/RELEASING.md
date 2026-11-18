@@ -67,3 +67,31 @@ xcrun stapler validate /Applications/Tauge.app
 On a notarised build, `spctl` prints `source=Notarized Developer ID` and
 `stapler` reports a valid ticket. On an ad-hoc build, `spctl` rejects the app:
 that is expected and documented for users.
+
+## 5. Release assets and the updater
+
+The updater in 1.1.0 and later consumes the release directly, so the asset
+contract is part of the release:
+
+- The release must be **published, stable, and not a draft or pre-release**.
+  The updater asks GitHub for `/releases/latest`, which ignores drafts and
+  pre-releases, and it refuses to install either.
+- The tag must be `vX.Y.Z` and must exactly match `CFBundleShortVersionString`.
+  The workflow already enforces the match, and the updater compares the tag's
+  semantic version with the running bundle.
+- `Tauge-<version>.zip` and `SHA256SUMS.txt` must keep those exact names.
+  `SHA256SUMS.txt` must list the ZIP. The DMG is for new installs; the updater
+  installs from the ZIP.
+- Every asset URL must be HTTPS. The updater rejects anything else.
+- Release notes become the "What's New" text in the update window. Write them
+  for users rather than leaving the auto-generated changelog link alone.
+
+After publishing, verify from a machine running the previous version:
+
+```bash
+/Applications/Tauge.app/Contents/MacOS/Tauge --check-updates
+```
+
+It should print `update available: <new> (current <old>)` and the ZIP URL, then
+exit 0. Then use **Tauge → Check for Updates…** to walk through download,
+checksum verification, in-place replacement, and relaunch.

@@ -4,6 +4,7 @@ import ShellXKit
 
 struct SettingsView: View {
     @EnvironmentObject private var app: AppState
+    @ObservedObject private var updater = UpdateController.shared
     @ViewState private var selectedSection = SettingsSection.general
     @ViewState private var newKnownHostWarning: String?
     @ViewState private var editingProxyDraft: ProxyConfig?
@@ -120,6 +121,9 @@ struct SettingsView: View {
             }
             row(L("自动重连")) {
                 Toggle(L("网络中断后指数退避重连"), isOn: binding(\.autoReconnect))
+            }
+            row(L("自动检查更新")) {
+                Toggle(L("每天检查一次 GitHub 发布"), isOn: binding(\.automaticallyChecksForUpdates))
             }
             row(L("隐私")) {
                 Text(L("主机信息、凭据与会话内容只保存在本机，不会上传。"))
@@ -509,8 +513,22 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Tauge").font(.system(size: 18, weight: .semibold))
-                    Text(L("版本 0.1.0（MVP）")).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                    Text(L("版本 %@（构建 %@）", TaugeAppInfo.version, TaugeAppInfo.build))
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
+                Spacer(minLength: 12)
+                Button(L("检查更新…")) { updater.checkForUpdates(manual: true) }
+                    .controlSize(.small)
+                    .disabled(updater.isBusy)
+            }
+            if let lastCheck = updater.lastCheck {
+                Text(L("上次检查：%@", lastCheck.formatted(date: .abbreviated, time: .shortened)))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
+            } else {
+                Text(L("尚未检查更新"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
             }
             Text(L("本地优先的 macOS SSH / SFTP 客户端。终端、文件浏览与传输共享同一条 SSH 连接。"))
                 .font(.system(size: 11))

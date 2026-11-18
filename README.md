@@ -35,6 +35,13 @@ otherwise they are ad-hoc signed and need a one-time approval.
 
 Requires macOS 13 Ventura or later (Apple silicon or Intel).
 
+Tauge updates itself from GitHub releases. It checks once a day in the
+background, shows the release notes of a newer tag, verifies the download's
+SHA-256 checksum, and swaps the app in place after quitting. Use **Tauge →
+Check for Updates…** to check immediately. The app must live in a writable
+location such as `/Applications`; an app launched straight from the disk image
+cannot update itself.
+
 ## Features
 
 ### Hosts and groups
@@ -89,6 +96,18 @@ Requires macOS 13 Ventura or later (Apple silicon or Intel).
   (overwrite, skip, rename, newer-only).
 - Transfer centre with persisted history and a global progress overlay that
   stays visible outside the SFTP panes.
+
+### Updates
+
+- In-app updates driven by GitHub tags and releases: checks the latest stable
+  release, compares semantic versions, and shows the release notes before
+  installing.
+- Downloads `Tauge-<version>.zip`, verifies it against the release's
+  `SHA256SUMS.txt`, validates the new bundle's identifier, version, and code
+  signature, then replaces the app after it quits and relaunches it.
+- Daily background check (configurable in Settings → General), a manual
+  **Check for Updates…** item in the app menu, and progress, retry, and
+  cancellation in a dedicated window.
 
 ### Security and connectivity
 
@@ -172,7 +191,11 @@ Optional live checks are skipped unless their environment variables are set:
 ## Signing and notarisation
 
 - Local development: `./scripts/setup-signing.sh` creates a self-signed
-  identity so Keychain “Always Allow” grants survive rebuilds.
+  identity so Keychain “Always Allow” grants survive rebuilds. Both build
+  scripts use it by default when it exists; an ad-hoc signature instead pins the
+  cdhash, so every rebuild (or release update) asks for the keychain password
+  again. Saved credentials live in one keychain item and are unlocked with Touch
+  ID once per launch (Settings → Security).
 - Distribution: `./scripts/package-release.sh` builds a universal app, signs
   with `TAUGE_SIGN_IDENTITY` when present, notarises with
   `TAUGE_NOTARY_*` credentials, and writes a DMG, ZIP, and

@@ -266,6 +266,7 @@ runBoardChecks()
 runBoardTreeChecks()
 runBoardDropChecks()
 runBroadcastChecks()
+runUpdateChecks()
 await runProxyChecks()
 await runTransferChecks()
 
