@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/surgingDandelion/Tauge/security/advisories/new
+    about: Please report security issues privately, not as public issues.
+  - name: Documentation
+    url: https://github.com/surgingDandelion/Tauge#readme
+    about: Installation, building, signing and known limitations.

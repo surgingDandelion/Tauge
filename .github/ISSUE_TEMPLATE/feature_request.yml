@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tauge is deliberately small and local-first. Proposals that fit the
+        existing architecture and can be maintained by one person are the most
+        likely to land.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behaviour you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds, other apps, or simpler options.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Terminal
+        - SFTP / transfers
+        - Workspaces
+        - Hosts and groups
+        - Authentication and security
+        - Import
+        - UI / accessibility
+        - Documentation
+        - Other
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions.
+          required: true

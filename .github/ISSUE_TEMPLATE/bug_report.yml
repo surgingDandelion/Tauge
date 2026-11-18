@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a reproducible problem with Tauge.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Tauge. Please search existing issues first.
+        Do **not** report security vulnerabilities here — see
+        [SECURITY.md](https://github.com/surgingDandelion/Tauge/blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Tauge version
+      description: Found in Tauge → About, or in the DMG filename.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and hardware
+      placeholder: "macOS 15.1, Apple silicon (M2)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open...
+        2. Connect to...
+        3. Click...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include exact error messages if there are any.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection setup
+      multiple: true
+      options:
+        - Direct connection
+        - Jump host
+        - HTTP CONNECT proxy
+        - SOCKS5 / SOCKS5h proxy
+        - SFTP only
+        - Not connection-related (UI, import, settings)
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant terminal output, session log lines, or stderr when launched
+        from Terminal. Remove credentials, hostnames, and private paths.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I can reproduce this on the latest release.
+          required: true

@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+*.png binary
+*.icns binary
+*.jpg binary
+*.pdf binary
+*.zip binary
+*.dmg binary
+
+Vendor/** linguist-vendored
+Sources/ShellXChecks/** linguist-test
