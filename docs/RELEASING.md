@@ -34,8 +34,9 @@ Signing and notarisation are optional. Without them the workflow still
 publishes an ad-hoc-signed build, which macOS blocks on first launch until the
 user allows it (see [`docs/INSTALL.md`](INSTALL.md)).
 
-To publish a build that installs without a Gatekeeper prompt, add these
-**Actions secrets** (Settings → Secrets and variables → Actions):
+To publish a build that installs without a Gatekeeper prompt, follow
+[`docs/SIGNING.md`](SIGNING.md) to issue the Developer ID certificate and add
+these **Actions secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 | --- | --- |

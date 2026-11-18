@@ -176,7 +176,8 @@ Optional live checks are skipped unless their environment variables are set:
 - Distribution: `./scripts/package-release.sh` builds a universal app, signs
   with `TAUGE_SIGN_IDENTITY` when present, notarises with
   `TAUGE_NOTARY_*` credentials, and writes a DMG, ZIP, and
-  `SHA256SUMS.txt`.
+  `SHA256SUMS.txt`. [docs/SIGNING.md](docs/SIGNING.md) walks through issuing
+  the Developer ID certificate and configuring the secrets.
 - CI: the [release workflow](.github/workflows/release.yml) imports a Developer
   ID certificate from repository secrets and publishes the artifacts on a
   `v*` tag. Without secrets it publishes ad-hoc-signed builds and
