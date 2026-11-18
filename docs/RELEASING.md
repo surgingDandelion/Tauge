@@ -1,34 +1,65 @@
 # Releasing Tauge
 
-Releases are cut from a tag and built by
-[`.github/workflows/release.yml`](../.github/workflows/release.yml).
+Releases are cut by [`scripts/release.sh`](../scripts/release.sh) and built by
+[`.github/workflows/release.yml`](../.github/workflows/release.yml). The tag is
+the release trigger: pushing `vX.Y.Z` starts a universal build, optional
+signing and notarisation, and publication of the DMG, ZIP, and checksums.
 
-## 1. Prepare the version
+## 1. Cut a release
 
-1. Set `CFBundleShortVersionString` in `Resources/Info.plist` (for example
-   `1.0.0`). The release workflow refuses a tag that does not match it.
-2. Add the matching entry to [`CHANGELOG.md`](../CHANGELOG.md).
-3. Run the checks locally:
-
-   ```bash
-   python3 scripts/check-localization.py
-   swift run --disable-sandbox ShellXChecks
-   ```
-
-4. Commit, push `main`, and confirm the CI workflow is green.
-
-## 2. Tag
+Start from a clean `main` that exactly matches `origin/main`:
 
 ```bash
-git tag -a v1.0.0 -m "Tauge 1.0.0"
-git push origin v1.0.0
+git switch main
+git pull --ff-only
+./scripts/release.sh patch
 ```
 
-The tag starts the release workflow, which builds a universal app, signs and
-notarises it, and publishes `Tauge-<version>.dmg`, `Tauge-<version>.zip`, and
-`SHA256SUMS.txt` on the GitHub Release.
+Use `minor` or `major` for a larger bump, or name the version explicitly:
 
-## 3. Repository secrets
+```bash
+./scripts/release.sh 1.2.0 --notes-file /tmp/notes.md
+```
+
+When the version has no `CHANGELOG.md` section yet, pass the markdown body with
+`--notes` or `--notes-file`; the script inserts it under `## [Unreleased]`.
+If the section already exists, omit the notes flags and the script uses it.
+
+The script will:
+
+1. Refuse a dirty tree, a branch other than `main`, a `HEAD` that is not
+   `origin/main`, an existing tag, or a version that does not increase.
+2. Run `scripts/check-localization.py` and `swift run --disable-sandbox
+   ShellXChecks` (skip with `--skip-checks`; CI still runs both).
+3. Update `CFBundleShortVersionString` and increment `CFBundleVersion` in
+   `Resources/Info.plist`.
+4. Add the `CHANGELOG.md` section when needed.
+5. Commit `chore(release): vX.Y.Z`, push `main`, create an annotated tag, and
+   push it.
+6. Wait for the public release page and verify the DMG, ZIP, and
+   `SHA256SUMS.txt` (including GitHub's recorded SHA-256 digests when the API
+   is available).
+
+Useful options:
+
+| Option | Purpose |
+| --- | --- |
+| `--dry-run` | Print the plan and exit without changing files or pushing |
+| `--yes` | Skip the confirmation prompt (required in non-interactive shells) |
+| `--current` | Tag the version already in `Info.plist`, without a bump |
+| `--no-wait` | Push the tag and exit instead of waiting for GitHub |
+| `--skip-checks` | Skip the local checks; let CI be the gate |
+| `--repo OWNER/REPO` | Override the repository inferred from `origin` |
+
+`--current` is for recovering after a tag push was interrupted, not for
+re-releasing a version that is already published. It still refuses an existing
+tag and still requires a clean tree.
+
+The release workflow extracts the matching `CHANGELOG.md` section and uses it
+as the "What's changed" text on the GitHub Release, so write notes for users
+rather than for maintainers.
+
+## 2. Repository secrets
 
 Signing and notarisation are optional. Without them the workflow still
 publishes an ad-hoc-signed build, which macOS blocks on first launch until the
@@ -56,7 +87,10 @@ An App Store Connect API key can replace the Apple ID trio; see
 [`scripts/package-release.sh`](../scripts/package-release.sh) for the
 `TAUGE_NOTARY_KEY_*` variables.
 
-## 4. Verify
+## 3. Verify
+
+The script verifies the published metadata. For a byte-level check, download the
+assets and run:
 
 ```bash
 shasum -a 256 -c SHA256SUMS.txt
@@ -68,7 +102,7 @@ On a notarised build, `spctl` prints `source=Notarized Developer ID` and
 `stapler` reports a valid ticket. On an ad-hoc build, `spctl` rejects the app:
 that is expected and documented for users.
 
-## 5. Release assets and the updater
+## 4. Release assets and the updater
 
 The updater in 1.1.0 and later consumes the release directly, so the asset
 contract is part of the release:
@@ -83,8 +117,8 @@ contract is part of the release:
   `SHA256SUMS.txt` must list the ZIP. The DMG is for new installs; the updater
   installs from the ZIP.
 - Every asset URL must be HTTPS. The updater rejects anything else.
-- Release notes become the "What's New" text in the update window. Write them
-  for users rather than leaving the auto-generated changelog link alone.
+- Release notes become the "What's New" text in the update window. The workflow
+  now fills them from the matching `CHANGELOG.md` section.
 
 After publishing, verify from a machine running the previous version:
 
@@ -95,3 +129,19 @@ After publishing, verify from a machine running the previous version:
 It should print `update available: <new> (current <old>)` and the ZIP URL, then
 exit 0. Then use **Tauge → Check for Updates…** to walk through download,
 checksum verification, in-place replacement, and relaunch.
+
+## 5. If the workflow fails
+
+The tag is the trigger, so a failure before "Publish GitHub Release" leaves no
+release behind. Fix the problem, delete the tag locally and remotely, and re-run
+the script with `--current`:
+
+```bash
+git push origin :refs/tags/vX.Y.Z
+git tag -d vX.Y.Z
+./scripts/release.sh --current --yes
+```
+
+If the release was already published, cut a new patch version instead. Do not
+try to make an existing version point at different assets: in-app updates treat
+the version as immutable once users have downloaded it.

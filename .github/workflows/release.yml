@@ -36,6 +36,41 @@ jobs:
           echo "plist=$VERSION tag=$TAG"
           test "$VERSION" = "$TAG"
 
+      - name: Prepare release notes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 - "$VERSION" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text,
+              re.MULTILINE | re.DOTALL,
+          )
+          if not match or not match.group(1).strip():
+              sys.exit(f"CHANGELOG.md has no non-empty section for {version}")
+          pathlib.Path("release-notes.md").write_text(
+              match.group(1).strip() + "\n", encoding="utf-8"
+          )
+          PY
+
+          {
+            printf '**Tauge %s** — a local-first SSH/SFTP client for macOS.\n\n' "$GITHUB_REF_NAME"
+            printf "%s\n\n" "### What's changed"
+            cat release-notes.md
+            printf '\n%s\n\n' "### Install"
+            printf '1. Download `Tauge-*.dmg`, open it, and drag **Tauge** to Applications.\n'
+            printf '2. Launch Tauge. The app stores everything locally; no account or cloud service is involved.\n\n'
+            printf 'The release is a universal build for Apple silicon and Intel and requires macOS 13 or later. `SHA256SUMS.txt` contains the checksums for the DMG and ZIP; verify them with `shasum -a 256 -c SHA256SUMS.txt`.\n\n'
+            printf 'If macOS blocks the first launch, follow [docs/INSTALL.md](https://github.com/%s/blob/main/docs/INSTALL.md). Release builds are ad-hoc signed unless the repository has Developer ID credentials configured.\n\n' "$GITHUB_REPOSITORY"
+            printf '**Full changelog:** https://github.com/%s/blob/main/CHANGELOG.md\n' "$GITHUB_REPOSITORY"
+          } > release-body.md
+
       - name: Import Developer ID certificate
         if: env.HAS_CERT == 'true'
         env:
@@ -93,26 +128,7 @@ jobs:
             dist/release/*.dmg
             dist/release/*.zip
             dist/release/SHA256SUMS.txt
-          body: |
-            **Tauge ${{ github.ref_name }}** — a local-first SSH/SFTP client for macOS.
-
-            ### Install
-
-            1. Download `Tauge-*.dmg`, open it, and drag **Tauge** to Applications.
-            2. Launch Tauge. The app stores everything locally; no account or cloud
-               service is involved.
-
-            The release is a universal build for Apple silicon and Intel and requires
-            macOS 13 or later. `SHA256SUMS.txt` contains the checksums for the DMG
-            and ZIP; verify them with `shasum -a 256 -c SHA256SUMS.txt`.
-
-            If macOS blocks the first launch, follow
-            [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md).
-            Release builds are ad-hoc signed unless the repository has Developer ID
-            credentials configured.
-
-            **Full changelog:**
-            https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md
+          body_path: release-body.md
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
