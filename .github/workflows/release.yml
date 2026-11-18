@@ -64,6 +64,7 @@ jobs:
       - name: Package release
         env:
           TAUGE_ARCHS: arm64 x86_64
+          TAUGE_SIGN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           TAUGE_NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
           TAUGE_NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAUGE_NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}

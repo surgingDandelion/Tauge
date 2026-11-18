@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           test -d dist/Tauge.app
-          test -f dist/Tauge.app/Contents/Resources/ShellX_ShellXKit.bundle/en.json
+          test -f dist/Tauge.app/Contents/Resources/ShellX_ShellXKit.bundle/Contents/Resources/en.json
           test -x dist/Tauge.app/Contents/MacOS/Tauge
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Tauge.app/Contents/Info.plist
           codesign --verify --verbose=1 dist/Tauge.app
