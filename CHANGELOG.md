@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-18
+
 ### Added
 
 - **Quick Open** (`⌘K`): a spotlight-style panel over the window that searches
@@ -51,8 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source, and the settings page says where the vault lives instead of warning
   about ad-hoc signing.
 - `scripts/package-release.sh` signs with the local `Tauge Local Signing`
-  identity when no Developer ID is available, so "Always Allow" grants survive
-  releases built on this machine.
+  identity when no Developer ID is available, so Keychain grants such as the
+  Termius vault survive local release builds.
 
 ## [1.1.2] — 2026-11-18
 
