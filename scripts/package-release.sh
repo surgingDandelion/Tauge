@@ -33,15 +33,13 @@ notary_args() {
   fi
 }
 
-notarize() {
+notarize_submit() {
   local path="$1"
   local args
   args="$(notary_args)"
   echo "==> notarising $path (this can take a few minutes)"
   # shellcheck disable=SC2086
   xcrun notarytool submit "$path" $args --wait
-  xcrun stapler staple "$path"
-  xcrun stapler validate "$path"
 }
 
 rm -rf "$OUT"
@@ -54,8 +52,10 @@ if [ -n "$(notary_args)" ]; then
   # so the app validates even when the DMG is not present.
   TMP_ZIP="$OUT/.notarize.zip"
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$TMP_ZIP"
-  notarize "$TMP_ZIP"
+  notarize_submit "$TMP_ZIP"
   rm -f "$TMP_ZIP"
+  # The ticket belongs to the app bundle; a zip cannot be stapled.
+  xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
 else
   echo "==> no notarisation credentials: skipping notarisation"
@@ -84,7 +84,9 @@ if [ -n "${TAUGE_SIGN_IDENTITY:-}" ]; then
 fi
 
 if [ -n "$(notary_args)" ]; then
-  notarize "$DMG"
+  notarize_submit "$DMG"
+  xcrun stapler staple "$DMG"
+  xcrun stapler validate "$DMG"
 fi
 
 echo "==> checksums"
