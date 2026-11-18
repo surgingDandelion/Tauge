@@ -1,8 +1,11 @@
 # Tauge
 
-**A local-first SSH and SFTP client for macOS.** Native SwiftUI, split-pane
-workspaces, multi-server SFTP with server-to-server transfers, and credentials
-that never leave your Mac.
+**SSH and SFTP, together, on macOS.**
+
+macOS has a terminal, but no good way to browse a remote server's files next
+to it. Tauge is a native Mac app that puts both in one window: open a shell,
+open the SFTP pane, and change a config, move a file, or read a log without
+switching apps.
 
 [![CI](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml/badge.svg)](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/surgingDandelion/Tauge?display_name=tag)](https://github.com/surgingDandelion/Tauge/releases/latest)
@@ -10,16 +13,6 @@ that never leave your Mac.
 [![Platform](https://img.shields.io/badge/macOS-13%2B-black)](https://www.apple.com/macos/)
 
 English · [简体中文](README.zh-CN.md)
-
-Tauge is built with SwiftPM only — SwiftUI, AppKit, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm),
-and a vendored fork of [SwiftNIO SSH](Vendor/swift-nio-ssh). There is no
-account, no sync service, and no telemetry. Hosts, keys, and transfer history
-live in a local SQLite database; secrets live in an encrypted vault inside
-the same folder.
-
-> Tauge was previously developed under the internal name **ShellX**. The bundle
-> identifier, Keychain service names, and data directory keep the `shellx`
-> identifier, so upgrades never lose data.
 
 ![Tauge start page: hosts grouped by project, with tags and last-used state](docs/images/start-page.png)
 
@@ -29,275 +22,134 @@ Download the latest `Tauge-<version>.dmg` from
 [Releases](https://github.com/surgingDandelion/Tauge/releases/latest), drag
 Tauge into Applications, and launch it.
 
-If macOS refuses the first launch, follow
-[docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch). Release
-builds are notarised when the release workflow has Developer ID credentials;
-otherwise they are ad-hoc signed and need a one-time approval.
+Tauge requires macOS 13 Ventura or later and runs on both Apple silicon and
+Intel Macs.
 
-Requires macOS 13 Ventura or later (Apple silicon or Intel).
+Release builds are ad-hoc signed unless the repository is configured with
+Developer ID signing and notarisation credentials. If macOS blocks the first
+launch, right-click the app and choose **Open**, or follow
+[docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch).
 
-Tauge updates itself from GitHub releases. It checks once a day in the
-background, shows the release notes of a newer tag, verifies the download's
-SHA-256 checksum, and swaps the app in place after quitting. Use **Tauge →
-Check for Updates…** to check immediately. The app must live in a writable
-location such as `/Applications`; an app launched straight from the disk image
-cannot update itself.
+Tauge keeps itself up to date from GitHub Releases. It checks once a day in the
+background, shows the release notes, verifies the download, and replaces the
+app after it quits. Use **Tauge → Check for Updates…** to check immediately.
 
 ## Features
 
-### Hosts and groups
+### A terminal you can live in
 
-- Unlimited nested groups with inheritable defaults for user, port, key,
-  proxy, jump hosts, terminal theme, and encoding.
-- Drag-and-drop ordering and moving between groups; favourites and the 20 most
-  recent hosts; search across names, addresses, users, tags, notes, and pinyin
-  initials.
-- Import `~/.ssh/config` (Host, HostName, User, Port, IdentityFile,
-  ProxyJump) or a Termius vault. Termius data is decrypted locally with the
-  `localKey` from your Keychain — the vault never leaves the machine — with a
-  preview, endpoint deduplication, and optional import of unsaved hosts from
-  connection history.
+- Tabs, split panes, and drag-to-arrange. Work in one shell or watch several at
+  once.
+- Find in the scrollback (`⌘F`), copy on select, paste with confirmation, and
+  Option as Meta.
+- Six colour themes, adjustable font, size, and opacity, plus 10,000 lines of
+  scrollback.
+- A dropped connection keeps the output on screen and reconnects automatically.
+- Optional session logging when you need a record of what happened.
 
-### Terminal
+### Files next to the shell
 
-- SwiftTerm-based xterm-256color terminal with true colour, mouse reporting,
-  bracketed paste, OSC 8 hyperlinks, and OSC 52 clipboard.
-- Tabs with `⌘T`, `⌘W`, `⌘1…9`, drag reordering, incremental find (`⌘F`),
-  copy-on-select, right-click paste, multi-line paste confirmation, and
-  Option-as-Meta.
-- Six colour themes, configurable font, size, line height, and opacity, with
-  10,000 lines of scrollback.
-- Disconnects keep the screen contents and reconnect with exponential backoff.
-- Optional session logging to `~/Logs/<host>/<date>.log`, with redaction.
+- Open an SFTP pane beside any terminal, or a local pane beside a remote one.
+  No second app, no dragging files through Downloads.
+- Drag files between panes, out to Finder, or in from Finder. Select several
+  rows and drag them as one batch.
+- Drag between two remote panes to copy server to server without touching your
+  local disk.
+- Edit small text files in place, change permissions, rename, delete, and create
+  folders.
+- Transfers can be paused, resumed after a dropped connection, and retried.
+  Conflicts can overwrite, skip, rename, or keep the newer file.
 
-### Workspaces
+### Several servers in one workspace
 
-- A workspace is one tab containing a grid of SSH panes; each pane is an
-  independent session with its own find bar, SFTP browser, drop target, log,
-  and reconnect behaviour.
-- Drag a pane title onto another pane’s edge to split; drag onto its centre to
-  swap. Splitters snap to 25/33/50/67/75%, reset on double-click, and show live
-  guides. Double-click a title to maximise a pane.
-- New-workspace sheet with layout choice and multi-select of servers by group.
-- Layouts, open panes, and per-pane SFTP state persist across launches. Pane
-  edits are staged until you save (`⌘S`) or leave the workspace.
+- A workspace is one tab containing a grid of SSH sessions. Useful when a task
+  spans a web server, a database, and a log box.
+- Choose a layout and several hosts when creating a workspace. Drag pane edges
+  to resize, or double-click a title to maximise a pane.
+- Layouts and open panes are restored the next time you launch Tauge.
 
-### SFTP and transfers
+### Hosts that stay organised
 
-- Local pane plus any number of remote panes; the primary pane reuses the
-  terminal’s SSH connection, extra panes open their own.
-- Drag between two remote panes to relay server-to-server without touching the
-  local disk. Drag to Finder to download; drop Finder files to upload.
-- Path bars with `~` and relative paths, back/forward/up, hidden files, and
-  per-host history of the last 50 directories.
-- Built-in editor for files under 2 MB, chmod, rename, delete, and directory
-  creation.
-- Transfer engine with 1–4 concurrent transfers, 32 KiB chunks, resumable
-  downloads, three retries, pause/resume/cancel, and conflict policies
-  (overwrite, skip, rename, newer-only).
-- Transfer centre with persisted history and a global progress overlay that
-  stays visible outside the SFTP panes.
+- Nested groups with inherited defaults for user, port, key, proxy, jump host,
+  theme, and encoding.
+- Favourites, recent hosts, and search by name, address, user, tag, note, or
+  pinyin initials.
+- Import your existing `~/.ssh/config` or a Termius vault.
+- Up to three jump hosts, plus HTTP and SOCKS5 proxies, set per host, per group,
+  or globally.
 
-### Updates
+### Quick Open and the small things
 
-- In-app updates driven by GitHub tags and releases: checks the latest stable
-  release, compares semantic versions, and shows the release notes before
-  installing.
-- Downloads `Tauge-<version>.zip`, verifies it against the release's
-  `SHA256SUMS.txt`, validates the new bundle's identifier, version, and code
-  signature, then replaces the app after it quits and relaunches it.
-- Daily background check (configurable in Settings → General), a manual
-  **Check for Updates…** item in the app menu, and progress, retry, and
-  cancellation in a dedicated window.
+- Press `⌘K` anywhere to search hosts, workspaces, and commands in one field.
+  `↩` connects; `⌘↩` opens an SFTP tab.
+- A menu-bar item for opening the window, starting a terminal or SFTP tab, and
+  checking transfers.
+- English and Simplified Chinese, switchable at runtime.
+- In-app updates from GitHub Releases, with release notes before you install.
 
-### Security and connectivity
+### Local by default
 
-- Password or private-key authentication: Ed25519, ECDSA P-256/P-384/P-521,
-  and RSA in OpenSSH, PKCS#8, or SEC1 format (unencrypted PEM only).
-- Passwords and key passphrases are stored in `vault.v1.enc` next to the
-database, sealed with AES-256-GCM under a random key in `vault.key`; both files
-  are `0600` and the database contains no plaintext secrets. Reading one asks for
-  Touch ID (or the device password) once per launch. The login keychain is only
-  read to migrate a credential an older build left there, so rebuilding or
-  reinstalling never raises a keychain prompt.
-- Trust-on-first-use host-key verification with SHA-256 and MD5 fingerprints;
-  changed keys are blocked and the old and new fingerprints are shown side by
-  side.
-- Up to three jump hosts using `direct-tcpip`, with per-hop credentials or
-  reuse of the target credentials.
-- HTTP CONNECT (Basic) and SOCKS5/SOCKS5h (RFC 1929) proxies, scoped per host,
-  per group, or globally (host &gt; group &gt; global).
-
-### Interface
-
-- Start page with workspaces/groups on the left and draggable host cards on the
-  right; a hideable sidebar; status bar with route, encoding, and transfer
-  speed.
-- Quick Open (`⌘K`): one search field for hosts, workspaces, and commands,
-  ranked by match quality and recent use; `↩` opens and connects, `⌘↩`
-  opens an SFTP tab.
-- Menu-bar extra for opening the window, new terminal/SFTP tabs, Quick Open,
-  and the transfer centre.
-- Single instance; closing the main window quits the process cleanly.
-- English and Simplified Chinese, switchable at runtime in Settings → General.
+- Passwords and key passphrases live in one encrypted vault item in your login
+  Keychain. Touch ID or your device password unlocks it on the first connection
+  after launch, and it stays unlocked for that run.
+- Host keys are checked on first connection. If a key changes, Tauge blocks the
+  connection and shows both fingerprints.
+- Password, Ed25519, ECDSA, and RSA authentication.
+- No account, no sync service, no analytics, and no crash reporting.
 
 ## Build from source
 
-Requirements: macOS 13+, Command Line Tools (`xcode-select --install`), and
-network access for the first dependency resolution. The project is developed
-with Swift 6.4 on macOS 26 and targets macOS 13.
+You need macOS 13 or later, the Command Line Tools (`xcode-select --install`),
+and network access for the first dependency resolution.
 
 ```bash
 git clone https://github.com/surgingDandelion/Tauge.git
 cd Tauge
-
-export TMPDIR="$PWD/.build/tmp"
-export CLANG_MODULE_CACHE_PATH="$PWD/.build/modulecache"
-export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/modulecache"
-
 swift build --disable-sandbox
 ./scripts/build-app.sh release
 open dist/Tauge.app
 ```
 
-`--disable-sandbox` is only needed where `sandbox-exec` is restricted (for
-example when building inside another sandbox). The Command Line Tools SDK does
-not ship SwiftUI’s macro plugin, so the UI uses equivalent property wrappers in
-[`Sources/ShellXApp/ViewState.swift`](Sources/ShellXApp/ViewState.swift).
+`--disable-sandbox` is only needed where `sandbox-exec` is restricted. For a
+universal build, the self-check suite, project layout, and localisation notes,
+see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Universal build:
+## Current limitations
 
-```bash
-TAUGE_ARCHS="arm64 x86_64" ./scripts/build-app.sh release
-```
+- `keyboard-interactive` authentication and `ssh-agent` are not supported yet.
+- Servers that only offer SHA-1 `ssh-rsa` or `ssh-dss` cannot be reached.
+- Encrypted PEM keys are not supported; use the OpenSSH key format.
+- Workspaces use a grid plus manual splits rather than an arbitrary nested
+  tree, and scrollback is not restored after a relaunch.
+- Large remote directories load as one list, and dragging a folder to Finder is
+  not supported; use the transfer centre or a second pane.
 
-## Self-checks
-
-The Command Line Tools toolchain ships neither XCTest nor swift-testing, so the
-suite is an executable target:
-
-```bash
-swift run --disable-sandbox ShellXChecks
-```
-
-It currently runs **over 2,000 checks**, including SFTP v3 codec round trips,
-`ssh_config` parsing (OpenSSH first-value-wins semantics), group inheritance
-and jump chains, workspace split-tree maths, transfer-engine behaviour
-(resume, recursion, conflicts, progress), RSA key parsing against `ssh-keygen`
-fingerprints, XSalsa20-Poly1305 vectors, localisation table integrity, and
-end-to-end SSH against an in-process mock server (handshake, public-key auth,
-PTY shell, SFTP subsystem, `rsa-sha2-256/512`, and one- and two-hop
-`direct-tcpip` tunnels).
-
-Optional live checks are skipped unless their environment variables are set:
-`SHELLX_LIVE_SSH`, `SHELLX_REAL_JUMP`, `SHELLX_REAL_TRANSFER`, and
-`SHELLX_TERMIUS` (see the README of the checks in
-[`Sources/ShellXChecks`](Sources/ShellXChecks)).
-
-## Signing and notarisation
-
-- Local development: `./scripts/setup-signing.sh` creates a self-signed
-  identity so macOS keeps recognising the app across rebuilds — an ad-hoc
-  signature pins the cdhash, which changes on every build, and any keychain
-  grant (for example reading the Termius vault) has to be confirmed again. Saved
-  credentials no longer depend on the signature: they live in the app's own
-  vault and are unlocked with Touch ID once per launch (Settings → Security).
-- Distribution: `./scripts/package-release.sh` builds a universal app, signs
-  with `TAUGE_SIGN_IDENTITY` when present, notarises with
-  `TAUGE_NOTARY_*` credentials, and writes a DMG, ZIP, and
-  `SHA256SUMS.txt`. [docs/SIGNING.md](docs/SIGNING.md) walks through issuing
-  the Developer ID certificate and configuring the secrets.
-- CI: the [release workflow](.github/workflows/release.yml) imports a Developer
-  ID certificate from repository secrets and publishes the artifacts on a
-  `v*` tag. Without secrets it publishes ad-hoc-signed builds and
-  [docs/INSTALL.md](docs/INSTALL.md) explains the one-time Gatekeeper step.
-- Maintainers: [docs/RELEASING.md](docs/RELEASING.md) lists the exact secrets
-  and the tag/verification checklist.
-
-## Architecture
-
-```
-Sources/ShellXKit/
-  Model/          models, group inheritance, proxy and jump resolution
-  Store/          SQLite (WAL) catalog, known hosts, transfer history, settings
-  Security/       encrypted local vault, keychain migration, AES-256-GCM export
-  SSHConfig/      ~/.ssh/config parser and Host * defaults
-  SFTP/           SFTP v3 codec and concurrent client
-  SSH/            NIOSSH connections, proxies, jump chains, host-key checks
-  Transfer/       chunked transfer engine, resume, conflicts, retries
-  FileBrowser/    local file service, path and permission formatting
-  Import/         Termius vault reader (XSalsa20-Poly1305) and mapping
-  Localization/   en.json; L() runtime lookup and live language switch
-Sources/ShellXApp/  SwiftUI views, AppState, workspaces, terminal bridge
-Sources/ShellXChecks/ executable self-check suite
-Vendor/             SwiftTerm and the patched swift-nio-ssh fork
-```
-
-## Localisation
-
-Chinese source strings are the keys; English lives in
-[`Sources/ShellXKit/Localization/en.json`](Sources/ShellXKit/Localization/en.json).
-Every user-visible string is wrapped in `L("中文")`, and the language setting
-takes effect immediately without a restart.
-`python3 scripts/check-localization.py` verifies that every source key has an
-English entry with matching placeholders. Missing entries fall back to Chinese
-rather than showing a key. See
-[CONTRIBUTING.md](CONTRIBUTING.md#localisation) before adding strings.
-
-## Known limitations
-
-- **SSH features:** SwiftNIO SSH does not implement `keyboard-interactive`
-  authentication or expose negotiated algorithms/RTT. `SSH_AUTH_SOCK` agents
-  and HTTPS proxies are not wired up.
-- **Legacy servers:** SHA-1 `ssh-rsa`/`ssh-dss` signatures are not offered.
-  Very old servers that only support those algorithms cannot be reached, and
-  the error is reported as a key-exchange failure instead of a vague EOF.
-- **Keys:** encrypted PEM keys are not supported; convert them with
-  `ssh-keygen -p` or use the OpenSSH format.
-- **Terminal:** the byte stream is rendered as UTF-8; the encoding setting only
-  affects text opened from SFTP. iTerm2 colour schemes cannot be imported.
-- **Workspaces:** panes are arranged as a derived grid plus manual splits, not
-  an arbitrary nested tree. Scrollback is not preserved across restarts.
-- **SFTP:** large directories load as a single list without virtualisation or
-  keyboard navigation; dragging a directory out to Finder is not supported
-  (use the transfer centre or a second pane).
-- **Termius import:** the local Termius database stores group names but not
-  the group hierarchy, so imported hosts land in one group.
-
-See [docs/PRD-COVERAGE.zh-CN.md](docs/PRD-COVERAGE.zh-CN.md) for the detailed
-status against the product requirements (in Chinese).
+If one of these blocks you, open an issue with the details.
 
 ## Privacy
 
-Tauge does not include analytics or crash reporting. The update check asks
-GitHub's public Release API for the latest version and sends no host,
-credential, or usage data; turn it off in Settings → General. All other network
-traffic goes to the SSH servers and proxies you configure. Termius import reads
-the local vault; nothing is uploaded. Session logs are off by default and stored
-under `~/Logs`.
+Tauge has no accounts, analytics, or crash reporting. Hosts, keys, settings, and
+transfer history are stored on your Mac. The update check asks GitHub's public
+Releases API for the latest version and sends no host, credential, or usage
+data; you can turn it off in Settings → General.
 
-Data locations:
+App data lives in `~/Library/Application Support/ShellX`, credentials in your
+login Keychain, and optional session logs in `~/Logs`.
 
-- Database: `~/Library/Application Support/ShellX/shellx.sqlite`
-- Imported keys: `~/Library/Application Support/ShellX/Keys`
-- Logs: `~/Logs/<host>/<date>.log`
-- Credentials: `~/Library/Application Support/ShellX/vault.v1.enc` and
-  `vault.key` (both `0600`, AES-256-GCM)
+## Documentation
 
-`SHELLX_CATALOG_PATH` (or the `ShellXCatalogPath` default) overrides the
-database location; Settings → Advanced can migrate it.
-
-## Contributing
-
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
-and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) first, and report vulnerabilities
-privately per [SECURITY.md](SECURITY.md).
+- [Installing Tauge](docs/INSTALL.md)
+- [Building, testing, and contributing](CONTRIBUTING.md)
+- [Code signing and notarisation](docs/SIGNING.md)
+- [Release process](docs/RELEASING.md)
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
 
 ## License
 
 [MIT](LICENSE) © 2026 surgingDandelion.
 
-Built on the work of [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm),
+Tauge is built on [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm),
 [SwiftNIO SSH](https://github.com/apple/swift-nio-ssh), SwiftNIO,
 [swift-crypto](https://github.com/apple/swift-crypto), and
 [swift-log](https://github.com/apple/swift-log). See
