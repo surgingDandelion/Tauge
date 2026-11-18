@@ -36,7 +36,8 @@ The script will:
 4. Add the `CHANGELOG.md` section when needed.
 5. Commit `chore(release): vX.Y.Z`, push `main`, create an annotated tag, and
    push it.
-6. Wait for the public release page and verify the DMG, ZIP, and
+6. Wait for the published release, preferring the GitHub API and falling
+   back to the public release page, then verify the DMG, ZIP, and
    `SHA256SUMS.txt` (including GitHub's recorded SHA-256 digests when the API
    is available).
 

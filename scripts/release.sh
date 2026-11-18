@@ -8,8 +8,8 @@
 # The script is intentionally conservative: it refuses to run on a dirty tree,
 # on a branch other than main, when main is behind origin, or when the tag
 # already exists. It updates Info.plist and CHANGELOG.md, commits, pushes main,
-# pushes an annotated tag, and polls the public release page until the workflow
-# has published the DMG, ZIP, and SHA256SUMS.txt.
+# pushes an annotated tag, and polls the GitHub API (with the public release page
+# as a fallback) until the workflow has published the DMG, ZIP, and SHA256SUMS.txt.
 #
 # Options:
 #   --current             Release the version already in Info.plist (retry a tag)
@@ -323,6 +323,12 @@ TMP_PAGE="$(mktemp -t tauge-release-page)"
 TMP_JSON="$(mktemp -t tauge-release-json)"
 trap 'rm -f "$TMP_PAGE" "$TMP_JSON"' EXIT
 
+API_URL="https://api.github.com/repos/$REPO/releases/tags/$TAG"
+CURL_ARGS=(-sS --http1.1 -L -A 'Tauge-release-script' --max-time 30)
+if [ -n "$TOKEN" ]; then
+    CURL_ARGS+=(-H "Authorization: Bearer $TOKEN")
+fi
+
 START_TIME="$(date +%s)"
 DEADLINE=$((START_TIME + TIMEOUT_SECONDS))
 while :; do
@@ -334,7 +340,27 @@ while :; do
         exit 1
     fi
 
-    CODE="$(curl -sS -L -A 'Tauge-release-script' --max-time 30 \
+    # Prefer the API: github.com's HTML can stall behind HTTP/2 on some
+    # networks and make a finished release look like it never arrived.
+    API_CODE="$(curl "${CURL_ARGS[@]}" \
+        -o "$TMP_JSON" -w '%{http_code}' "$API_URL" 2>/dev/null || true)"
+    if [ "$API_CODE" = "200" ] && python3 - "$TMP_JSON" "$TARGET_VERSION" <<'PY'
+import json
+import sys
+
+path, version = sys.argv[1], sys.argv[2]
+data = json.load(open(path, encoding="utf-8"))
+if data.get("draft") or data.get("prerelease"):
+    sys.exit(1)
+names = {asset.get("name") for asset in data.get("assets", [])}
+required = {f"Tauge-{version}.dmg", f"Tauge-{version}.zip", "SHA256SUMS.txt"}
+sys.exit(0 if required <= names else 1)
+PY
+    then
+        break
+    fi
+
+    CODE="$(curl -sS --http1.1 -L -A 'Tauge-release-script' --max-time 30 \
         -o "$TMP_PAGE" -w '%{http_code}' "$RELEASE_URL" 2>/dev/null || true)"
     if [ "$CODE" = "200" ] &&
        grep -q "Tauge-$TARGET_VERSION.dmg" "$TMP_PAGE" &&
@@ -350,14 +376,9 @@ done
 echo
 note "release is live: $RELEASE_URL"
 
-# The release page is the source of truth. The API check below adds the asset
-# sizes and verifies SHA256SUMS.txt against GitHub's recorded digests; a rate
-# limit or an offline API must not turn a successful release into a failure.
-API_URL="https://api.github.com/repos/$REPO/releases/tags/$TAG"
-CURL_ARGS=(-sS -L -A 'Tauge-release-script' --max-time 30)
-if [ -n "$TOKEN" ]; then
-    CURL_ARGS+=(-H "Authorization: Bearer $TOKEN")
-fi
+# The API above decides whether the release is ready. This second pass adds the
+# asset sizes and verifies SHA256SUMS.txt against GitHub's recorded digests; a
+# rate limit or an offline API must not turn a successful release into a failure.
 API_STATUS=0
 if ! curl "${CURL_ARGS[@]}" "$API_URL" -o "$TMP_JSON" 2>/dev/null; then
     API_STATUS=2
