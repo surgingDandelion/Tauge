@@ -33,7 +33,16 @@ jobs:
         run: python3 scripts/check-localization.py
 
       - name: Build (debug)
-        run: swift build --disable-sandbox
+        run: |
+          set -o pipefail
+          if ! swift build --disable-sandbox 2>&1 | tee build.log; then
+            ERRORS="$(grep -nE '(^|: )(error:|fatal error:)' build.log | head -20 || true)"
+            echo "::error::Build failed:%0A${ERRORS//$'\n'/%0A}"
+            echo "::group::Build log tail"
+            tail -n 40 build.log
+            echo "::endgroup::"
+            exit 1
+          fi
 
       - name: Run self-checks
         run: swift run --disable-sandbox ShellXChecks
