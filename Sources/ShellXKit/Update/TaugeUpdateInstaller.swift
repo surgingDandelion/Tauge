@@ -235,18 +235,34 @@ public enum TaugeUpdateInstaller {
             "  i=$((i + 1))",
             "  if [ \"$i\" -gt 600 ]; then exit 1; fi",
             "done",
+            "installed=0",
+            "restore() {",
+            "  if [ \"$installed\" = 0 ] && [ -d \"$backup\" ] && [ ! -e \"$dest\" ]; then",
+            "    mv \"$backup\" \"$dest\"",
+            "    open \"$dest\" 2>/dev/null || true",
+            "  fi",
+            "}",
+            "trap restore EXIT",
             "rm -rf \"$backup\"",
             "if ! mv \"$dest\" \"$backup\"; then open \"$dest\"; exit 1; fi",
             "if ! mv \"$staged\" \"$dest\"; then mv \"$backup\" \"$dest\"; open \"$dest\"; exit 1; fi",
-            "rm -rf \"$staging\" \"$archive\""
+            "installed=1"
         ]
         if privileged {
             lines.append("chown -R \"$uid:$gid\" \"$dest\"")
             lines.append("xattr -dr com.apple.quarantine \"$dest\" 2>/dev/null || true")
-            lines.append("sudo -u \"$user\" /usr/bin/open \"$dest\"")
+            lines.append("if ! sudo -u \"$user\" /usr/bin/open \"$dest\"; then")
         } else {
-            lines.append("open \"$dest\"")
+            lines.append("if ! open \"$dest\"; then")
         }
+        lines.append("  rm -rf \"$dest\"")
+        lines.append("  mv \"$backup\" \"$dest\"")
+        lines.append("  open \"$dest\" 2>/dev/null || true")
+        lines.append("  exit 1")
+        lines.append("fi")
+        // The backup is only needed until the new bundle has launched. Keeping it
+        // would leave a hidden ~50 MB copy next to the app after every update.
+        lines.append("rm -rf \"$backup\" \"$staging\" \"$archive\"")
         let script = lines.joined(separator: "\n") + "\n"
         try script.write(to: url, atomically: true, encoding: .utf8)
     }

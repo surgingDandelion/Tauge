@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-11-18
+
+### Fixed
+
+- A successful update now removes the hidden backup copy of the previous app
+  instead of leaving roughly 50 MB next to Tauge after every release. If the new
+  bundle fails to launch, the installer restores the backup automatically.
+
 ## [1.1.0] — 2026-11-18
 
 ### Added
