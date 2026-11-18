@@ -61,6 +61,11 @@ certificate in a dedicated Keychain. Never commit signing material.
 - Do not modify `Vendor/` unless the change is a documented patch to the
   vendored fork. Explain vendored changes in the pull request.
 
+### Releases
+
+See [docs/RELEASING.md](docs/RELEASING.md) for the version bump, tag, secrets,
+and verification checklist. Do not tag a release while CI is red.
+
 ### Localisation
 
 Every user-visible string in `Sources/ShellXApp` and `Sources/ShellXKit` must

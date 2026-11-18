@@ -181,6 +181,8 @@ Optional live checks are skipped unless their environment variables are set:
   ID certificate from repository secrets and publishes the artifacts on a
   `v*` tag. Without secrets it publishes ad-hoc-signed builds and
   [docs/INSTALL.md](docs/INSTALL.md) explains the one-time Gatekeeper step.
+- Maintainers: [docs/RELEASING.md](docs/RELEASING.md) lists the exact secrets
+  and the tag/verification checklist.
 
 ## Architecture
 
