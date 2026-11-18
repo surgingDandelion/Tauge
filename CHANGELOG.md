@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-11-18
+
+### Added
+
+- Added `scripts/release.sh`, a one-command release flow that verifies the
+  repository state, runs the localisation and self-check suites, bumps the
+  version, updates `CHANGELOG.md`, pushes the tag, waits for GitHub Actions,
+  and verifies the published assets.
+
+### Changed
+
+- GitHub Release pages now use the matching `CHANGELOG.md` section as their
+  "What's changed" text instead of a fixed install template.
+
 ## [1.1.1] — 2026-11-18
 
 ### Fixed
