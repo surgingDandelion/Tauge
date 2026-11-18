@@ -70,6 +70,13 @@ struct StartPageView: View {
 
     // MARK: - Header
 
+    private var headerSummary: String {
+        var summary = String(app.hosts.count) + L(" 台主机 · ")
+        summary += String(app.groups.count) + L(" 个分组 · ")
+        summary += String(app.boards.count) + L(" 个工作区")
+        return summary
+    }
+
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "square.grid.2x2")
@@ -78,8 +85,7 @@ struct StartPageView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(L("起始页"))
                     .font(.system(size: 13.5, weight: .semibold))
-                Text(String(app.hosts.count) + L(" 台主机 · ") + String(app.groups.count) + L(" 个分组 · ")
-                     + String(app.boards.count) + L(" 个工作区"))
+                Text(headerSummary)
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
             }
@@ -858,10 +864,7 @@ private struct StartHostCard: View {
             NSItemProvider(object: host.id.uuidString as NSString)
         }
         .onDrop(of: [UTType.text], isTargeted: $isDropTarget) { providers in
-            HostDropLoader.load(providers) { dragged in
-                app.moveHost(dragged, onto: host.id, in: host.groupID)
-            }
-            return true
+            handleHostDrop(providers)
         }
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) {
@@ -896,6 +899,13 @@ private struct StartHostCard: View {
     /// grid row identical no matter what metadata the host carries.
     private static let chipRowHeight: CGFloat = 16
     private static let cardMinHeight: CGFloat = 96
+
+    private func handleHostDrop(_ providers: [NSItemProvider]) -> Bool {
+        HostDropLoader.load(providers) { dragged in
+            app.moveHost(dragged, onto: host.id, in: host.groupID)
+        }
+        return true
+    }
 
     private func chip(_ text: String) -> some View {
         Text(text)
