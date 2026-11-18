@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved.lock
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+
+# Build & distribution artifacts
+dist/
+release/
+*.dmg
+*.pkg
+*.zip
+*.sha256
+
+# Local signing material must never be committed
+*.p12
+*.cer
+*.pem
+*.key
+*.keychain-db
+
+# Vendored dependency checkouts that are not referenced by Package.swift.
+# (Only Vendor/swift-nio-ssh and Vendor/SwiftTerm are path dependencies.)
+Vendor/swift-atomics/
+Vendor/swift-collections/
+Vendor/swift-crypto/
+Vendor/swift-log/
+Vendor/swift-nio/
+Vendor/swift-system/
+
+# Logs and temp files
+*.log
+tmp/

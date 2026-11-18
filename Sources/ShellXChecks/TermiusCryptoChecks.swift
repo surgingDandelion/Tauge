@@ -1,0 +1,68 @@
+import Foundation
+import ShellXKit
+
+/// Vectors generated with libsodium (crypto_secretbox_easy) so the pure-Swift XSalsa20-Poly1305
+/// implementation can be validated without bundling a C library.
+private let secretboxVectors: [(Int, String, String, String, String)] = [
+    (0, "698f90f0f69ae1dda4ac1caab1b168f66151952e84fbace9049435d4065ce76b", "69ab824aedfb281a836c04b6dd79ec650af8718c6484e5a1", "", "5ae0aa7b3ea12a8ab649f57fe3aceabd"),
+    (1, "49e8dc6f860ca6dd77965a91f6b331c2961d6a590676099919f41039ebc40700", "9ad1c354048c0fe1ed69ac10f07326f692df24d8c11cad76", "3f", "c23b5abffc6d95d9d07ced92d7d08ea60a"),
+    (31, "2df657ceef1935e2c060a0b09d3a3e5de88ca16242fa74cf71947b5e50d7cc83", "a04fad029437b47929ff09634a20472715bd421373bb9db8", "356467add7633b9f8764e2dd24e22ebd3ab1d5b396dc97ba64e108f190fe9d", "2b6a2bfc9a6759dfbdd905d9133bf1fee0c92858dd9a0ddac740113d856717505a3a41e00f0abfe94b58054ca48349"),
+    (32, "566157826fc03da5fdbb5d3c0946edb72b5aa44cc799193c00137e32e447bb32", "deec63c7a7578eb5008f45033899ff15bb462b296e47184e", "1b856134c3b2bdf81b2c83ccab1490d9f978c27c98751f0d96e240a66713fcb6", "6e7ee478e0c4d96e3f9fc07ee772cd748bc742e5ec1a6b8257fa03bd41ac29c789316f5fcc495d58112c165f316b613f"),
+    (200, "4da104f841bf9ee8bd7f6614d2936cc438be9d8e82043f7280a8f488de15afac", "23e673ef274e95147ac2aa2d68b63a5ce6f2ac34cd8b93f2", "5f3f660792d02bc21da5a77f1aa08faf39ff731af59b0bd73373a43f39c8d32eeaca24b643e4beba9bda04a5e561649e9087682291326ef51673a4d2ce6eca8b911e29abe6932faa3e59ea2a71b77b7ceefecc12df7670ce01cff06a9ce1b294f0e9680aaad7435aec94d224ea7ef7b221a303c2ca95572a244f6f70ed7fac0c548cca6b02d500c3f67120456153bca4d14951ec98e9101ef782b2e2a49269536c71de52e99608d034b0147154988dc4b8d9d7be47d2af808c40054acc3bc8b31e45b466dad3c58c", "3ecb0e4da4aa0b53c7b0da2f1dc4bc853536130c62a89bcf6a7c443c8e6335a7baccc0b05675572b63fc43f09159887d24ecc2dc28790b750255a5da7759ccca589778e2f9ff29cc01ce2defdc8fd126e8472cdc3fb9e09d58e43d416719dcc13b12939d048185e4b1bdb590de4065b2a4b239fc072624e3064cb8e8fb986f047da12752aa02e2b2a5899b49011d195909aa21c383b6091b8702625fe40da922d3e2388e2d034e9524c084fabb1a686363b223d4b4416a1512fd213d8cb2cb55655ba71f6b5940fc5f1da815689e575302340737ad1e6697"),
+    (1024, "80528ae36131cab3f7288c8eb1be29b714b7e137ef00db7be2dd29de080ac833", "42532605c4255e3a41f332465463943fa47330ca2d96f239", "1ad0e83fbce8e7bf87fd875873db0fe8800e599947930edcc484cceadea342374c0d76ab25f3c07e6075b72f9e884b554d1f2e1bb2b74d8f9419157a7b96df44c885bdcd081f34141e28aa3e0aad096a35047796494a14b5515f65fab47e95397bd64495ed82a2eeb066d516a30a365ebf26b1dd595d8ce3d5d70d27f4b248f6994a78942237861622005e4d70b8db129233a7cc9bd4142f6d1bf5041574b1fb29f97ffd519a1119bf5e835f5ca46b133943ba915db9f21dee1892c3e3528e0e34ec96287819c2cd14fbf11304828466a956c7c4afe4758bba3c9b48009ecbdb73fe3e007e8df098d0712f45c07f1ea40619eb15a3c7bbb0593261028eeb9d0cb1fc888cb6fa54ba0540acc8196bf407349fe96a1739947a2e42dd11496a1d2a2443546de1570ffdb54fb74af9a40b0365ce5dea28c2b22f727855472921d7e6ce97788462e3617d85619746b9c101d7f7693a7b9a72beb6ae4ff7ea81778c00b8708f350457005c3f434db9b9e147e6700d997b113262ad9cf4b75279f694df0d9413a1ad189c0fa80e25939fd1889bf07411a9a22206a803e7c8fe3b25702945a754024410d66446f4f802778d61dc21689e2c5d0e908a488ce6e1640027b1dcdc4945eacee44425b81a33e40cb688ca7cc5d1e49100bcd9652076150b81dcbeba19c90516fe12dff9110b446e59ab25067a3b8ec4589dc4d4cb249341edaa404878679ef712b4016b3c3f958478c5f3f90a87537f1d00519d1968a4755890b92533cf2e2c531e3404fdb0158a6dc6498d0d34ef82b74a364f8d3a1300458e6c0f07f154b9c858110a1f8b4c2b9bd12c2e5492cd9daf95df47eefcce370f63fa16d7841ebb9141816ead0c32b5655b6e75dfe92bf0d5a9bcabbe7248d50abb145a229f3a6caad9638c1c8320acf3824c53bdd68f1e7562f65d1bd057ce6798b32775c9f8653ed5cab9d5df177a1f8cda27927565bd59e08823bd2e2deb49877cf450fff9fda43688095b1af7353200e5d3c8764b35194fcce368c633e2b79a9ae0c611993d30e6de465710049d459f1618353b9f750b71d828a08ddc2aadd5a6c68651694ad263c745e906bac7e3a7e559e60e71f66e0a8de3acf908979f4cfc7eb67a29a79bfa1d00b0de03db3b551df613f637602745c768347c1627def3c8e3a109021b84acca8dd9548f58043adc3491b00bab91886290a58fb6c1c0757649b24ebcc3886b7642fe6808cd58eb364ece36c3de59dc8ccb23ae96a6a42bc6061c08547c885d9d9b7eec4e8582ffb9d3cfffc57139f050cc3a431ab35805f332d26dcbfb36fab1ea1fbab219acc735b5b08ce3373ad96c3780bd9d58b1a73bb2204f5fc4b16259df1163b5a1c086046eef657b78983ffb54632098027a28ed46559be8df98523ee8cbfb050ceb22b9aa0216a26a477b7379c0005ed0963c", "68fd88e1ed422ecf42c5c41ebbc84c970530c574b4e47f5f1149ee84842d6455ccea5b2d5782e2fb3b49a2ea88633e63e4228f0109e9e54d241e08a779ec7a09db2f862f49023c220a6edfbca834a7031f9feaf0d2fa4800b1ab503850501baabd53afe57431b64f4c8459c19d2e47240b1a74e781ca2298b22f055e0703da2fdaf1b72058184058fabb7c01ab82ed6cda7320c78665bc8d9b502a83a9b3ce4b74ba3e0d54d73d0ca01fbc67ed2c811e3c120c9ce9c7785f0b4422682719ccea1a4525d9eb580f9c74528c67faee315dbb848bdd597ef2534cfd5c7d2c610a418194823ceaa09a9fb240d2147851975dbfa3e850d203bcbaa243dcc009cc6c51c16179930dff3f89f750157aaf96aa1a8f2abc9a5cc4416f8ccf99883da55d5e39561e0235f75bf00e973db191932f3d60ab041c247e73629256f1c3076ac1e9706d7cd79b7a1158c1914ad85e540b500f6777850d8f8b762629c57f5198f034fbfc51686cc4bb3a0d52853d2d9b9185c8305ebcac87e3887a0bc92467c2b0b4f4ea0b3861523cb04468d87a0d10b228a2eb24764926e13177a9330d8cb71daf2da183a4e14633ed82804a83d24358dc1e0806f0e791a57166c9391aa93779dff53eeafb5a00b6d82034173591d95e000ece4c31c1c8cfa34a031c95d97185b170b797df9c1cd4c8d7d9e231c5d998fbd06234a2c2f177b044e25cb0ac3672cbbafd858e93f25107f94c15bd6ea1b42c867b89d0e6a24769926801495468d04899c0f867949578c2a686bc97f02c3fb456bb78841bf4dea3946a14b74cf105190b25885453a38b942c08a166b4e24db92f61da830947f1a2c89d48819f74c9883ae2644ea1ce454cb31d902d1496497ca30ce9d590bb563d20643443745c4f8ad4caebf11ef91744b500a43c7df4f9ae2eefe8d97fe55aa9ae9c5121b69a99f1f776e65545fbd6e82733898ce4537deba873f281c32e14f3859eb61c5135c44594457205def32b516fd3584d1381b862a20f9cedde9691a96d2d243a10c95d0229264fc2ff747dfcf5ad343202488ef1ea0b4f57180e87f43663f01160b0cad30e28865d82ce0be645be6c771aa25823687ab613e96187c90d6626fac39e9be14d9b9d0fdee79f3301186f6403a3cf456fcceb8461eab87161143ea4ed0a9fbaf305b56b6ebe814129129f53edbf0e290553cbafda1dec343c2c28eceef4839ed02e85a3a1acf064450db1aa22dc7b622ec7a533c2e00dc55ed8d99c7ba333f43ba89cf791e9075800a0e7963795f9e7accca11f21c3e267895e18b88a7efdfac0b6044f6465e692b2fb7b1938fd6783ec2c2a05dd83cced81c3f90c15d61f8ac11076276f3285d163e32f61f910367f11bd18d483369d4d0473a757c169c92ee426f0d1381a2a166d051b68adccfb3755e96f5c873b0fca1388edab483d140b463196d7bff580ce96614c2005860482"),
+    (-1, "1111111111111111111111111111111111111111111111111111111111111111", "222222222222222222222222222222222222222222222222", "7368656c6c782d7465726d6975732d696d706f7274", "cfb12baf6fcb03dc788d2c148cad5047c676d24895bd00d7b3a9f43d409c3d4d80ce0f9b9b")
+]
+
+private func bytes(_ hex: String) -> [UInt8] {
+    var output = [UInt8]()
+    var index = hex.startIndex
+    while index < hex.endIndex {
+        let next = hex.index(index, offsetBy: 2)
+        output.append(UInt8(hex[index..<next], radix: 16) ?? 0)
+        index = next
+    }
+    return output
+}
+
+@MainActor
+func runTermiusCryptoChecks() {
+    run("secretbox opens libsodium vectors") {
+        for (size, keyHex, nonceHex, messageHex, cipherHex) in secretboxVectors {
+            let key = bytes(keyHex)
+            let nonce = bytes(nonceHex)
+            let message = bytes(messageHex)
+            let ciphertext = bytes(cipherHex)
+            let opened = try Salsa20Poly1305.open(ciphertext: ciphertext, nonce: nonce, key: key)
+            expectEqual(opened.count, message.count, "secretbox plaintext length for size \(size)")
+            expect(opened == message, "secretbox plaintext for size \(size)")
+            let sealed = try Salsa20Poly1305.seal(message: message, nonce: nonce, key: key)
+            expect(sealed == ciphertext, "secretbox seal matches libsodium for size \(size)")
+        }
+    }
+
+    run("secretbox rejects tampered ciphertext and bad parameters") {
+        let key = [UInt8](repeating: 0x11, count: 32)
+        let nonce = [UInt8](repeating: 0x22, count: 24)
+        let message = Array("shellx-termius-import".utf8)
+        var sealed = try Salsa20Poly1305.seal(message: message, nonce: nonce, key: key)
+        sealed[0] ^= 0x01
+        do {
+            _ = try Salsa20Poly1305.open(ciphertext: sealed, nonce: nonce, key: key)
+            expect(false, "tampered tag must fail")
+        } catch {
+            expectEqual(error as? Salsa20Poly1305.Failure, .authenticationFailed, "tampered tag error")
+        }
+        do {
+            _ = try Salsa20Poly1305.open(ciphertext: [0x00], nonce: nonce, key: key)
+            expect(false, "short ciphertext must fail")
+        } catch {
+            expectEqual(error as? Salsa20Poly1305.Failure, .shortCiphertext, "short ciphertext error")
+        }
+        do {
+            _ = try Salsa20Poly1305.open(ciphertext: sealed, nonce: nonce, key: [0x00])
+            expect(false, "bad key size must fail")
+        } catch {
+            expectEqual(error as? Salsa20Poly1305.Failure, .badKeySize, "bad key size error")
+        }
+    }
+}
