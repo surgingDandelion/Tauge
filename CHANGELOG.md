@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.
   The highlight also snaps back onto a real row when typing shrinks the list.
 
+## [1.2.2] — 2026-11-19
+
+### Changed
+
+- Quick Open now keeps a stable viewport while typing, supports reliable mouse and wheel interaction, and preserves selection for filtered results such as `MSA`.
+- Added Shift range selection and Ctrl/Command multi-selection. Enter opens selected hosts in a temporary terminal workspace grid, while Command-Enter opens them in a temporary SFTP workspace grid.
+- Workspaces can be edited from the start page, workspace header, and workspace tab menu. Host, group, and workspace colors are persisted and shown in the relevant lists and tabs.
+- Workspace tabs are included in Command-1 through Command-9 navigation, following the natural tab-strip order. Command-0 returns to the start page.
+- Local SFTP browsing now includes a clickable `..` parent-directory row.
+- Release notes render Markdown headings, lists, emphasis, links, and code blocks in the update window.
+- Credential migration no longer opens the login-keychain password dialog after rebuilding, reinstalling, or re-signing. Current credentials remain in the app-local encrypted vault.
+- Improved light terminal ANSI contrast for full-screen CLI tools such as Claude Code.
+
 ## [1.2.1] — 2026-11-18
 
 ### Changed
