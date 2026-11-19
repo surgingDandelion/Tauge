@@ -215,6 +215,14 @@ func runSystemSSHChecks() {
         expect(lastHop.contains("-W \"$1:$2\""), "hop script forwards the real destination")
         expect(lastHop.contains("HostKeyAlgorithms=+ssh-rsa"), "hop carries the legacy algorithms")
         expect(lastHop.contains("BatchMode=yes"), "hop never prompts")
+        if let keyPath = workspace.keyPath {
+            expect(lastHop.contains("'-i' '" + keyPath + "'"),
+                   "hop carries the temporary identity")
+        } else {
+            expect(false, "workspace has a temporary identity for the hop")
+        }
+        expect(lastHop.contains("'-o' 'IdentitiesOnly=yes'"),
+               "hop uses the temporary identity exclusively")
 
         let firstHopPath = workspace.directory.appendingPathComponent("jump1.sh").path
         let firstHop = try String(contentsOfFile: firstHopPath, encoding: .utf8)

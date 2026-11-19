@@ -95,8 +95,9 @@ final class AppState: ObservableObject {
     /// Session state, not a setting: it survives leaving the page for a tab but
     /// resets on the next launch, like the sidebar selection.
     @Published var startPageSelection: StartPageSelection = .all
-    /// "包含子分组" toggle, kept with the selection for the same reason.
-    @Published var startPageShowsDescendants = false
+    /// Group views include every descendant by default. The start page can
+    /// still narrow the view to the selected group itself when needed.
+    @Published var startPageShowsDescendants = true
     /// Workspace tabs. A workspace (formerly called "board") is a set of terminal
     /// panes laid out as nested splits; it lives in the same tab strip as single
     /// connections, so both are first-class tabs.
@@ -121,6 +122,7 @@ final class AppState: ObservableObject {
     // Sheets and alerts.
     @Published var editingHost: SSHHost?
     @Published var editingGroup: HostGroup?
+    @Published var editingBoard: BoardDefinition?
     @Published var editingProxy: ProxyConfig?
     @Published var showingKeyImporter = false
     @Published var showingSettings = false
@@ -733,7 +735,7 @@ final class AppState: ObservableObject {
     /// an overlay, so raising it behind a sheet would be invisible: ⌘K waits.
     var hasPresentedSheet: Bool {
         passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil
-            || editor != nil || editingHost != nil || editingGroup != nil || editingProxy != nil
+            || editor != nil || editingHost != nil || editingGroup != nil || editingBoard != nil || editingProxy != nil
             || showingKeyImporter || showingSettings || showingTransferCenter
             || showingBoardCreate || boardNamePrompt != nil || showingNewSFTPTab
     }
@@ -750,7 +752,7 @@ final class AppState: ObservableObject {
     /// True while one of our own dialogs/sheets owns the keyboard.
     private var hasPresentedDialog: Bool {
         passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil
-            || editor != nil || editingHost != nil || editingGroup != nil || editingProxy != nil
+            || editor != nil || editingHost != nil || editingGroup != nil || editingBoard != nil || editingProxy != nil
             || showingKeyImporter || showingSettings || showingTransferCenter
             || showingCommandPalette || showingBoardCreate || boardNamePrompt != nil
     }
@@ -954,8 +956,17 @@ final class AppState: ObservableObject {
     }
 
     func selectTab(at index: Int) {
-        guard tabs.indices.contains(index) else { return }
-        selectTab(tabs[index])
+        // Shortcut positions follow the tab strip's natural order: ordinary
+        // tabs first, then open workspace tabs. The old implementation only
+        // indexed `tabs`, so a workspace chip could never be reached with
+        // Cmd+1…Cmd+9.
+        if tabs.indices.contains(index) {
+            selectTab(tabs[index])
+            return
+        }
+        let boardIndex = index - tabs.count
+        guard openBoards.indices.contains(boardIndex) else { return }
+        openBoardTab(openBoards[boardIndex].id)
     }
 
     /// Clears the tab/workspace selection so the start page shows: every host,
@@ -1334,6 +1345,10 @@ final class AppState: ObservableObject {
                                             keywords: [board.name] + paneKeywords))
         }
 
+        // One row per host. The palette used to add a second "· SFTP" row for
+        // every machine, which doubled the list for a destination that already
+        // has its own keyboard route: ⌘↩ on the host row, or ⇧⌘T for the host
+        // picker. Keeping the list to one row per host also keeps ↑↓ short.
         func appendHost(_ host: SSHHost, groupTitle: String, depth: Int) {
             let keywords = quickOpenKeywords(for: host, groupPath: groupTitle)
             let weight = quickOpenWeight(for: host)
@@ -1346,16 +1361,6 @@ final class AppState: ObservableObject {
                                             groupTitle: groupTitle,
                                             depth: depth,
                                             keywords: keywords,
-                                            weight: weight))
-            items.append(CommandPaletteItem(id: "sftp-" + host.id.uuidString,
-                                            title: host.name,
-                                            subtitle: host.displayAddress + " · SFTP",
-                                            kind: .host,
-                                            host: host,
-                                            action: nil,
-                                            groupTitle: groupTitle,
-                                            depth: depth,
-                                            keywords: keywords + ["sftp", "文件"],
                                             weight: weight))
         }
 
@@ -1442,14 +1447,15 @@ final class AppState: ObservableObject {
 
     /// Opens the row the panel highlights. `prefersSFTP` is ⌘↩: a host opens a
     /// browser tab instead of a shell, which is the quicker route to files when
-    /// the panel was opened for exactly that.
+    /// the panel was opened for exactly that. Plain return always opens the
+    /// terminal tab — the list no longer carries separate SFTP rows.
     func activateCommand(_ item: CommandPaletteItem, prefersSFTP: Bool = false) {
         showingCommandPalette = false
         if let host = item.host {
             if prefersSFTP {
                 openSFTPTab(for: host)
             } else {
-                openTab(for: host, showsSFTP: item.id.hasPrefix("sftp-"))
+                openTab(for: host)
             }
         } else {
             item.action?()

@@ -206,6 +206,9 @@ struct LocalBrowserPane: View {
             FileListHeader(showsDetails: !isCompact)
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if POSIXPath.normalize(model.path) != "/" {
+                        ParentDirectoryRow { model.goUp() }
+                    }
                     ForEach(model.sortedEntries) { entry in
                         FileRowView(entry: entry, isSelected: model.selection.contains(entry.path), showsDetails: !isCompact)
                             .contentShape(Rectangle())
@@ -861,24 +864,24 @@ private struct ParentDirectoryRow: View {
     @ViewState private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.turn.left.up")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 14)
-            Text(verbatim: "..").font(.system(size: 11.5))
+        Button(action: goUp) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.turn.left.up")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 14)
+                Text(verbatim: "..").font(.system(size: 11.5))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 24)
+            .background(hovering ? Theme.rowHover : Color.clear)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 24)
-        .background(hovering ? Theme.rowHover : Color.clear)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2, perform: goUp)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(L("上级目录"))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: L("上级目录"), goUp)
         .help(L("上级目录"))
     }
 }

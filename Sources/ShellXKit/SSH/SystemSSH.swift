@@ -30,11 +30,16 @@ public struct SystemSSHJump: Sendable {
     public var host: String
     public var port: Int
     public var username: String
+    public var credential: SystemSSHCredential
 
-    public init(host: String, port: Int, username: String) {
+    public init(host: String,
+                port: Int,
+                username: String,
+                credential: SystemSSHCredential = .none) {
         self.host = host
         self.port = port
         self.username = username
+        self.credential = credential
     }
 }
 
@@ -143,7 +148,9 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
         if !options.jumps.isEmpty {
             self.jumpProxyPath = try SystemSSHWorkspace.writeJumpScripts(options: options,
                                                                         sshExecutable: sshExecutable,
-                                                                        root: root)
+                                                                        root: root,
+                                                                        keyPath: keyPath,
+                                                                        askpassAvailable: askpassPath != nil)
         }
     }
 
@@ -153,11 +160,26 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
     /// algorithm options and forwards to the next hop with `-W`.
     private static func writeJumpScripts(options: SystemSSHOptions,
                                          sshExecutable: String,
-                                         root: URL) throws -> String {
+                                         root: URL,
+                                         keyPath: String?,
+                                         askpassAvailable: Bool) throws -> String {
         var previous: String?
         for (index, jump) in options.jumps.enumerated() {
             var command = shellQuoted(sshExecutable)
-            command += " " + SystemSSHCommandBuilder.baseOptions(options: options).map(shellQuoted).joined(separator: " ")
+            let hopFiles = try writeJumpCredential(jump.credential, root: root, index: index)
+            let hopUsesCredential = !isNone(jump.credential)
+            var hopOptions = SystemSSHCommandBuilder.baseOptions(
+                options: options,
+                askpassAvailable: hopFiles.askpassPath != nil || (!hopUsesCredential && askpassAvailable)
+            )
+            if let hopKeyPath = hopFiles.keyPath {
+                hopOptions += ["-i", hopKeyPath, "-o", "IdentitiesOnly=yes"]
+            } else if !hopUsesCredential, let keyPath {
+                // Backward-compatible fallback for callers that only supplied
+                // one identity and leave hop authentication to that key.
+                hopOptions += ["-i", keyPath, "-o", "IdentitiesOnly=yes"]
+            }
+            command += " " + hopOptions.map(shellQuoted).joined(separator: " ")
             if let previous {
                 // The path lives in our own temporary directory, so it never needs
                 // its own quoting level here.
@@ -175,6 +197,37 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
             previous = path
         }
         return previous ?? ""
+    }
+
+    private static func isNone(_ credential: SystemSSHCredential) -> Bool {
+        if case .none = credential { return true }
+        return false
+    }
+
+    private static func writeJumpCredential(_ credential: SystemSSHCredential,
+                                            root: URL,
+                                            index: Int) throws -> (keyPath: String?, askpassPath: String?) {
+        var keyPath: String?
+        if case .key(let text, _) = credential {
+            guard !text.isEmpty else { throw SystemSSHError.keyUnavailable }
+            let path = root.appendingPathComponent("jump(index + 1)-identity").path
+            var contents = text
+            if !contents.hasSuffix("\n") { contents += "\n" }
+            try contents.write(toFile: path, atomically: false, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            keyPath = path
+        }
+
+        var askpassPath: String?
+        if let secret = credential.askpassSecret {
+            let path = root.appendingPathComponent("jump(index + 1)-askpass").path
+            let quoted = secret.replacingOccurrences(of: "'", with: "'\\''")
+            let script = "#!/bin/sh\nprintf '%s\\n' '" + quoted + "'\n"
+            try script.write(toFile: path, atomically: false, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+            askpassPath = path
+        }
+        return (keyPath, askpassPath)
     }
 
     /// Quotes a string for /bin/sh, including the awkward embedded quote case.
@@ -643,9 +696,12 @@ public final class SystemSSHSFTPTransport: SFTPTransport, SystemSSHChild, @unche
 
     public func send(_ data: Data) async throws {
         lock.lock()
-        let done = closed
-        lock.unlock()
-        if done { return }
+        defer { lock.unlock() }
+        guard !closed else { return }
+        // TransferEngine intentionally has a request window. FileHandle writes
+        // from those concurrent SFTP tasks can otherwise interleave bytes on
+        // the single `ssh -s sftp` stdin, which corrupts packets on jumped
+        // system-ssh sessions.
         try input.write(contentsOf: data)
     }
 

@@ -159,38 +159,26 @@ struct SidebarView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            Menu {
+            PaneMenuButton(systemName: "plus", help: L("新建")) {
                 Button(L("新建主机")) { app.editingHost = SSHHost(name: L("新主机")) }
                 Button(L("新建分组")) { app.beginNewGroup() }
                 Divider()
                 Button(L("新建代理")) { app.editingProxy = ProxyConfig(name: L("新代理")) }
                 Button(L("导入私钥")) { app.showingKeyImporter = true }
-            } label: {
-                Image(systemName: "plus")
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 28)
 
-            Menu {
+            PaneMenuButton(systemName: "square.and.arrow.down", help: L("导入或导出")) {
                 Button(L("从 ~/.ssh/config 导入")) { app.importSSHConfig() }
                 Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
                 Button(L("导入 Tauge 配置文件")) { app.importCatalog() }
                 Button(L("导出 Tauge 配置文件")) { app.exportCatalog() }
-            } label: {
-                Image(systemName: "square.and.arrow.down")
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 28)
 
             Spacer()
 
-            Button {
+            PaneIconButton(systemName: "gearshape", help: L("设置")) {
                 app.showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
             }
-            .buttonStyle(.plain)
-            .frame(width: 28)
         }
         .font(.system(size: 12))
         .padding(.horizontal, 8)
@@ -244,14 +232,17 @@ struct GroupNodeView: View {
 
     private var groupLabel: some View {
         HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Color(hex: node.group.colorHex) ?? Theme.secondary)
+                .frame(width: 2, height: 16)
             Image(systemName: "folder")
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Theme.secondary)
+                .foregroundStyle(Color(hex: node.group.colorHex) ?? Theme.secondary)
             Text(node.group.name)
                 .font(.system(size: 12, weight: .medium))
                 .tracking(0.1)
             Spacer()
-            TechTag(text: String(node.hosts.count + childHostCount))
+            TechTag(text: String(subtreeHostCount(node)))
         }
         .contextMenu {
             Button(L("在此分组新建主机")) {
@@ -269,14 +260,18 @@ struct GroupNodeView: View {
         }
     }
 
-    private var childHostCount: Int {
-        node.children.reduce(0) { partial, child in
-            partial + child.hosts.count + child.children.reduce(0) { $0 + $1.hosts.count }
+    private func subtreeHostCount(_ node: SidebarGroupNode) -> Int {
+        node.hosts.count + node.children.reduce(0) { partial, child in
+            partial + subtreeHostCount(child)
         }
     }
 
     private var allHosts: [SSHHost] {
-        node.hosts + node.children.flatMap { $0.hosts }
+        subtreeHosts(node)
+    }
+
+    private func subtreeHosts(_ node: SidebarGroupNode) -> [SSHHost] {
+        node.hosts + node.children.flatMap { subtreeHosts($0) }
     }
 }
 
@@ -330,13 +325,20 @@ struct HostRowView: View {
         .padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isSelected ? Theme.accent.opacity(0.12)
-                      : (hovering ? Theme.secondary.opacity(0.08) : Color.clear))
+                .fill(isSelected
+                      ? AnyShapeStyle(LinearGradient(colors: [Theme.accent.opacity(0.17),
+                                                               Theme.accent.opacity(0.07)],
+                                                       startPoint: .leading,
+                                                       endPoint: .trailing))
+                      : (hovering ? AnyShapeStyle(Theme.rowHover)
+                                  : AnyShapeStyle(Color.clear)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(isSelected ? Theme.accent.opacity(0.32) : Color.clear, lineWidth: 0.7)
         )
+        .shadow(color: isSelected ? Theme.accent.opacity(0.08) : Color.clear,
+                radius: 3, y: 0.5)
         .contentShape(Rectangle())
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.1)) { hovering = inside }

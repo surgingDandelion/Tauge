@@ -35,11 +35,13 @@ public final class HostStore: @unchecked Sendable {
             id TEXT PRIMARY KEY,
             parent_id TEXT,
             name TEXT NOT NULL,
+            color TEXT,
             sort INTEGER NOT NULL DEFAULT 0,
             is_expanded INTEGER NOT NULL DEFAULT 1,
             defaults_json TEXT NOT NULL DEFAULT '{}'
         );
         """)
+        try ensureColumn(table: "groups", column: "color", definition: "TEXT")
         try database.execute("""
         CREATE TABLE IF NOT EXISTS hosts (
             id TEXT PRIMARY KEY,
@@ -186,6 +188,7 @@ public final class HostStore: @unchecked Sendable {
                 id: id,
                 parentID: row["parent_id"]?.string.flatMap(UUID.init(uuidString:)),
                 name: name,
+                colorHex: nilIfEmpty(row["color"]?.string),
                 sortIndex: row["sort"]?.int ?? 0,
                 isExpanded: row["is_expanded"]?.bool ?? true,
                 defaults: defaults
@@ -196,11 +199,12 @@ public final class HostStore: @unchecked Sendable {
     public func save(group: HostGroup) throws {
         let defaultsJSON = encodeToString(group.defaults) ?? "{}"
         try database.execute("""
-        INSERT INTO groups (id, parent_id, name, sort, is_expanded, defaults_json)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO groups (id, parent_id, name, color, sort, is_expanded, defaults_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             parent_id = excluded.parent_id,
             name = excluded.name,
+            color = excluded.color,
             sort = excluded.sort,
             is_expanded = excluded.is_expanded,
             defaults_json = excluded.defaults_json;
@@ -208,6 +212,7 @@ public final class HostStore: @unchecked Sendable {
             .text(group.id.uuidString),
             SQLValue(group.parentID),
             .text(group.name),
+            SQLValue(group.colorHex),
             .int(Int64(group.sortIndex)),
             .int(group.isExpanded ? 1 : 0),
             .text(defaultsJSON),

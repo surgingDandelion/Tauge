@@ -5,8 +5,7 @@ import ShellXKit
 /// Sheet for creating or editing one host.
 ///
 /// The sheet only shows what changes how a connection behaves (address, user,
-/// auth, proxy, jump chain). Tags, colour and free-form notes were dropped —
-/// they made the form tall and never affected a session. Rarer knobs live
+/// auth, proxy, jump chain). Rarer knobs live
 /// behind "高级", which is collapsed by default.
 struct HostEditorView: View {
     @EnvironmentObject private var app: AppState
@@ -107,6 +106,7 @@ struct HostEditorView: View {
                 }
                 .labelsHidden()
             }
+            ColorChoicePicker(colorHex: $host.colorHex)
         }
     }
 

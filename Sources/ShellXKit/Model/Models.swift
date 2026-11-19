@@ -187,6 +187,9 @@ public struct HostGroup: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var parentID: UUID?
     public var name: String
+    /// Optional accent used by the sidebar and start page. Nil keeps the
+    /// generated neutral palette for groups created by older versions.
+    public var colorHex: String?
     public var sortIndex: Int
     public var isExpanded: Bool
     public var defaults: GroupDefaults
@@ -195,6 +198,7 @@ public struct HostGroup: Identifiable, Codable, Hashable, Sendable {
         id: UUID = UUID(),
         parentID: UUID? = nil,
         name: String,
+        colorHex: String? = nil,
         sortIndex: Int = 0,
         isExpanded: Bool = true,
         defaults: GroupDefaults = .empty
@@ -202,6 +206,7 @@ public struct HostGroup: Identifiable, Codable, Hashable, Sendable {
         self.id = id
         self.parentID = parentID
         self.name = name
+        self.colorHex = colorHex
         self.sortIndex = sortIndex
         self.isExpanded = isExpanded
         self.defaults = defaults
@@ -733,6 +738,8 @@ public struct BoardPaneDefinition: Codable, Sendable, Equatable, Identifiable {
 public struct BoardDefinition: Codable, Sendable, Equatable, Identifiable {
     public var id: UUID
     public var name: String
+    /// Optional accent used by the workspace header and tab chip.
+    public var colorHex: String?
     public var panes: [BoardPaneDefinition]
     /// "list" shows the focused pane only; "grid" renders `tree`.
     public var layout: String
@@ -741,12 +748,14 @@ public struct BoardDefinition: Codable, Sendable, Equatable, Identifiable {
 
     public init(id: UUID = UUID(),
                 name: String,
+                colorHex: String? = nil,
                 panes: [BoardPaneDefinition] = [],
                 layout: String = "list",
                 tree: BoardSplitNode? = nil,
                 focusedPaneID: UUID? = nil) {
         self.id = id
         self.name = name
+        self.colorHex = colorHex
         self.panes = panes
         self.layout = layout
         self.tree = tree

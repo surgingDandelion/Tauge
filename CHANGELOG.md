@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Quick Open lists each host once: the duplicate "· SFTP" row per machine is
+  gone, so the list is half as long to walk with `↑`/`↓`. `⌘↩` still opens the
+  highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.
+  The highlight also snaps back onto a real row when typing shrinks the list.
+
 ## [1.2.1] — 2026-11-18
 
 ### Changed

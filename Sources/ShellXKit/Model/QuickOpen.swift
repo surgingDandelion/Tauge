@@ -41,6 +41,26 @@ public enum QuickOpen {
         }
     }
 
+    /// The row the ↑/↓ keys land on: `delta` steps from `current`, clamped to
+    /// the visible results. Kept pure so the panel's keyboard behaviour is
+    /// covered headlessly (empty list, top/bottom edge, list shrinking under a
+    /// stale highlight).
+    public static func movedSelection(from current: Int, by delta: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(max(current + delta, 0), count - 1)
+    }
+
+    /// Returns the inclusive range used by Shift+↑/↓ or Shift-click. Keeping
+    /// this calculation pure makes the multi-select boundary behavior easy to
+    /// check without launching the AppKit overlay.
+    public static func selectionRange(anchor: Int, current: Int, count: Int) -> Set<Int> {
+        guard count > 0 else { return [] }
+        let start = max(0, min(anchor, current))
+        let end = min(count - 1, max(anchor, current))
+        guard start <= end else { return [] }
+        return Set(start...end)
+    }
+
     /// Split on whitespace; an all-space query yields no tokens and therefore
     /// "everything, in the caller's order".
     public static func tokens(_ query: String) -> [String] {

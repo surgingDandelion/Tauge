@@ -23,6 +23,21 @@ func runCatalogChecks() {
         database.close()
     }
 
+    run("catalog preserves host and group colors") {
+        let url = root.appendingPathComponent("colors.sqlite")
+        let database = try SQLiteDatabase(path: url.path)
+        let store = try HostStore(database: database)
+        let group = HostGroup(name: "颜色分组", colorHex: "#7C5CFC")
+        let host = SSHHost(groupID: group.id, name: "颜色主机", hostname: "example.com", colorHex: "#E95420")
+        try store.save(group: group)
+        try store.save(host: host)
+        let loadedGroup = try store.groups().first { $0.id == group.id }
+        let loadedHost = try store.hosts().first { $0.id == host.id }
+        expectEqual(loadedGroup?.colorHex, group.colorHex, "group color survives SQLite round-trip")
+        expectEqual(loadedHost?.colorHex, host.colorHex, "host color survives SQLite round-trip")
+        database.close()
+    }
+
     run("read-only file is detected before the first INSERT") {
         let url = root.appendingPathComponent("locked.sqlite")
         do {

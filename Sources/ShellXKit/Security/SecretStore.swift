@@ -1,6 +1,6 @@
 import Foundation
 
-/// Typed account names for the keychain. Keeping them in one place prevents
+/// Typed account names for credential storage. Keeping them in one place prevents
 /// typos and makes it obvious which secrets exist (useful for the export flow).
 public enum SecretAccount: Hashable, Sendable {
     case hostPassword(UUID)

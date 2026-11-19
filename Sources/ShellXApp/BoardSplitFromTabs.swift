@@ -12,6 +12,42 @@ struct BoardNamePrompt: Identifiable, Equatable {
 }
 
 extension AppState {
+    /// Opens several hosts as a temporary grid workspace. The board is kept in
+    /// memory and marked as a draft, so it behaves like a workspace assembled by
+    /// dragging tabs: it is immediately usable, but only enters the catalog if
+    /// the user later saves it.
+    func openTemporaryBoard(for hosts: [SSHHost], showsSFTP: Bool = false) {
+        var seen = Set<UUID>()
+        let uniqueHosts = hosts.filter { seen.insert($0.id).inserted }
+        guard uniqueHosts.count >= 2 else {
+            if let host = uniqueHosts.first {
+                if showsSFTP {
+                    openSFTPTab(for: host)
+                } else {
+                    openTab(for: host)
+                }
+            }
+            return
+        }
+
+        let panes = uniqueHosts.map { BoardPaneDefinition(hostID: $0.id, showsSFTP: showsSFTP) }
+        let board = BoardDefinition(name: L("新工作区"),
+                                    panes: panes,
+                                    layout: "grid",
+                                    tree: BoardSplitTree.grid(for: panes.map(\.id)),
+                                    focusedPaneID: panes.first?.id)
+        let sessions = zip(panes, uniqueHosts).map { pane, host in
+            makeBoardTab(pane: pane, host: host)
+        }
+        boards.append(board)
+        draftBoardIDs.insert(board.id)
+        boardSessionCache[board.id] = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        openBoardTab(board.id, connect: true)
+        boardDirty = true
+        persistWorkspace()
+        scheduleTerminalFocus(0.12)
+    }
+
     // MARK: Dropping a tab on the tab strip
 
     /// A tab was dropped on another tab: split the two terminals side by side in

@@ -50,6 +50,8 @@ struct ContentView: View {
                 TransferCenterView().environmentObject(app)
             case .boardCreate:
                 BoardCreateSheet().environmentObject(app)
+            case .board(let board):
+                BoardEditorView(board: board).environmentObject(app)
             case .boardName:
                 BoardNameSheet().environmentObject(app)
             case .newSFTPTab:
@@ -83,6 +85,7 @@ struct ContentView: View {
                 if let host = app.editingHost { return .host(host) }
                 if let group = app.editingGroup { return .group(group) }
                 if let proxy = app.editingProxy { return .proxy(proxy) }
+                if let board = app.editingBoard { return .board(board) }
                 if app.showingKeyImporter { return .keyImporter }
                 if app.showingSettings { return .settings }
                 if app.showingTransferCenter { return .transfers }
@@ -101,6 +104,7 @@ struct ContentView: View {
                 app.editor = nil
                 app.editingHost = nil
                 app.editingGroup = nil
+                app.editingBoard = nil
                 app.editingProxy = nil
                 app.showingKeyImporter = false
                 app.showingSettings = false
@@ -127,6 +131,7 @@ private enum ActiveSheet: Identifiable {
     case settings
     case transfers
     case boardCreate
+    case board(BoardDefinition)
     case boardName
     case newSFTPTab
     case termiusImport
@@ -144,6 +149,7 @@ private enum ActiveSheet: Identifiable {
         case .settings: return "settings"
         case .transfers: return "transfers"
         case .boardCreate: return "boardCreate"
+        case .board(let board): return "board-" + board.id.uuidString
         case .boardName: return "boardName"
         case .newSFTPTab: return "newSFTPTab"
         case .termiusImport: return "termiusImport"

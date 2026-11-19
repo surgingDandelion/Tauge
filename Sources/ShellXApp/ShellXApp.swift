@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
         FocusSelfTest.runIfRequested()
+        QuickOpenSelfTest.runIfRequested()
         // GitHub-tag updater: check once shortly after launch, at most daily.
         UpdateController.shared.scheduleAutomaticCheck()
     }

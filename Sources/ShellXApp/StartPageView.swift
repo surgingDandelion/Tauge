@@ -33,10 +33,9 @@ struct StartPageView: View {
         nonmutating set { app.startPageSelection = newValue }
     }
 
-    /// A group shows only its own hosts by default: child groups are separate
-    /// rows in the left list, and showing their hosts under the parent made a
-    /// moved host look like it had been copied instead of moved. Kept beside the
-    /// selection so leaving the page and coming back does not widen the list.
+    /// A group includes all descendant hosts by default. The toggle is kept
+    /// beside the selection so leaving the page and coming back preserves the
+    /// user's choice between the complete subtree and the selected group only.
     private var showsDescendants: Bool {
         get { app.startPageShowsDescendants }
         nonmutating set { app.startPageShowsDescendants = newValue }
@@ -58,7 +57,7 @@ struct StartPageView: View {
         }
         .background(Theme.windowGradient)
         .onChange(of: selection) { _ in
-            showsDescendants = false
+            showsDescendants = true
         }
         .onAppear {
             // A group can be deleted while the page is away; do not come back to
@@ -79,7 +78,7 @@ struct StartPageView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            TechIconTile(systemName: "square.grid.2x2", tint: Theme.accent, size: 26)
+            TechAppLogo(size: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text(L("起始页"))
                     .font(.system(size: 13.5, weight: .semibold))
@@ -206,7 +205,7 @@ struct StartPageView: View {
                 result.append(GroupRow(group: node.group,
                                        depth: depth,
                                        count: app.hosts(inGroup: node.group.id,
-                                                        includingDescendants: false).count,
+                                                        includingDescendants: true).count,
                                        descendantCount: countDescendants(node)))
                 walk(node.children, depth: depth + 1)
             }
@@ -234,7 +233,13 @@ struct StartPageView: View {
                                      title: board.name,
                                      detail: String(board.panes.count),
                                      isSelected: false,
+                                     accent: board.colorHex.flatMap { Color(hex: $0) },
                                      action: { app.openBoardTab(board.id) })
+                            .contextMenu {
+                                Button(L("编辑工作区…")) { app.editingBoard = board }
+                                Button(L("连接全部窗格")) { app.openBoardTab(board.id) }
+                                Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
+                            }
                     }
                 }
 
@@ -266,6 +271,7 @@ struct StartPageView: View {
                                  detail: String(row.count),
                                  isSelected: selection == .group(row.group.id),
                                  indentation: CGFloat(row.depth) * 12,
+                                 accent: row.group.colorHex.flatMap { Color(hex: $0) },
                                  onDropHost: { app.moveHost($0, onto: nil, in: row.group.id) },
                                  action: { selection = .group(row.group.id) })
                         .contextMenu {
@@ -658,6 +664,7 @@ private struct StartListRow: View {
     var detail: String = ""
     var isSelected: Bool
     var indentation: CGFloat = 0
+    var accent: Color? = nil
     /// Set to nil when the row cannot receive hosts (收藏 / 最近连接).
     var onDropHost: ((UUID) -> Void)? = nil
     let action: () -> Void
@@ -670,32 +677,24 @@ private struct StartListRow: View {
             HStack(spacing: 7) {
                 Image(systemName: symbol)
                     .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.secondary)
+                    .foregroundStyle(isSelected ? (accent ?? Theme.accent) : (accent ?? Theme.secondary))
                     .frame(width: 14)
                 Text(title)
                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Text(detail)
-                    .font(TechFont.mono(8.5, .medium))
-                    .foregroundStyle(Theme.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(Theme.tagBackground.opacity(isSelected ? 1 : 0.65))
-                    )
+                TechTag(text: detail, tint: isSelected ? Theme.accent : nil)
             }
             .padding(.horizontal, 7)
             .frame(height: 24)
             .background {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Theme.accent.opacity(0.11)
+                    .fill(isSelected ? (accent ?? Theme.accent).opacity(0.11)
                               : (hovering ? Color.primary.opacity(0.05) : Color.clear))
                     Rectangle()
-                        .fill(isSelected ? Theme.accent : Color.clear)
+                        .fill(isSelected ? (accent ?? Theme.accent) : Color.clear)
                         .frame(width: 2, height: 12)
                         .padding(.leading, 2)
                 }
@@ -764,6 +763,10 @@ private struct StartHostCard: View {
 
     private var isFavorite: Bool {
         host.tags.contains { $0 == "favorite" || $0 == "收藏" }
+    }
+
+    private var isSelected: Bool {
+        app.selectedSidebarHostID == host.id
     }
 
     private var jumpCount: Int? {
@@ -857,42 +860,16 @@ private struct StartHostCard: View {
                 // buttons into the stack on hover shortened the name field and
                 // made long host names visibly truncate under the pointer.
                 HStack(spacing: 4) {
-                    Button {
+                    TechIconButton(systemName: "play.fill",
+                                   help: L("连接"),
+                                   tint: Theme.accent) {
                         app.openTab(for: host)
-                    } label: {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 22, height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Theme.accent.opacity(0.12))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .strokeBorder(Theme.accent.opacity(0.45), lineWidth: 0.8)
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .help(L("连接"))
-                    Button {
+                    TechIconButton(systemName: "arrow.up.arrow.down",
+                                   help: L("新建 SFTP 标签"),
+                                   tint: Theme.secondary) {
                         app.openSFTPTab(for: host)
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 22, height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Theme.cardTop)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .strokeBorder(Theme.hairline.opacity(0.85), lineWidth: 0.8)
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .help(L("新建 SFTP 标签"))
                 }
                 .frame(width: 48, alignment: .trailing)
                 .opacity(hovering ? 1 : 0)
@@ -938,8 +915,8 @@ private struct StartHostCard: View {
         .frame(maxWidth: .infinity, minHeight: Self.cardMinHeight, alignment: .topLeading)
         .techCard(cornerRadius: 9,
                   hovered: hovering || isDropTarget,
-                  selected: isDropTarget,
-                  accent: isDropTarget ? Color.primary : Theme.accent)
+                  selected: isSelected || isDropTarget,
+                  accent: isDropTarget ? Color.primary : customTint)
     }
 
     var body: some View {
@@ -980,7 +957,7 @@ private struct StartHostCard: View {
     }
 
     private func chip(_ text: String, systemName: String? = nil) -> some View {
-        TechTag(text: text, systemName: systemName)
+        TechTag(text: text, systemName: systemName, maxCharacters: 26)
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import ShellXKit
 import SwiftUI
 
@@ -121,9 +122,7 @@ struct UpdateView: View {
                         Text(L("更新内容"))
                             .font(.subheadline.weight(.semibold))
                         ScrollView {
-                            Text(update.notes)
-                                .font(.callout)
-                                .textSelection(.enabled)
+                            UpdateNotesView(source: update.notes)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxHeight: 180)
@@ -132,7 +131,6 @@ struct UpdateView: View {
             }
         }
     }
-
 
     /// Determinate bar plus byte counts and a smoothed rate. The old view
     /// showed a bare spinner, which told the user nothing about a 30 MB
@@ -251,6 +249,253 @@ struct UpdateView: View {
         case .installing: return "gearshape.2"
         case .failed: return "exclamationmark.triangle"
         }
+    }
+}
+
+/// SwiftUI's `Text` supports inline Markdown attributes, but it does not lay
+/// out block-level Markdown such as headings and lists. Split release notes
+/// into blocks first so the update window keeps the document structure while
+/// still using Foundation for bold text, links, and code spans.
+private struct UpdateNotesView: View {
+    let source: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(UpdateMarkdownBlock.parse(source).enumerated()), id: \.offset) { _, block in
+                blockView(block)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: UpdateMarkdownBlock) -> some View {
+        switch block {
+        case .paragraph(let text):
+            inlineText(text)
+        case .heading(let level, let text):
+            Text(inlineMarkdown(text))
+                .font(headingFont(for: level))
+                .textSelection(.enabled)
+                .padding(.top, level <= 2 ? 4 : 0)
+        case .unorderedItem(let indent, let text):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("•")
+                    .foregroundStyle(.secondary)
+                inlineText(text)
+            }
+            .padding(.leading, CGFloat(indent * 4))
+        case .orderedItem(let indent, let number, let text):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(number + ".")
+                    .foregroundStyle(.secondary)
+                inlineText(text)
+            }
+            .padding(.leading, CGFloat(indent * 4))
+        case .quote(let text):
+            HStack(alignment: .top, spacing: 8) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 2)
+                inlineText(text)
+                    .foregroundStyle(.secondary)
+            }
+        case .code(let text):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        case .divider:
+            Divider()
+        }
+    }
+
+    private func inlineText(_ text: String) -> some View {
+        Text(inlineMarkdown(text))
+            .font(.callout)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func inlineMarkdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+    }
+
+    private func headingFont(for level: Int) -> Font {
+        switch level {
+        case 1: return .title3.weight(.semibold)
+        case 2: return .headline
+        default: return .subheadline.weight(.semibold)
+        }
+    }
+}
+
+private enum UpdateMarkdownBlock {
+    case paragraph(String)
+    case heading(level: Int, text: String)
+    case unorderedItem(indent: Int, text: String)
+    case orderedItem(indent: Int, number: String, text: String)
+    case quote(String)
+    case code(String)
+    case divider
+
+    static func parse(_ source: String) -> [Self] {
+        let normalized = source.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+        var blocks: [Self] = []
+        var paragraphLines: [String] = []
+
+        func flushParagraph() {
+            guard !paragraphLines.isEmpty else { return }
+            let text = paragraphLines.joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { blocks.append(.paragraph(text)) }
+            paragraphLines.removeAll(keepingCapacity: true)
+        }
+
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.isEmpty {
+                flushParagraph()
+                index += 1
+                continue
+            }
+
+            if let fence = fencePrefix(in: trimmed) {
+                flushParagraph()
+                index += 1
+                var codeLines: [String] = []
+                while index < lines.count {
+                    let candidate = lines[index].trimmingCharacters(in: .whitespaces)
+                    if candidate.hasPrefix(fence) {
+                        index += 1
+                        break
+                    }
+                    codeLines.append(lines[index])
+                    index += 1
+                }
+                blocks.append(.code(codeLines.joined(separator: "\n")))
+                continue
+            }
+
+            if let heading = headingParts(in: line) {
+                flushParagraph()
+                blocks.append(.heading(level: heading.level, text: heading.text))
+                index += 1
+                continue
+            }
+
+            if isDivider(trimmed) {
+                flushParagraph()
+                blocks.append(.divider)
+                index += 1
+                continue
+            }
+
+            if let list = listParts(in: line) {
+                flushParagraph()
+                switch list {
+                case .unordered(let indent, let text):
+                    blocks.append(.unorderedItem(indent: indent, text: text))
+                case .ordered(let indent, let number, let text):
+                    blocks.append(.orderedItem(indent: indent, number: number, text: text))
+                }
+                index += 1
+                continue
+            }
+
+            if trimmed.first == ">" {
+                flushParagraph()
+                let text = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+                blocks.append(.quote(text))
+                index += 1
+                continue
+            }
+
+            paragraphLines.append(trimmed)
+            index += 1
+        }
+        flushParagraph()
+        return blocks
+    }
+
+    private enum ListParts {
+        case unordered(indent: Int, text: String)
+        case ordered(indent: Int, number: String, text: String)
+    }
+
+    private static func fencePrefix(in line: String) -> String? {
+        if line.hasPrefix("```") { return "```" }
+        if line.hasPrefix("~~~") { return "~~~" }
+        return nil
+    }
+
+    private static func headingParts(in line: String) -> (level: Int, text: String)? {
+        let characters = Array(line)
+        var level = 0
+        while level < characters.count, characters[level] == "#" { level += 1 }
+        guard (1...6).contains(level),
+              level < characters.count,
+              characters[level].isWhitespace else { return nil }
+        let text = String(characters.dropFirst(level))
+            .trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        return (level, text)
+    }
+
+    private static func listParts(in line: String) -> ListParts? {
+        var indent = 0
+        var offset = line.startIndex
+        while offset < line.endIndex {
+            switch line[offset] {
+            case " ": indent += 1
+            case "\t": indent += 4
+            default: return listParts(in: String(line[offset...]), indent: indent)
+            }
+            offset = line.index(after: offset)
+        }
+        return nil
+    }
+
+    private static func listParts(in body: String, indent: Int) -> ListParts? {
+        guard let first = body.first else { return nil }
+        if (first == "-" || first == "*" || first == "+"), body.dropFirst().first?.isWhitespace == true {
+            let text = String(body.dropFirst()).trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? nil : .unordered(indent: indent, text: text)
+        }
+
+        var digitEnd = body.startIndex
+        while digitEnd < body.endIndex, body[digitEnd].isNumber {
+            digitEnd = body.index(after: digitEnd)
+        }
+        guard digitEnd > body.startIndex,
+              digitEnd < body.endIndex,
+              body[digitEnd] == "." else { return nil }
+        let afterDot = body.index(after: digitEnd)
+        guard afterDot < body.endIndex, body[afterDot].isWhitespace else { return nil }
+        let text = String(body[body.index(after: afterDot)...])
+            .trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        return .ordered(indent: indent, number: String(body[..<digitEnd]), text: text)
+    }
+
+    private static func isDivider(_ line: String) -> Bool {
+        let symbols = line.filter { !$0.isWhitespace }
+        guard symbols.count >= 3 else { return false }
+        guard let first = symbols.first, first == "-" || first == "*" || first == "_" else { return false }
+        return symbols.allSatisfy { $0 == first }
     }
 }
 

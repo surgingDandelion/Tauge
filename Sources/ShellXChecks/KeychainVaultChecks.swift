@@ -47,6 +47,12 @@ func runKeychainVaultChecks() {
     let passphrase = SecretAccount.hostPassphrase(UUID())
     let proxy = SecretAccount.proxyPassword(UUID())
 
+    run("keychain migration adapter can disable authentication UI") {
+        let adapter = Keychain(allowsAuthenticationUI: false)
+        expectEqual(adapter.allowsAuthenticationUI, false,
+                    "legacy migration must never request the login-keychain password")
+    }
+
     run("keychain vault adopts a legacy item once") {
         let store = FakeItemStore([password.rawValue: "legacy-pass"])
         let vault = KeychainVaultStore(items: store)

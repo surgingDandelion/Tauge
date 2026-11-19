@@ -2,6 +2,110 @@ import SwiftUI
 import AppKit
 import ShellXKit
 
+/// Small shared palette used by host and group editors. Storing the hex value
+/// keeps the setting portable across launches and compatible with the catalog
+/// JSON/export format; the empty option follows the generated default tint.
+struct ColorChoicePicker: View {
+    @Binding var colorHex: String?
+    var title: String = "颜色"
+    @ViewState private var isPresented = false
+
+    private struct Choice: Identifiable {
+        let hex: String
+        let nameKey: String
+        var id: String { hex }
+    }
+
+    private static let choices = [
+        Choice(hex: "#E95420", nameKey: "橙色"),
+        Choice(hex: "#2F86AE", nameKey: "蓝绿色"),
+        Choice(hex: "#3B82F6", nameKey: "蓝色"),
+        Choice(hex: "#7C5CFC", nameKey: "靛紫色"),
+        Choice(hex: "#A855F7", nameKey: "紫色"),
+        Choice(hex: "#D946EF", nameKey: "洋红色"),
+        Choice(hex: "#E11D48", nameKey: "玫红色"),
+        Choice(hex: "#16A34A", nameKey: "绿色"),
+        Choice(hex: "#0D9488", nameKey: "青绿色"),
+        Choice(hex: "#CA8A04", nameKey: "金色"),
+        Choice(hex: "#EA580C", nameKey: "深橙色"),
+        Choice(hex: "#64748B", nameKey: "灰蓝色"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(L(title))
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.secondary)
+            Button {
+                isPresented.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color(hex: colorHex) ?? Theme.accent)
+                        .frame(width: 13, height: 13)
+                    Text(Self.choices.first(where: { $0.hex == colorHex }).map { L($0.nameKey) } ?? L("默认"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+                palette
+            }
+        }
+    }
+
+    private var palette: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                colorHex = nil
+                isPresented = false
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "circle.dashed")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.secondary)
+                    Text(L("跟随默认颜色"))
+                        .font(.system(size: 11))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(Self.choices) { choice in
+                    Button {
+                        colorHex = choice.hex
+                        isPresented = false
+                    } label: {
+                        VStack(spacing: 4) {
+                            Circle()
+                                .fill(Color(hex: choice.hex) ?? Theme.accent)
+                                .frame(width: 24, height: 24)
+                                .overlay(Circle().stroke(Color.primary.opacity(0.16), lineWidth: 0.5))
+                            Text(L(choice.nameKey))
+                                .font(.system(size: 10))
+                                .lineLimit(1)
+                            Text(choice.hex)
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(Theme.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+        .background(Theme.panelBackground)
+    }
+}
+
 struct GroupEditorView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var group: HostGroup
@@ -37,6 +141,7 @@ struct GroupEditorView: View {
                         Text(app.groupPath(for: candidate.id)).tag(Optional(candidate.id))
                     }
                 }
+                ColorChoicePicker(colorHex: $group.colorHex)
                 Section(L("默认值（向下继承）")) {
                     Picker(L("代理"), selection: Binding(
                         get: {

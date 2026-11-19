@@ -77,4 +77,24 @@ func runQuickOpenChecks() {
         expectEqual(QuickOpen.tokens("  Prod   DB "), ["prod", "db"], "tokens are trimmed, folded and lowercased")
         expectEqual(QuickOpen.tokens("   ").count, 0, "a blank query has no tokens")
     }
+
+    run("quickOpen arrow keys stay inside the results") {
+        expectEqual(QuickOpen.movedSelection(from: 0, by: 1, count: 4), 1, "↓ moves one row")
+        expectEqual(QuickOpen.movedSelection(from: 3, by: 1, count: 4), 3, "↓ stops at the last row")
+        expectEqual(QuickOpen.movedSelection(from: 0, by: -1, count: 4), 0, "↑ stops at the first row")
+        expectEqual(QuickOpen.movedSelection(from: 2, by: 0, count: 4), 2, "a no-op move keeps the row")
+    }
+
+    run("quickOpen highlight survives the list shrinking") {
+        expectEqual(QuickOpen.movedSelection(from: 7, by: 0, count: 3), 2, "a stale highlight snaps to the last row")
+        expectEqual(QuickOpen.movedSelection(from: 2, by: 0, count: 0), 0, "an empty list parks on zero")
+        expectEqual(QuickOpen.movedSelection(from: 0, by: 1, count: 0), 0, "↓ on an empty list does nothing")
+    }
+
+    run("quickOpen shift selection expands and contracts from its anchor") {
+        expectEqual(QuickOpen.selectionRange(anchor: 2, current: 5, count: 8), Set([2, 3, 4, 5]), "downward range")
+        expectEqual(QuickOpen.selectionRange(anchor: 5, current: 2, count: 8), Set([2, 3, 4, 5]), "upward range")
+        expectEqual(QuickOpen.selectionRange(anchor: 7, current: 12, count: 8), Set([7]), "range clamps at the last row")
+        expectEqual(QuickOpen.selectionRange(anchor: 0, current: 1, count: 0), Set<Int>(), "empty results have no selection")
+    }
 }

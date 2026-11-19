@@ -86,6 +86,9 @@ private struct BoardHeader: View {
         Menu {
             Button(L("新建工作区…")) { app.promptCreateBoard() }
             if let board {
+                Button(L("编辑工作区…")) {
+                    app.editingBoard = board
+                }
                 Button(L("重命名工作区…")) {
                     if let name = Prompt.text(title: L("重命名工作区"), message: L("输入新的工作区名称。"), defaultValue: board.name) {
                         app.renameBoard(board.id, name: name)
@@ -107,7 +110,7 @@ private struct BoardHeader: View {
             HStack(spacing: 6) {
                 Image(systemName: "rectangle.split.3x3")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Theme.secondary)
+                    .foregroundColor(Color(hex: board?.colorHex) ?? Theme.secondary)
                 Text(board?.name ?? L("工作区"))
                     .font(.system(size: 12, weight: .semibold))
                 Image(systemName: "chevron.down")

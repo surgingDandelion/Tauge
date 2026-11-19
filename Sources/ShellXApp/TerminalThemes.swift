@@ -68,17 +68,20 @@ enum TerminalThemeCatalog {
     static let shellXLight = TerminalTheme(
         name: "Tauge Light",
         background: TerminalTheme.nsColor(0xFBFAF7),
-        foreground: TerminalTheme.nsColor(0x2C3138),
+        // Claude Code and other full-screen CLIs use ANSI bright-black for
+        // secondary labels and box-drawing accents. Keep the base foreground
+        // dark enough that those muted UI elements remain readable on paper.
+        foreground: TerminalTheme.nsColor(0x242931),
         caret: TerminalTheme.nsColor(0x0B6BCB),
         ansi: [
-            TerminalTheme.color(0x2C3138), TerminalTheme.color(0xC42B32),
-            TerminalTheme.color(0x136B2C), TerminalTheme.color(0x8F3C05),
-            TerminalTheme.color(0x0A63CF), TerminalTheme.color(0x7A4BD8),
-            TerminalTheme.color(0x17767C), TerminalTheme.color(0x6A727B),
-            TerminalTheme.color(0x5A626B), TerminalTheme.color(0x9E1226),
-            TerminalTheme.color(0x1C7A38), TerminalTheme.color(0x936306),
-            TerminalTheme.color(0x2186F0), TerminalTheme.color(0x9C6FF2),
-            TerminalTheme.color(0x17767C), TerminalTheme.color(0x8A9199)
+            TerminalTheme.color(0x242931), TerminalTheme.color(0xB4232B),
+            TerminalTheme.color(0x1F7A3D), TerminalTheme.color(0x8A5A00),
+            TerminalTheme.color(0x145FC7), TerminalTheme.color(0x8546A9),
+            TerminalTheme.color(0x0B6F79), TerminalTheme.color(0x4B5563),
+            TerminalTheme.color(0x4B5563), TerminalTheme.color(0xC23B45),
+            TerminalTheme.color(0x197A3C), TerminalTheme.color(0x925F00),
+            TerminalTheme.color(0x1B6DE1), TerminalTheme.color(0x9255C0),
+            TerminalTheme.color(0x0C7F8C), TerminalTheme.color(0x151A20)
         ])
 
     static let solarizedDark = TerminalTheme(

@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 public enum KeychainError: Error, LocalizedError, Equatable {
@@ -16,23 +17,45 @@ public enum KeychainError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Thin wrapper around the generic-password keychain. All ShellX secrets live here;
-/// nothing secret is ever written to the SQLite catalog.
+/// Thin wrapper around the generic-password keychain used for legacy migration
+/// and explicit keychain-backed callers. The normal app path stores secrets in
+/// the encrypted local vault; nothing secret is ever written to the SQLite
+/// catalog.
 public struct Keychain {
     public static let defaultService = "com.shellx.credentials"
 
     public let service: String
+    /// Whether Security may present the login-keychain authentication sheet.
+    ///
+    /// The app-local vault is the source of truth for current builds. Its
+    /// keychain adapter is non-interactive so a stale legacy item can never
+    /// interrupt startup or reconnects with a password prompt after a rebuild.
+    public let allowsAuthenticationUI: Bool
 
-    public init(service: String = Keychain.defaultService) {
+    public init(service: String = Keychain.defaultService, allowsAuthenticationUI: Bool = true) {
         self.service = service
+        self.allowsAuthenticationUI = allowsAuthenticationUI
+    }
+
+    private func applyAuthenticationPolicy(to query: inout [String: Any]) {
+        guard !allowsAuthenticationUI else { return }
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
+        // Keep the Security-level fail-fast policy as well. The context covers
+        // modern authentication flows; this flag explicitly rejects any
+        // legacy path that would otherwise present an authorization sheet.
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
     }
 
     private func baseQuery(account: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        applyAuthenticationPolicy(to: &query)
+        return query
     }
 
     public func data(for account: String) throws -> Data? {
@@ -98,6 +121,7 @@ public struct Keychain {
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
         query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        applyAuthenticationPolicy(to: &query)
         var items: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &items)
         switch status {

@@ -422,7 +422,7 @@ struct SettingsView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(L("凭据库与代码签名无关：重新构建、重装或换签名都不会再触发钥匙串授权。旧版本存在钥匙串里的密码会在第一次用到时自动搬进凭据库。"))
+                Text(L("凭据库与代码签名无关：重新构建、重装或换签名都不会再触发登录钥匙串密码框。旧版本的凭据会在无需授权时自动搬进本地库；若旧条目受旧签名保护，请在 Tauge 的主机密码框重新输入一次。"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)

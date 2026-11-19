@@ -318,6 +318,20 @@ extension AppState {
         }
     }
 
+    /// Applies editable workspace metadata without disturbing its live panes.
+    /// Draft workspaces stay in memory until the user explicitly saves them.
+    func updateBoard(_ updated: BoardDefinition) {
+        guard let index = boards.firstIndex(where: { $0.id == updated.id }) else { return }
+        boards[index] = updated
+        if currentBoard?.id == updated.id {
+            currentBoard = updated
+            boardDirty = draftBoardIDs.contains(updated.id) || boardDirty
+        }
+        if !draftBoardIDs.contains(updated.id) {
+            try? store.save(board: updated)
+        }
+    }
+
     func deleteBoard(_ id: UUID) {
         guard boards.count > 1 else { return }
         for session in (boardSessionCache[id] ?? [:]).values { session.close() }

@@ -66,9 +66,11 @@ The vault is `vault.v1.enc` with its random key in `vault.key`, both in
 Application Support and readable only by your user (`0600`). The app asks for
 Touch ID, or the device password, once per launch before it reads a saved
 credential (Settings → Security → `Unlock method`), and does not ask again until
-it quits. It is skipped on Macs without a sensor. A credential written by an
-older build to the login keychain is read once, migrated into the vault, and
-never looked up again.
+it quits. It is skipped on Macs without a sensor. An older credential is
+migrated into the vault when macOS can read it without authorization. If its
+old signature grant is no longer valid, Tauge skips the legacy item without
+showing a login-keychain password dialog; enter the host password once in Tauge
+and it is saved in the local vault.
 
 ## Build from source
 

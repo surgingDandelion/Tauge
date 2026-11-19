@@ -229,16 +229,20 @@ extension AppState {
             return PreparedConnection(options: options, auth: auth, jumpCount: jumps.count, transport: .builtin)
 
         case .system:
-            // OpenSSH authenticates jump hosts itself (agent, default keys,
-            // ~/.ssh/config), so only the target credentials travel in the argv.
             guard let credential = try await systemCredential(for: host, allowPrompt: allowPrompt) else { return nil }
-            let jumps = config.jumps.map { step -> SSHJumpEndpoint in
+            var jumps: [SSHJumpEndpoint] = []
+            for step in config.jumps {
                 let jumpUsername = step.host.username.isEmpty ? targetUsername : step.host.username
-                return SSHJumpEndpoint(host: step.host.hostname,
-                                       port: step.host.port,
-                                       username: jumpUsername,
-                                       auth: .none,
-                                       hostKeyValidator: { _ in .trust(remember: false) })
+                guard let jumpCredential = try await systemCredential(for: step.host,
+                                                                       allowPrompt: allowPrompt) else {
+                    return nil
+                }
+                jumps.append(SSHJumpEndpoint(host: step.host.hostname,
+                                             port: step.host.port,
+                                             username: jumpUsername,
+                                             auth: .none,
+                                             systemCredential: jumpCredential,
+                                             hostKeyValidator: { _ in .trust(remember: false) }))
             }
             let options = SSHConnectOptions(host: config.host.hostname,
                                             port: config.host.port,

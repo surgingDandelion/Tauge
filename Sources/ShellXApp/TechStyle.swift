@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A small, deliberately restrained instrument-panel vocabulary: monospaced
@@ -21,9 +22,9 @@ extension Theme {
     static let gridLine = dynamic(light: 0xE8E8EF, dark: 0x2A2B33)
 }
 
-/// The shared card surface: gradient fill, one-pixel inner highlight, a hairline
-/// border, and a tiny bracket that only appears on hover. Callers keep their own
-/// padding and corner radius so the compact geometry is untouched.
+/// The shared card surface: gradient fill, one-pixel inner highlight and a
+/// hairline border. Callers keep their own padding and corner radius so the
+/// compact geometry is untouched.
 struct TechCardSurface: ViewModifier {
     var cornerRadius: CGFloat = 8
     var hovered: Bool = false
@@ -57,13 +58,6 @@ struct TechCardSurface: ViewModifier {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(borderColor, lineWidth: selected || hovered ? 1 : 0.7)
             }
-            .overlay(alignment: .topLeading) {
-                TechCornerBracket()
-                    .stroke(selected || hovered ? accent.opacity(0.95) : accent.opacity(0.34),
-                            style: StrokeStyle(lineWidth: 1.2, lineCap: .square))
-                    .frame(width: 9, height: 9)
-                    .padding(3)
-            }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .shadow(color: shadowColor, radius: hovered ? 9 : 4, y: hovered ? 3 : 1)
     }
@@ -77,16 +71,6 @@ struct TechCardSurface: ViewModifier {
     private var shadowColor: Color {
         if hovered && glow { return accent.opacity(0.16) }
         return Theme.shadow.opacity(0.55)
-    }
-}
-
-private struct TechCornerBracket: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        return path
     }
 }
 
@@ -130,12 +114,72 @@ extension View {
     }
 }
 
+/// The real application mark, used where the start page identifies itself.
+/// Prefer the bundled Tauge artwork over NSApp's SwiftPM placeholder icon.
+struct TechAppLogo: View {
+    var size: CGFloat = 30
+
+    var body: some View {
+        Group {
+            if let image = TechAppLogoImage.image() {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Image(nsImage: MenuBarIcon.image())
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                .strokeBorder(Theme.hairline.opacity(0.72), lineWidth: 0.6)
+        }
+        .shadow(color: Theme.shadow.opacity(0.36), radius: 2, y: 0.6)
+        .accessibilityLabel("Tauge 应用图标")
+    }
+}
+
+private enum TechAppLogoImage {
+    static func image() -> NSImage? {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        if let resources = Bundle.main.resourceURL {
+            candidates.append(resources.appendingPathComponent("AppIcon.icns"))
+            candidates.append(resources.appendingPathComponent("AppIcon-1024.png"))
+        }
+        let executableDirectory = Bundle.main.bundleURL
+        candidates.append(executableDirectory.appendingPathComponent("AppIcon.icns"))
+        candidates.append(executableDirectory.appendingPathComponent("Resources/AppIcon-1024.png"))
+        // `swift run` does not assemble the final .app, so keep the source-tree
+        // fallback for local previews and WindowSnapshot runs.
+        let workingDirectory = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        candidates.append(workingDirectory.appendingPathComponent("Resources/AppIcon-1024.png"))
+
+        for url in candidates where fileManager.fileExists(atPath: url.path) {
+            if let image = NSImage(contentsOf: url) {
+                image.isTemplate = false
+                return image
+            }
+        }
+        return NSApp.applicationIconImage
+    }
+}
+
 /// Squared, monospaced metadata tags. These replace the pill capsules: at 9pt a
 /// square corner plus a hairline reads as a label, not as a button.
 struct TechTag: View {
     var text: String
     var systemName: String? = nil
     var tint: Color? = nil
+    /// Long group paths and user supplied tags should yield to their siblings
+    /// instead of widening a compact card indefinitely. Short labels retain
+    /// their intrinsic width so the metadata row stays dense.
+    var maxCharacters: Int? = nil
 
     var body: some View {
         HStack(spacing: 3) {
@@ -143,9 +187,10 @@ struct TechTag: View {
                 Image(systemName: systemName)
                     .font(.system(size: 7.5, weight: .semibold))
             }
-            Text(text)
+            Text(compactText)
                 .font(TechFont.mono(8.5, .medium))
                 .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(tint ?? Theme.secondary)
         .padding(.horizontal, 5)
@@ -158,7 +203,15 @@ struct TechTag: View {
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                 .strokeBorder(Theme.hairline.opacity(0.75), lineWidth: 0.6)
         )
-        .fixedSize()
+    }
+
+    private var compactText: String {
+        guard let maxCharacters, text.count > maxCharacters, maxCharacters > 2 else {
+            return text
+        }
+        let headCount = (maxCharacters - 1) / 2
+        let tailCount = maxCharacters - headCount - 1
+        return String(text.prefix(headCount)) + "…" + String(text.suffix(tailCount))
     }
 }
 
@@ -257,6 +310,69 @@ struct TechButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.86 : 1)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.easeOut(duration: 0.09), value: configuration.isPressed)
+    }
+}
+
+/// A small native-feeling icon control for card and toolbar actions. It keeps
+/// the hit target stable while making hover and press states legible without
+/// adding padding to the surrounding layout.
+struct TechIconButton: View {
+    var systemName: String
+    var help: String
+    var tint: Color = Theme.accent
+    var isEnabled: Bool = true
+    var action: () -> Void
+
+    @ViewState private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 8.5, weight: .bold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(IconButtonStyle(tint: tint, hovering: hovering, isEnabled: isEnabled))
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+        .onHover { inside in
+            withAnimation(.easeOut(duration: 0.1)) { hovering = inside }
+        }
+        .help(help)
+    }
+
+    private struct IconButtonStyle: ButtonStyle {
+        let tint: Color
+        let hovering: Bool
+        let isEnabled: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .foregroundStyle(isEnabled ? tint : Theme.secondary.opacity(0.4))
+                .background {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(configuration.isPressed
+                              ? tint.opacity(0.24)
+                              : (hovering ? tint.opacity(0.12) : Theme.cardTop))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(hovering ? tint.opacity(0.55) : Theme.hairline.opacity(0.8),
+                                      lineWidth: 0.8)
+                }
+                .overlay(alignment: .topLeading) {
+                    if hovering {
+                        Rectangle()
+                            .fill(tint.opacity(0.75))
+                            .frame(width: 6, height: 1)
+                            .padding(.leading, 3)
+                            .padding(.top, 2)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .scaleEffect(configuration.isPressed ? 0.95 : 1)
+                .animation(.easeOut(duration: 0.09), value: configuration.isPressed)
+        }
     }
 }
 

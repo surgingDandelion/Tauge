@@ -80,8 +80,9 @@ app after it quits. Use **Tauge → Check for Updates…** to check immediately.
 
 ### Quick Open and the small things
 
-- Press `⌘K` anywhere to search hosts, workspaces, and commands in one field.
-  `↩` connects; `⌘↩` opens an SFTP tab.
+- Press `⌘K` anywhere to search hosts, workspaces, and commands in one field;
+  `↑`/`↓` pick a row. `↩` connects, `⌘↩` opens the highlighted host as an SFTP
+  tab, and each host takes a single row.
 - A menu-bar item for opening the window, starting a terminal or SFTP tab, and
   checking transfers.
 - English and Simplified Chinese, switchable at runtime.

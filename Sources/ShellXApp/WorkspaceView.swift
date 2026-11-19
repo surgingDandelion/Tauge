@@ -117,7 +117,7 @@ struct TabStripView: View {
                     }
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 5)
+                .padding(.vertical, 6)
             }
             Divider().frame(height: 18)
             HStack(spacing: 2) {
@@ -179,7 +179,7 @@ struct TabStripView: View {
             }
             .padding(.horizontal, 8)
         }
-        .frame(height: 38)
+        .frame(height: 44)
         .background(Theme.headerBackground)
         .overlay(alignment: .top) {
             LinearGradient(colors: [Theme.insetHighlight.opacity(0.45), .clear],
@@ -221,9 +221,7 @@ struct StartPageChipView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "house")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(isSelected ? Theme.accent : Theme.secondary)
+            TechAppLogo(size: 17)
             Text(L("起始页"))
                 .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
                 .tracking(0.1)
@@ -231,7 +229,7 @@ struct StartPageChipView: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 9)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .background(chipBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -246,6 +244,7 @@ struct StartPageChipView: View {
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
+        .frame(minHeight: 32)
         .onTapGesture { app.showStartPage() }
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
@@ -303,7 +302,7 @@ struct TabChipView: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 7)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .background(chipBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -313,13 +312,14 @@ struct TabChipView: View {
         )
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
+                .fill(selectedUnderlineColor)
                 .frame(height: 1.5)
                 .padding(.horizontal, 7)
         }
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
+        .frame(minHeight: 32)
         .onTapGesture { app.selectTab(tab) }
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
@@ -348,12 +348,19 @@ struct TabChipView: View {
     }
 
     private var color: Color {
+        if let custom = tab.host.colorHex.flatMap({ Color(hex: $0) }) {
+            return custom
+        }
         switch tab.connectionState {
         case .connected: return Theme.success
         case .connecting: return Theme.warning
         case .failed, .disconnected: return Theme.danger
         case .idle: return Theme.secondary.opacity(0.5)
         }
+    }
+
+    private var selectedUnderlineColor: Color {
+        isSelected ? color.opacity(0.95) : Color.clear
     }
 }
 
@@ -371,7 +378,7 @@ struct BoardChipView: View {
         HStack(spacing: 6) {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(isSelected ? Theme.accent : Theme.secondary)
+                .foregroundColor(accentColor)
             Text(board.name)
                 .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
                 .tracking(0.1)
@@ -397,23 +404,24 @@ struct BoardChipView: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 7)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .background(chipBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(isDropTarget ? Theme.accent
-                                           : (isSelected ? Theme.accent.opacity(0.38) : Color.clear),
+                                           : (isSelected ? accentColor.opacity(0.7) : Color.clear),
                               lineWidth: isDropTarget ? 1.2 : 0.7)
         )
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
+                .fill(isSelected ? accentColor.opacity(0.95) : Color.clear)
                 .frame(height: 1.5)
                 .padding(.horizontal, 7)
         }
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
         .contentShape(Rectangle())
+        .frame(minHeight: 32)
         .onTapGesture { app.selectBoardTab(board.id) }
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
@@ -423,6 +431,7 @@ struct BoardChipView: View {
             app.handleTabDrop(providers: providers, ontoBoard: board.id)
         }
         .contextMenu {
+            Button(L("编辑工作区…")) { app.editingBoard = board }
             Button(L("连接全部窗格")) { app.openBoardTab(board.id) }
             Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
         }
@@ -430,8 +439,12 @@ struct BoardChipView: View {
 
     private var chipBackground: Color {
         if isDropTarget { return Theme.accent.opacity(0.12) }
-        if isSelected { return Theme.cardTop }
+        if isSelected { return accentColor.opacity(0.16) }
         return hovering ? Theme.secondary.opacity(0.09) : Color.clear
+    }
+
+    private var accentColor: Color {
+        Color(hex: board.colorHex) ?? Theme.secondary
     }
 }
 

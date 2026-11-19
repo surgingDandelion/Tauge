@@ -62,6 +62,30 @@ func runJumpChainChecks() async {
             let sftp = try await client.openSFTP()
             let cwd = try await sftp.realPath(".")
             expectEqual(cwd, "/", "sftp works through the tunnel")
+            let payload = makePayload(count: 96_000, seed: 23)
+            target.sftp.seedFile("/jump-transfer.bin", data: payload)
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("shellx-jump-transfer-" + UUID().uuidString,
+                                        isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let engine = TransferEngine(configuration: .init(maxConcurrent: 1,
+                                                             maxRetries: 0,
+                                                             downloadWindow: 8,
+                                                             uploadWindow: 8,
+                                                             chunkSize: 32768))
+            let destination = root.appendingPathComponent("jump-transfer.bin")
+            let item = TransferItem(hostID: UUID(),
+                                    direction: .download,
+                                    sourcePath: "/jump-transfer.bin",
+                                    destinationPath: destination.path)
+            let transferID = await engine.enqueue(item, remote: sftp)
+            let progress = await waitForTerminal(engine, id: transferID, seconds: 20)
+            let transferError = progress?.errorMessage ?? "none"
+            expectEqual(progress?.state, .completed,
+                        "transfer completes through the jump host (error: \(transferError))")
+            expectEqual(try Data(contentsOf: destination), payload,
+                        "transfer bytes survive the jump host")
             await sftp.shutdown()
             await client.shutdown()
         } catch {

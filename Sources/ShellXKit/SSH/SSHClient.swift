@@ -66,13 +66,22 @@ public struct SSHJumpEndpoint: Sendable {
     public var port: Int
     public var username: String
     public var auth: SSHAuthMaterial
+    /// Credential used when this hop is carried by the local system ssh
+    /// compatibility transport. The built-in NIO path uses `auth` instead.
+    public var systemCredential: SystemSSHCredential
     public var hostKeyValidator: HostKeyValidator
 
-    public init(host: String, port: Int, username: String, auth: SSHAuthMaterial, hostKeyValidator: @escaping HostKeyValidator) {
+    public init(host: String,
+                port: Int,
+                username: String,
+                auth: SSHAuthMaterial,
+                systemCredential: SystemSSHCredential = .none,
+                hostKeyValidator: @escaping HostKeyValidator) {
         self.host = host
         self.port = port
         self.username = username
         self.auth = auth
+        self.systemCredential = systemCredential
         self.hostKeyValidator = hostKeyValidator
     }
 }
@@ -598,7 +607,10 @@ public actor SSHClient {
             username: options.username,
             credential: options.systemCredential,
             jumps: options.jumps.map {
-                SystemSSHJump(host: $0.host, port: $0.port, username: $0.username)
+                SystemSSHJump(host: $0.host,
+                              port: $0.port,
+                              username: $0.username,
+                              credential: $0.systemCredential)
             },
             proxy: options.proxy,
             connectTimeoutSeconds: Int(max(Double(options.connectTimeout.nanoseconds) / 1_000_000_000, 5)),

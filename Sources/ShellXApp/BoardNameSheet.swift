@@ -73,3 +73,42 @@ struct BoardNameSheet: View {
         app.commitBoardNamePrompt()
     }
 }
+
+/// Edits metadata for an existing workspace without touching its panes.
+struct BoardEditorView: View {
+    @EnvironmentObject private var app: AppState
+    @ViewState private var board: BoardDefinition
+
+    init(board: BoardDefinition) {
+        _board = ViewState(wrappedValue: board)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "rectangle.split.3x3")
+                    .foregroundStyle(Color(hex: board.colorHex) ?? Theme.accent)
+                Text(L("编辑工作区"))
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button(L("取消")) { app.editingBoard = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button(L("保存")) {
+                    app.updateBoard(board)
+                    app.editingBoard = nil
+                }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            Divider()
+            Form {
+                TextField(L("工作区名称"), text: $board.name)
+                ColorChoicePicker(colorHex: $board.colorHex)
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 420, height: 220)
+        .background(Theme.windowBackground)
+    }
+}
