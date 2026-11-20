@@ -30,7 +30,7 @@ The script will:
 1. Refuse a dirty tree, a branch other than `main`, a `HEAD` that is not
    `origin/main`, an existing tag, or a version that does not increase.
 2. Run `scripts/check-localization.py` and `swift run --disable-sandbox
-   ShellXChecks` (skip with `--skip-checks`; CI still runs both).
+   TaugeChecks` (skip with `--skip-checks`; CI still runs both).
 3. Update `CFBundleShortVersionString` and increment `CFBundleVersion` in
    `Resources/Info.plist`.
 4. Add the `CHANGELOG.md` section when needed.

@@ -228,7 +228,7 @@ echo "  version:    $CURRENT_VERSION -> $TARGET_VERSION"
 echo "  build:      $CURRENT_BUILD -> $TARGET_BUILD"
 echo "  tag:        $TAG"
 echo "  changelog:  $([ "$HAS_CHANGELOG_SECTION" = 1 ] && echo "existing section" || echo "new section from notes")"
-echo "  checks:     $([ "$SKIP_CHECKS" = 1 ] && echo "skipped" || echo "localisation + ShellXChecks")"
+echo "  checks:     $([ "$SKIP_CHECKS" = 1 ] && echo "skipped" || echo "localisation + TaugeChecks")"
 echo "  wait:       $([ "$WAIT" = 1 ] && echo "yes, up to ${TIMEOUT_SECONDS}s" || echo "no")"
 echo
 
@@ -253,7 +253,7 @@ else
     note "checking localisation coverage"
     python3 scripts/check-localization.py
     note "running self-checks"
-    swift run --disable-sandbox ShellXChecks
+    swift run --disable-sandbox TaugeChecks
 fi
 
 if [ "$HAS_CHANGELOG_SECTION" = 0 ]; then

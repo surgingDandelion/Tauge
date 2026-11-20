@@ -15,7 +15,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "Sources"
-TABLE = ROOT / "Sources" / "ShellXKit" / "Localization" / "en.json"
+TABLE = ROOT / "Sources" / "TaugeKit" / "Localization" / "en.json"
 # The loader itself contains a doc-comment example, not a UI string.
 SKIP_FILES = {"TaugeL10n.swift"}
 ALLOWED_IDENTICAL = {

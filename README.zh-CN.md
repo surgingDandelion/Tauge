@@ -30,6 +30,9 @@ macOS 自带终端，但一直没有顺手的方式在终端旁边浏览远程�
 Tauge 会每天在后台检查 GitHub Release，展示更新说明、校验下载内容，并在退出后
 完成替换。也可以随时使用 **Tauge → 检查更新…**。
 
+主机、设置和加密凭据都保存在应用包之外。Tauge 更名后的首次启动会先把旧目录中的
+目录数据库和凭据库复制到当前 Tauge 目录，再打开它们。
+
 ## 功能
 
 ### 一个能一直待着的终端
@@ -39,6 +42,7 @@ Tauge 会每天在后台检查 GitHub Release，展示更新说明、校验下�
 - 六套配色，字体、字号、透明度可调，回滚缓冲 10,000 行。
 - 连接断开时保留屏幕内容，并自动重连。
 - 需要留档时可以开启会话日志。
+- 连接启动命令和显式一次性命令会先做风险分类。普通命令直接执行，涉及权限提升、删除、服务或文件变更的高危命令会在 Tauge 内弹窗确认。
 
 ### 终端旁边的文件
 
@@ -75,7 +79,7 @@ Tauge 会每天在后台检查 GitHub Release，展示更新说明、校验下�
 
 ### 默认留在本机
 
-- 密码和私钥口令使用 AES-256-GCM 加密，保存在 `~/Library/Application Support/ShellX`
+- 密码和私钥口令使用 AES-256-GCM 加密，保存在 `~/Library/Application Support/Tauge`
   下 Tauge 自己的凭据库中，不写入登录钥匙串，因此更新或重装不会触发钥匙串授权
   弹窗。可在设置中开启启动时的 Touch ID 解锁。
 - 首次连接校验主机密钥。密钥发生变化时会阻止连接，并同时显示新旧指纹。
@@ -94,6 +98,17 @@ swift build --disable-sandbox
 ./scripts/build-app.sh release
 open dist/Tauge.app
 ```
+
+命令行复用 Tauge 的主机目录、加密凭据库和 SSH 连接能力，执行结果直接返回。
+
+```bash
+swift run --disable-sandbox tauge machines list
+swift run --disable-sandbox tauge exec --machine prod-web -- uname -a
+swift run --disable-sandbox tauge exec --machine prod-web -- sudo systemctl restart nginx
+swift run --disable-sandbox tauge mcp
+```
+
+`tauge mcp` 使用本地 stdio MCP 传输，提供授权主机列表和远程命令执行，复用 Tauge 的凭据库与 SSH 连接能力。Gateway 只负责通道，不判断或拦截命令。
 
 只有在 `sandbox-exec` 受限的环境中才需要 `--disable-sandbox`。通用二进制、
 自检、代码结构和本地化说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
@@ -115,7 +130,7 @@ Tauge 没有账号、统计分析或崩溃上报。主机、密钥、设置和�
 更新检查只向 GitHub 的公开 Release API 询问最新版本，不发送主机、凭据或使用
 数据，可以在「设置 → 通用」中关闭。
 
-应用数据保存在 `~/Library/Application Support/ShellX`，凭据在同目录的加密凭据库中，
+应用数据保存在 `~/Library/Application Support/Tauge`，凭据在同目录的加密凭据库中，
 可选的会话日志位于 `~/Logs`。
 
 ## 文档

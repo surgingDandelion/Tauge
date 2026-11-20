@@ -47,7 +47,7 @@ jobs:
       - name: Run self-checks
         run: |
           set -o pipefail
-          if ! swift run --disable-sandbox ShellXChecks 2>&1 | tee selfcheck.log; then
+          if ! swift run --disable-sandbox TaugeChecks 2>&1 | tee selfcheck.log; then
             FAILS="$(grep -nE '(^FAIL|^Fatal|error:)' selfcheck.log | head -25 || true)"
             TAIL="$(tail -n 20 selfcheck.log)"
             echo "::error::Self-checks failed:%0A${FAILS//$'\n'/%0A}%0A${TAIL//$'\n'/%0A}"

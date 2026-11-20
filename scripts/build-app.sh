@@ -29,13 +29,13 @@ echo "==> building Tauge $VERSION ($CONFIG) for: $ARCHS"
 BIN_DIRS=()
 for ARCH in $ARCHS; do
   if [ "$(uname -m)" = "$ARCH" ] && [ "$ARCHS" = "$(uname -m)" ]; then
-    swift build -c "$CONFIG" "${SPM_FLAGS[@]}"
-    BIN_DIRS+=("$(swift build -c "$CONFIG" "${SPM_FLAGS[@]}" --show-bin-path)")
+    swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}"
+    BIN_DIRS+=("$(swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --show-bin-path)")
   else
     TRIPLE="$ARCH-apple-macosx13.0"
     SCRATCH=".build/$ARCH"
-    swift build -c "$CONFIG" "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH"
-    BIN_DIRS+=("$(swift build -c "$CONFIG" "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH" --show-bin-path)")
+    swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH"
+    BIN_DIRS+=("$(swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH" --show-bin-path)")
   fi
 done
 
@@ -44,9 +44,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 if [ "${#BIN_DIRS[@]}" -gt 1 ]; then
-  lipo -create "${BIN_DIRS[@]/%//ShellX}" -output "$APP/Contents/MacOS/Tauge"
+  lipo -create "${BIN_DIRS[@]/%//Tauge}" -output "$APP/Contents/MacOS/Tauge"
 else
-  cp "${BIN_DIRS[0]}/ShellX" "$APP/Contents/MacOS/Tauge"
+  cp "${BIN_DIRS[0]}/Tauge" "$APP/Contents/MacOS/Tauge"
 fi
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
@@ -56,9 +56,9 @@ fi
 if [ -f Resources/AppIcon.icns ]; then
   cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
-if [ -d Sources/ShellXApp/Assets ]; then
+if [ -d Sources/TaugeApp/Assets ]; then
   mkdir -p "$APP/Contents/Resources/Assets"
-  cp Sources/ShellXApp/Assets/*.png "$APP/Contents/Resources/Assets/"
+  cp Sources/TaugeApp/Assets/*.png "$APP/Contents/Resources/Assets/"
 fi
 
 # SwiftPM resource bundles (English localisation) must live in
@@ -75,9 +75,9 @@ done
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> codesign"
-SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${SHELLX_SIGN_IDENTITY:-Tauge Local Signing}}"
-SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${SHELLX_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}}"
-SIGN_PASS="${TAUGE_SIGN_PASSWORD:-${SHELLX_SIGN_PASSWORD:-tauge-local}}"
+SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${TAUGE_SIGN_IDENTITY:-Tauge Local Signing}}"
+SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${TAUGE_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}}"
+SIGN_PASS="${TAUGE_SIGN_PASSWORD:-${TAUGE_SIGN_PASSWORD:-tauge-local}}"
 
 IDENTITY_ARGS=()
 FIND_ARGS=(-v -p codesigning)
@@ -89,9 +89,9 @@ fi
 
 if [ "$SIGN_IDENTITY" = "-" ]; then
   echo "    (ad-hoc signature requested)"
-  codesign --force --deep --identifier com.shellx.app --sign - "$APP"
+  codesign --force --deep --identifier com.tauge.app --sign - "$APP"
 elif security find-identity "${FIND_ARGS[@]}" 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
-  SIGN_ARGS=(--force --deep --identifier com.shellx.app --sign "$SIGN_IDENTITY" "${IDENTITY_ARGS[@]}")
+  SIGN_ARGS=(--force --deep --identifier com.tauge.app --sign "$SIGN_IDENTITY" "${IDENTITY_ARGS[@]}")
   case "$SIGN_IDENTITY" in
     "Developer ID Application"*)
       SIGN_ARGS+=(--options runtime --timestamp)
@@ -105,7 +105,7 @@ else
   echo "    (identity '$SIGN_IDENTITY' unavailable; signing ad-hoc)"
   echo "    Run scripts/setup-signing.sh for a stable local signature,"
   echo "    or provide a Developer ID Application identity for distribution."
-  codesign --force --deep --identifier com.shellx.app --sign - "$APP"
+  codesign --force --deep --identifier com.tauge.app --sign - "$APP"
 fi
 codesign --verify --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
 

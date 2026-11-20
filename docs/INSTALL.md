@@ -150,11 +150,11 @@ own `vault.v1.enc`, not in a keychain item.
 2. Optionally remove application data:
 
 ```bash
-rm -rf "$HOME/Library/Application Support/ShellX"
+rm -rf "$HOME/Library/Application Support/Tauge"
 rm -rf "$HOME/Logs"
 # Older builds kept credentials in the login keychain; this removes the legacy item.
-security delete-generic-password -s com.shellx.credentials 2>/dev/null || true
+security delete-generic-password -s com.tauge.credentials 2>/dev/null || true
 ```
 
-The data directory keeps the historical `ShellX` name so that upgrades from
+The data directory keeps the historical `Tauge` name so that upgrades from
 the project's earlier internal name do not lose hosts or settings.

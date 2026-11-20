@@ -13,7 +13,7 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.shellx.app</string>
+	<string>com.tauge.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLocalizations</key>
@@ -51,7 +51,7 @@
 			<key>UTTypeDescription</key>
 			<string>Tauge Remote Path</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.shellx.remote-path</string>
+			<string>com.tauge.remote-path</string>
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>

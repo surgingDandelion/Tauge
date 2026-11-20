@@ -1,18 +1,19 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// ShellX — a local-first macOS SSH/SFTP client.
+// Tauge — a local-first macOS SSH/SFTP client.
 //
 // Built with SwiftPM only (Command Line Tools toolchain): XCTest/swift-testing
 // are not shipped by the CLT SDK, so the self-check suite is an executable
-// target run with "swift run ShellXChecks".
+// target run with "swift run TaugeChecks".
 let package = Package(
-    name: "ShellX",
+    name: "Tauge",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "ShellX", targets: ["ShellXApp"]),
-        .library(name: "ShellXKit", targets: ["ShellXKit"]),
-        .executable(name: "ShellXChecks", targets: ["ShellXChecks"]),
+        .executable(name: "Tauge", targets: ["TaugeApp"]),
+        .executable(name: "tauge", targets: ["TaugeCLI"]),
+        .library(name: "TaugeKit", targets: ["TaugeKit"]),
+        .executable(name: "TaugeChecks", targets: ["TaugeChecks"]),
     ],
     dependencies: [
         // Vendored fork: adds RFC 8332 RSA (rsa-sha2-256/rsa-sha2-512) user authentication,
@@ -25,7 +26,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "ShellXKit",
+            name: "TaugeKit",
             dependencies: [
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -37,25 +38,33 @@ let package = Package(
             resources: [.process("Localization")]
         ),
         .executableTarget(
-            name: "ShellXApp",
+            name: "TaugeApp",
             dependencies: [
-                "ShellXKit",
+                "TaugeKit",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
-            path: "Sources/ShellXApp",
+            path: "Sources/TaugeApp",
             resources: [.copy("Assets")]
         ),
         .executableTarget(
-            name: "ShellXChecks",
+            name: "TaugeCLI",
             dependencies: [
-                "ShellXKit",
+                "TaugeKit",
+                .product(name: "NIOPosix", package: "swift-nio"),
+            ],
+            path: "Sources/TaugeCLI"
+        ),
+        .executableTarget(
+            name: "TaugeChecks",
+            dependencies: [
+                "TaugeKit",
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
-            path: "Sources/ShellXChecks"
+            path: "Sources/TaugeChecks"
         ),
     ]
 )

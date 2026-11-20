@@ -34,6 +34,10 @@ Tauge keeps itself up to date from GitHub Releases. It checks once a day in the
 background, shows the release notes, verifies the download, and replaces the
 app after it quits. Use **Tauge → Check for Updates…** to check immediately.
 
+Hosts, settings and encrypted credentials live outside the app bundle. The
+first launch after the Tauge rename copies the previous catalog and vault into
+the current Tauge data directory before opening them.
+
 ## Features
 
 ### A terminal you can live in
@@ -46,6 +50,9 @@ app after it quits. Use **Tauge → Check for Updates…** to check immediately.
   scrollback.
 - A dropped connection keeps the output on screen and reconnects automatically.
 - Optional session logging when you need a record of what happened.
+- Startup and explicit one-shot commands are risk-classified. Ordinary commands
+  run directly, while privilege, deletion, service, and file changes require a
+  confirmation inside Tauge.
 
 ### Files next to the shell
 
@@ -91,7 +98,7 @@ app after it quits. Use **Tauge → Check for Updates…** to check immediately.
 ### Local by default
 
 - Passwords and key passphrases are sealed with AES-256-GCM in Tauge's own
-  vault under `~/Library/Application Support/ShellX`, not in the login Keychain, so
+  vault under `~/Library/Application Support/Tauge`, not in the login Keychain, so
   updates and reinstalls never trigger a Keychain prompt. An optional Touch ID
   check gates the app when it opens.
 - Host keys are checked on first connection. If a key changes, Tauge blocks the
@@ -111,6 +118,20 @@ swift build --disable-sandbox
 ./scripts/build-app.sh release
 open dist/Tauge.app
 ```
+
+Commands run through the same Tauge catalog, credential vault and SSH stack.
+
+```bash
+swift run --disable-sandbox tauge machines list
+swift run --disable-sandbox tauge exec --machine prod-web -- uname -a
+swift run --disable-sandbox tauge exec --machine prod-web -- sudo systemctl restart nginx
+swift run --disable-sandbox tauge mcp
+```
+
+`tauge mcp` speaks the local stdio MCP transport and exposes the authorized
+machine list and remote command execution through the same Tauge vault and SSH
+stack. The Gateway is a transport adapter and leaves command decisions to the
+caller.
 
 `--disable-sandbox` is only needed where `sandbox-exec` is restricted. For a
 universal build, the self-check suite, project layout, and localisation notes,
@@ -135,7 +156,7 @@ transfer history are stored on your Mac. The update check asks GitHub's public
 Releases API for the latest version and sends no host, credential, or usage
 data; you can turn it off in Settings → General.
 
-App data lives in `~/Library/Application Support/ShellX`, credentials in your
+App data lives in `~/Library/Application Support/Tauge`, credentials in your
 encrypted vault in that same folder, and optional session logs in `~/Logs`.
 
 ## Documentation

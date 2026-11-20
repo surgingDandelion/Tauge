@@ -20,7 +20,7 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/modulecache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/modulecache"
 
 swift build --disable-sandbox
-swift run --disable-sandbox ShellXChecks
+swift run --disable-sandbox TaugeChecks
 ```
 
 `--disable-sandbox` is only needed in environments where `sandbox-exec` is
@@ -45,7 +45,7 @@ certificate in a dedicated Keychain. Never commit signing material.
 1. Open an issue before starting significant work so the design can be
    discussed.
 2. Keep the change focused; unrelated refactors belong in a separate PR.
-3. Add or update checks in `Sources/ShellXChecks` for anything testable
+3. Add or update checks in `Sources/TaugeChecks` for anything testable
    without a live server. The suite is a plain executable because the Command
    Line Tools SDK does not ship XCTest.
 4. Run the self-check suite and `./scripts/build-app.sh release` before
@@ -55,7 +55,7 @@ certificate in a dedicated Keychain. Never commit signing material.
 ### Code style
 
 - Swift 5.9-compatible source, 4-space indentation, 100-column soft limit.
-- The UI layer uses `Sources/ShellXApp/ViewState.swift` instead of SwiftUI
+- The UI layer uses `Sources/TaugeApp/ViewState.swift` instead of SwiftUI
   macros because the Command Line Tools toolchain does not ship
   `libSwiftUIMacros.dylib`. Do not introduce `@State`, `@StateObject`,
   `@ObservedObject`, `@EnvironmentObject`, or `@Published` in new code; use the
@@ -73,7 +73,7 @@ Do not tag a release while CI is red.
 
 ### Localisation
 
-Every user-visible string in `Sources/ShellXApp` and `Sources/ShellXKit` must
+Every user-visible string in `Sources/TaugeApp` and `Sources/TaugeKit` must
 be wrapped with `L(...)`:
 
 ```swift
@@ -82,9 +82,9 @@ alert.messageText = L("删除「%@」？", host.name)
 ```
 
 Chinese source strings are the keys; English translations live in
-`Sources/ShellXKit/Localization/en.json`. When adding or changing a key:
+`Sources/TaugeKit/Localization/en.json`. When adding or changing a key:
 
-1. Wrap the string with `L` (and `import ShellXKit` in the app target if it is
+1. Wrap the string with `L` (and `import TaugeKit` in the app target if it is
    not already imported).
 2. Add the English value to `en.json`. Keep `%@`, `%d`, `%s`, and `%%`
    placeholders in the same order.

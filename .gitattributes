@@ -8,4 +8,4 @@
 *.dmg binary
 
 Vendor/** linguist-vendored
-Sources/ShellXChecks/** linguist-test
+Sources/TaugeChecks/** linguist-test

@@ -2,7 +2,7 @@
 import os
 from PIL import Image, ImageChops, ImageFilter, ImageDraw
 
-os.makedirs("Sources/ShellXApp/Assets", exist_ok=True)
+os.makedirs("Sources/TaugeApp/Assets", exist_ok=True)
 letters = Image.open(".build/letters.png").convert("L")
 t_only = letters.crop((0, 0, 840, letters.size[1]))
 t_only = t_only.crop(t_only.getbbox())
@@ -24,12 +24,12 @@ for name, size in (("MenuIcon", 18), ("MenuIcon@2x", 36), ("MenuIcon@3x", 54)):
     small = ink.resize((size, size), Image.LANCZOS)
     out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     out.putalpha(small)
-    out.save("Sources/ShellXApp/Assets/%s.png" % name)
+    out.save("Sources/TaugeApp/Assets/%s.png" % name)
     print(name, size)
 
 preview = Image.new("RGBA", (420, 120), (26, 28, 34, 255))
 for i, s in enumerate((18, 36, 54)):
-    icon = Image.open("Sources/ShellXApp/Assets/%s.png" % ("MenuIcon" if s == 18 else "MenuIcon@%dx" % (s // 18)))
+    icon = Image.open("Sources/TaugeApp/Assets/%s.png" % ("MenuIcon" if s == 18 else "MenuIcon@%dx" % (s // 18)))
     preview.alpha_composite(icon.convert("RGBA"), (20 + i * 70, 33))
 preview.resize((840, 240), Image.LANCZOS).save(".build/menu-final.png")
 print("ok")

@@ -27,8 +27,8 @@ ARCHS="${TAUGE_ARCHS:-arm64 x86_64}"
 DMG="$OUT/Tauge-$VERSION.dmg"
 ZIP="$OUT/Tauge-$VERSION.zip"
 
-SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${SHELLX_SIGN_IDENTITY:-}}"
-SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${SHELLX_SIGN_KEYCHAIN:-}}"
+SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${TAUGE_SIGN_IDENTITY:-}}"
+SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${TAUGE_SIGN_KEYCHAIN:-}}"
 DISTRIBUTION_SIGNING=0
 
 if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
@@ -49,7 +49,7 @@ elif [ -z "$SIGN_IDENTITY" ]; then
   # build invalidates the keychain grants the user made with "始终允许" and the
   # app asks for the login-keychain password again after every update. A fixed
   # certificate keeps the requirement — and therefore the grants — intact.
-  LOCAL_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${SHELLX_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}}"
+  LOCAL_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${TAUGE_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}}"
   LOCAL_IDENTITY="Tauge Local Signing"
   if [ -f "$LOCAL_KEYCHAIN" ] &&
      security find-identity -v -p codesigning "$LOCAL_KEYCHAIN" 2>/dev/null | grep -qF "$LOCAL_IDENTITY"; then

@@ -11,9 +11,9 @@
 <!-- How did you verify the change? Include commands and any manual steps. -->
 
 - [ ] `swift build --disable-sandbox` succeeds
-- [ ] `swift run --disable-sandbox ShellXChecks` passes
+- [ ] `swift run --disable-sandbox TaugeChecks` passes
 - [ ] `./scripts/build-app.sh release` launches
-- [ ] New or changed UI strings are wrapped in `L(...)` and added to `Sources/ShellXKit/Localization/en.json`
+- [ ] New or changed UI strings are wrapped in `L(...)` and added to `Sources/TaugeKit/Localization/en.json`
 
 ## Screenshots
 

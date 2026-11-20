@@ -1,6 +1,6 @@
-# PRD 覆盖情况（Tauge，原名 ShellX）
+# PRD 覆盖情况（Tauge，原名 Tauge）
 
-对照 `prd/shellx.md` 的验收清单与功能需求，记录当前实现状态。图例：
+对照 `prd/tauge.md` 的验收清单与功能需求，记录当前实现状态。图例：
 ✅ 已实现并有自检覆盖 · 🟡 部分实现 · ⛔ 受 SwiftNIO SSH 能力限制 / 未实现
 
 ## 验收清单（§2）
@@ -84,9 +84,9 @@ CJK 宽字符、鼠标上报、括号粘贴、OSC 8/52（SwiftTerm 内建）；`
 状态栏显示状态、路由（代理 + 跳板链）、编码与传输数。
 - ✅ 键盘焦点：SwiftTerm 的 `mouseDown` 不会 `makeFirstResponder`，焦点被 SwiftUI 界面拿走后再点终端也回不去，
   这是“终端有时无法输入命令”的根因。现在点击终端、切换标签/窗格、关闭查找栏或任何对话框、从别的 App 切回都会显式交还焦点
-  （`Sources/ShellXApp/TerminalBridge.swift` 的 `takeFocus()`、`Sources/ShellXApp/AppState.swift` 的 `focusTerminal`/
+  （`Sources/TaugeApp/TerminalBridge.swift` 的 `takeFocus()`、`Sources/TaugeApp/AppState.swift` 的 `focusTerminal`/
   `scheduleTerminalFocus` 与窗口 key monitor 的 `handOffKeyEventToTerminalIfNeeded`），未改 vendor 源码；
-  `SHELLX_FOCUS_SELFTEST=1` 的进程内自测会夺走焦点、派发合成按键，验证键盘回到 `ShellXTerminalView` 且命令能回显。
+  `TAUGE_FOCUS_SELFTEST=1` 的进程内自测会夺走焦点、派发合成按键，验证键盘回到 `TaugeTerminalView` 且命令能回显。
 - 🟡 GBK：编码设置已进模型并用于打开远端文本，但终端字节流仍按 UTF-8 渲染。
 - 🟡 iTerm 配色导入未做；RTT 与协商算法未显示（NIOSSH 未暴露协商结果）。
 
@@ -94,7 +94,7 @@ CJK 宽字符、鼠标上报、括号粘贴、OSC 8/52（SwiftTerm 内建）；`
 - ✅ SFTP 可独立成标签（TerminalTab.kind == .sftp；标签栏 +、主机右键、起始页卡片都能新建）：
   不需要终端就能同时挂多台服务器，本地 ↔ 远端、远端 ↔ 远端都在同一个页面里。
 - ✅ 远端 ↔ 远端“服务器到服务器”中转：把 A 面板的行拖到 B 面板，直接由进程内存转发
-  （Sources/ShellXApp/RelayTransfers.swift，读 A 的 SFTP 写 B 的 SFTP，不经本地磁盘），
+  （Sources/TaugeApp/RelayTransfers.swift，读 A 的 SFTP 写 B 的 SFTP，不经本地磁盘），
   中转也走同一套冲突策略、进度、暂停/取消；拖到本地面板则落盘下载。
 - ✅ 工具条不再错位：面板头部按宽度分级让位（名称 → 路径 → 按钮），窄面板只留图标，
   路径栏去掉内嵌刷新按钮（头部已有），隐藏文件/排序/历史收进 ⋯ 菜单。
@@ -132,13 +132,13 @@ CJK 宽字符、鼠标上报、括号粘贴、OSC 8/52（SwiftTerm 内建）；`
   不再只报 “End of file”：SSHClient 记录 openedChannelCount == 0 时的关闭，映射为
   SSHConnectionError(stage: .keyExchange)，并建议升级服务器或改用 ed25519/ECDSA 主机密钥。
 - ✅ 传输链路对真实 SFTP 服务器验证过（上传 256KB 后端字节一致、下载一致、递归目录保持树形），
-  见 `Sources/ShellXChecks/RealTransferCheck.swift`（`SHELLX_REAL_TRANSFER=1`，可经跳板）。
-- ✅ 拖拽落点改为 AppKit 容器（Sources/ShellXApp/DropArea.swift）：SwiftUI 的 `.onDrop` 依赖指针下的
-  SwiftUI 视图层级，对远端行发布的私有类型 `com.shellx.remote-path` 会静默失败（表现为“拖动没有触发传输”，
+  见 `Sources/TaugeChecks/RealTransferCheck.swift`（`TAUGE_REAL_TRANSFER=1`，可经跳板）。
+- ✅ 拖拽落点改为 AppKit 容器（Sources/TaugeApp/DropArea.swift）：SwiftUI 的 `.onDrop` 依赖指针下的
+  SwiftUI 视图层级，对远端行发布的私有类型 `com.tauge.remote-path` 会静默失败（表现为“拖动没有触发传输”，
   而右键下载正常）。现在整个 SFTP 区包在 `DropContainerView`（`registerForDraggedTypes` +
   `performDragOperation` 读 `NSPasteboard`）内：远端路径拖到本地栏即下载到本地当前目录，Finder 文件拖到
   SFTP 区即上传到主远端面板。行的修饰符顺序固定为 `onDrag` 在 `onTapGesture` 之前，否则 SwiftUI 会停在
-  tap 序列里不启动拖拽；`Resources/Info.plist` 声明了导出的 UTI `com.shellx.remote-path`。
+  tap 序列里不启动拖拽；`Resources/Info.plist` 声明了导出的 UTI `com.tauge.remote-path`。
 - 🟡 拖拽五条路径中四条已实现（Finder→远端、Finder→终端、远端→Finder、远端↔本地）；
   Finder→侧边栏主机尚未接（侧边栏仅支持主机拖到分组）；重命名走右键菜单，未绑定 F2。
 
@@ -147,7 +147,7 @@ CJK 宽字符、鼠标上报、括号粘贴、OSC 8/52（SwiftTerm 内建）；`
 失败定位到具体跳并提示 direct-tcpip 不支持。链路状态灯与逐跳耗时未做（状态栏显示跳板链文本）。
 首个 TCP 连接打在第一跳（此前误连目标机，目标不可路由时报“建立 TCP 连接失败 …(ChannelError 错误 0)”）；
 隧道子通道在下一跳 handler 就位前保持 `autoRead = false`，避免对端先发的 KEXINIT 被空管线丢弃。
-错误归属形如“第 1 跳 user@host:22：连接被拒绝”，底层错误文案由 `Sources/ShellXKit/SSH/TransportFailure.swift`
+错误归属形如“第 1 跳 user@host:22：连接被拒绝”，底层错误文案由 `Sources/TaugeKit/SSH/TransportFailure.swift`
 统一翻译（DNS 失败 / 连接被拒 / 连接超时 / 主机或网络不可达）。
 保活只在真正的 TCP socket 上设置（`startKeepalive` 沿父链找 `SocketOptionProvider`）：跳板连接的根通道是
 SSH 子通道，NIOSSH 的 `SSHChildChannel` 对 socket 选项直接 `fatalError`，此前会以 SIGTRAP 闪退。
@@ -172,35 +172,35 @@ HTTPS 代理（P2）与 PAC、连通性测试分阶段耗时未做。
 - 冷启动、按键回显、SFTP 吞吐、内存占用未做基准（`scripts` 中无 bench）；架构上无阻塞主线程的磁盘/网络操作。
 - 算法：NIOSSH 默认仅现代算法（无 ssh-rsa / SHA-1 / CBC / 3DES）；依赖均为 MIT/Apache-2.0，无 GPL。
 - 窗口生命周期（m09297）：关闭主窗口即退出进程，菜单栏图标与 Dock 状态一起消失，不留无窗口的后台进程；
-  再次打开或点 Dock 会唤醒窗口；单实例运行（重复启动激活已有窗口，`SHELLX_SINGLE_INSTANCE=0` 仅测试旁路）。
+  再次打开或点 Dock 会唤醒窗口；单实例运行（重复启动激活已有窗口，`TAUGE_SINGLE_INSTANCE=0` 仅测试旁路）。
   原因是 SwiftUI 保留一个不可见宿主窗口，`applicationShouldTerminateAfterLastWindowClosed` 永远不触发，
   改为监听 `NSWindow.willCloseNotification`，在 `observeWindowClosing()` 里检查是否还有可见的 `canBecomeMain` 窗口。
 
 ## 自检覆盖（默认 360 项；另加 3 项真实跳板检查、7 项真实传输检查、21 项 Termius 导入检查）
 
-- 键盘焦点（进程内自测，不在 CLI 自检里）：`SHELLX_FOCUS_SELFTEST=1` 把 first responder 设为窗口本身（模拟点标签栏/
-  关闭对话框后的状态），派发合成 keyDown，断言键盘被改派回 `ShellXTerminalView`，并通过终端写入命令、在缓冲区里找到回显。
+- 键盘焦点（进程内自测，不在 CLI 自检里）：`TAUGE_FOCUS_SELFTEST=1` 把 first responder 设为窗口本身（模拟点标签栏/
+  关闭对话框后的状态），派发合成 keyDown，断言键盘被改派回 `TaugeTerminalView`，并通过终端写入命令、在缓冲区里找到回显。
 - SFTP v3 编解码往返、分片等待、状态解析、截断报错。
 - 工作区快照兼容性：旧版 JSON（无 `additionalHostIDs`）仍可解码，新快照 round-trip 保留额外面板。
 - 看板分屏树：宫格推导（0/1/2/4/5 个窗格）、切分（含 newFirst 方位）、关闭塌陷、交换（四边重挂与自移 no-op）、
   分割条比例吸附、剪枝、分割条拖动在窗口坐标下的位移换算，
   以及 `BoardDefinition` 的 JSON 与 SQLite round-trip、窗格 SFTP 标记、无该标记的旧看板 JSON 仍可解码
-  （`Sources/ShellXChecks/BoardTreeChecks.swift`）。
+  （`Sources/TaugeChecks/BoardTreeChecks.swift`）。
 - SFTP 目录历史：按主机隔离、重复路径不产生重复行并提升为最新、最新优先排序、每主机上限 50 条且淘汰最旧、
-  清空与随主机删除清理（`Sources/ShellXChecks/BoardChecks.swift`）。
+  清空与随主机删除清理（`Sources/TaugeChecks/BoardChecks.swift`）。
 - 导航设置：`navigationMode` 与 `lastLocalDirectory` 存读一致；缺少这两个键的旧设置 JSON 仍能解码并回落到默认值。
 - ssh_config 解析、`Host *` 默认值、OpenSSH 首个取值优先。
 - 分组继承、代理来源、跳板链顺序与环路拒绝。
 - 跳板链端到端：mock 服务端实现 direct-tcpip 隧道，单跳/双跳各跑通一次嵌套 SSH 会话（SFTP realPath）；
   “哪一跳拒绝登录”“TCP 连接被拒”“主机名解析失败”三类错误的目的地与跳次归属
-  （`Sources/ShellXChecks/JumpChainChecks.swift`）；这些用例都显式开启 keepalive，回归“设 socket 选项导致闪退”。
-- 可选真实环境检查（默认跳过）：`SHELLX_LIVE_SSH=1` 连真实 sshd；`SHELLX_REAL_JUMP=1` 走真实跳板机
-  （`Sources/ShellXChecks/RealJumpCheck.swift`），已对真实 bastion + RSA 私钥跑通 SFTP 与 shell；
-  `SHELLX_REAL_TRANSFER=1` 用同一套跳板配置跑 `TransferEngine` + 真实 SFTP
-  （`Sources/ShellXChecks/RealTransferCheck.swift`）：256KB 上传后远端字节比对、下载回本地比对、递归上传保持目录树。
+  （`Sources/TaugeChecks/JumpChainChecks.swift`）；这些用例都显式开启 keepalive，回归“设 socket 选项导致闪退”。
+- 可选真实环境检查（默认跳过）：`TAUGE_LIVE_SSH=1` 连真实 sshd；`TAUGE_REAL_JUMP=1` 走真实跳板机
+  （`Sources/TaugeChecks/RealJumpCheck.swift`），已对真实 bastion + RSA 私钥跑通 SFTP 与 shell；
+  `TAUGE_REAL_TRANSFER=1` 用同一套跳板配置跑 `TransferEngine` + 真实 SFTP
+  （`Sources/TaugeChecks/RealTransferCheck.swift`）：256KB 上传后远端字节比对、下载回本地比对、递归上传保持目录树。
 - POSIX 路径、权限/大小格式化、SHA256 指纹、本地文件服务生命周期。
 - Termius 导入：XSalsa20-Poly1305 与 libsodium 生成的 7 组向量（0/1/31/32/200/1024 字节与固定向量）双向一致，
-  篡改 tag、过短密文、错误 key 都返回对应错误；`SHELLX_TERMIUS=1` 再用真实库校验解密条数、
+  篡改 tag、过短密文、错误 key 都返回对应错误；`TAUGE_TERMIUS=1` 再用真实库校验解密条数、
   主机/身份/私钥/known_hosts 非空、endpoint 唯一、临时库里的导入结果（分组、数量、私钥文件 0600、
   known_hosts 的 `SHA256:` 指纹、二次导入不重复）。
 - 传输引擎：上传/下载/断点续传/递归树形/冲突跳过/进度流（内存 mock SFTP）。
@@ -208,9 +208,9 @@ HTTPS 代理（P2）与 PAC、连通性测试分阶段耗时未做。
   `VACUUM INTO` 迁移保留数据。
 - RSA 私钥解析：OpenSSH / PKCS#1 / PKCS#8，2048 与 4096 位，公钥串与指纹对照 `ssh-keygen`。
 - **端到端**：进程内 NIOSSH 服务端 + 真实客户端完成握手、公钥认证、PTY+shell 通道往返、
-  SFTP 子系统读写（`Sources/ShellXChecks/MockSSHServer.swift`）；RSA 的 `rsa-sha2-256` /
-  `rsa-sha2-512` 认证矩阵（`Sources/ShellXChecks/RSAKeyChecks.swift`，可用
-  `SHELLX_RSA_REPEAT=N` 重复压测）。
+  SFTP 子系统读写（`Sources/TaugeChecks/MockSSHServer.swift`）；RSA 的 `rsa-sha2-256` /
+  `rsa-sha2-512` 认证矩阵（`Sources/TaugeChecks/RSAKeyChecks.swift`，可用
+  `TAUGE_RSA_REPEAT=N` 重复压测）。
 
 > 说明：本机没有可用的 `~/.ssh/authorized_keys`，且此沙盒下 `sshd` 无法初始化自身沙盒，
 > 因此端到端验证使用进程内 NIOSSH 服务端：它按标准 SSHRSA 流程解析 USERAUTH 报文，
@@ -222,18 +222,18 @@ HTTPS 代理（P2）与 PAC、连通性测试分阶段耗时未做。
 - Termius 9.x 的本地库是加密的 IndexedDB（Electron）：每个值是
   base64(`version=4 | options | nonce(24) | secretbox(tag||ciphertext)`)，密钥由 Termius 写进登录钥匙串
   （`service=Termius, account=localKey`，32 字节的 base64）。
-- Tauge 侧不引入第三方依赖：`Sources/ShellXKit/Import/Salsa20Poly1305.swift` 是纯 Swift 的
+- Tauge 侧不引入第三方依赖：`Sources/TaugeKit/Import/Salsa20Poly1305.swift` 是纯 Swift 的
   XSalsa20-Poly1305（用 libsodium 生成的测试向量逐长度校验，并覆盖篡改 tag、短密文、错误 key）；
   `TermiusVault.swift` 扫描 `~/Library/Application Support/Termius/IndexedDB` 与容器副本两处，
   按 `B A` 前缀抽取 base64 片段、解密、解析 JSON，自动选择解密记录最多的目录（容器里常是旧副本）；
   `TermiusImporter.swift` 把结果映射成分组 / 主机 / 私钥 / known_hosts。
 - 映射：`address` → hostname，连接历史补 port / username / tags / startup_command / charset，
   身份（identity.label 与主机 label 同名）提供 username 与 password；私钥实体写到
-  `~/Library/Application Support/ShellX/Keys/<sanitized>.pem`（0600），公钥串与指纹由 ShellXKit
+  `~/Library/Application Support/Tauge/Keys/<sanitized>.pem`（0600），公钥串与指纹由 TaugeKit
   自己从私钥算（不采信 Termius 的 public_key 字段），私钥口令与主机密码存 Keychain；
   known_hosts 的 hostnames 展开成 `host:port` 记录，指纹为 SHA256。
 - 去重：同一 `host:port/username` 只保留一台（先已保存主机、后连接历史），重复执行导入不会产生副本。
-- UI：`Sources/ShellXApp/TermiusImportView.swift` 单页预览（各类条数、主机勾选、是否包含连接历史、
+- UI：`Sources/TaugeApp/TermiusImportView.swift` 单页预览（各类条数、主机勾选、是否包含连接历史、
   目标分组名、三个导入开关）；钥匙串授权失败时提示
   `security find-generic-password -s Termius -a localKey -w` 并支持手动粘贴密钥。
 - 读取体验：解密与钥匙串读取在 `Task.detached` 里做（`SecItemCopyMatching` 会卡主线程），
@@ -241,9 +241,9 @@ HTTPS 代理（P2）与 PAC、连通性测试分阶段耗时未做。
   以免只看到一个永久转圈。
 - 安全细节：`导入` 不是默认按钮（不绑 `.defaultAction`），避免面板打开时误按回车把几十台主机
   一次性写进库；导入是显式点击才会发生的操作。
-- 端到端自检（默认跳过）：`SHELLX_TERMIUS=1` 读取真实库并在临时库里完整导入一遍，
+- 端到端自检（默认跳过）：`TAUGE_TERMIUS=1` 读取真实库并在临时库里完整导入一遍，
   断言分组创建、主机/私钥/known_hosts 数量一致、私钥文件 0600、known_hosts 指纹以 `SHA256:` 开头、
-  二次导入 `importedHosts == 0`；`SHELLX_TERMIUS_KEY` 可绕过钥匙串授权。
+  二次导入 `importedHosts == 0`；`TAUGE_TERMIUS_KEY` 可绕过钥匙串授权。
 - 局限：Termius 不把分组层级写进本地库（只有分组名对象），因此导入为单一分组；
   `key_id` 在库里没有映射表，私钥只能按 label 关联；只处理 `ssh` 类型连接，
   端口转发与代码片段只统计标签。
@@ -252,12 +252,12 @@ HTTPS 代理（P2）与 PAC、连通性测试分阶段耗时未做。
 
 - 应用名改为 **Tauge**：`Resources/Info.plist` 的 `CFBundleName`/`CFBundleDisplayName`/
   `CFBundleExecutable` 为 Tauge，打包产物 `dist/Tauge.app`，二进制 `Contents/MacOS/Tauge`。
-- 保留 `CFBundleIdentifier=com.shellx.app`、Keychain service `com.shellx.credentials`、
-  数据目录 `~/Library/Application Support/ShellX`、`Sources/ShellXApp`/`Sources/ShellXKit`
-  模块名与 `com.shellx.remote-path` 拖拽类型，避免已有主机、密码与工作区丢失。
+- 保留 `CFBundleIdentifier=com.tauge.app`、Keychain service `com.tauge.credentials`、
+  数据目录 `~/Library/Application Support/Tauge`、`Sources/TaugeApp`/`Sources/TaugeKit`
+  模块名与 `com.tauge.remote-path` 拖拽类型，避免已有主机、密码与工作区丢失。
 - 应用图标 `Resources/AppIcon.icns`（由根目录 `tauge.png` 抠出圆角方块生成），
-  菜单栏用 18pt 黑白 template 图标 `Sources/ShellXApp/Assets/MenuIcon*.png`（`.copy("Assets")`
+  菜单栏用 18pt 黑白 template 图标 `Sources/TaugeApp/Assets/MenuIcon*.png`（`.copy("Assets")`
   资源，`Bundle.main` / `Bundle.module` 都能取到），点击后的菜单可打开窗口、新建 SFTP/终端标签、
   快速打开、传输中心与退出。
-- 终端主题名 `ShellX Dark/Light` → `Tauge Dark/Light`，`AppSettings` 解码时迁移旧值，
+- 终端主题名 `Tauge Dark/Light` → `Tauge Dark/Light`，`AppSettings` 解码时迁移旧值，
   老配置不会掉回默认主题。

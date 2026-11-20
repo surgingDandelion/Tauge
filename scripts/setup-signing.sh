@@ -11,9 +11,9 @@
 # it only signs this app on this machine.
 set -euo pipefail
 
-IDENTITY="${SHELLX_SIGN_IDENTITY:-Tauge Local Signing}"
-KEYCHAIN="${SHELLX_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}"
-PASS="${SHELLX_SIGN_PASSWORD:-tauge-local}"
+IDENTITY="${TAUGE_SIGN_IDENTITY:-Tauge Local Signing}"
+KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-$HOME/Library/Keychains/tauge-signing.keychain-db}"
+PASS="${TAUGE_SIGN_PASSWORD:-tauge-local}"
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if ! security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -qF "$IDENTITY"; then
