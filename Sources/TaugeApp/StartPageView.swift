@@ -285,7 +285,7 @@ struct StartPageView: View {
                             }
                             Divider()
                             Button(L("新建子分组")) { app.beginNewGroup(parentID: row.group.id) }
-                            Button(L("重命名分组")) {
+                            Button(L("编辑分组…")) {
                                 app.editingGroup = app.group(id: row.group.id) ?? row.group
                             }
                             Button(L("删除分组"), role: .destructive) {
@@ -472,6 +472,7 @@ struct StartPageView: View {
                         host.groupID = id
                         app.editingHost = host
                     }
+                    areaButton(L("分组设置")) { app.editingGroup = app.group(id: id) }
                     areaButton(L("新建子分组")) { app.beginNewGroup(parentID: id) }
                 }
             }

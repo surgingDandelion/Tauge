@@ -176,6 +176,61 @@ run("resolver inherits closest group value") {
     expectEqual(resolved.proxySourceDescription, "Host", "proxy source")
 }
 
+run("resolver inherits group jump policy") {
+    let bastion = SSHHost(name: "bastion", hostname: "bastion")
+    let root = HostGroup(name: "Root", defaults: GroupDefaults(jumpPolicy: .hosts([bastion.id])))
+    let child = HostGroup(parentID: root.id, name: "Child")
+    let target = SSHHost(groupID: child.id, name: "target", hostname: "10.0.0.9")
+    let resolver = ConfigResolver(catalog: Catalog(groups: [root, child],
+                                                   hosts: [bastion, target]))
+    let inherited = resolver.jumpPolicy(for: target)
+    expectEqual(inherited?.source, "Group “Root”", "jump source is the nearest group with a value")
+    expectEqual(inherited?.policy, JumpPolicy.hosts([bastion.id]), "group jump policy inherited")
+    let resolved = try resolver.effective(for: target)
+    expectEqual(resolved.jumps.map(\.host.hostname), ["bastion"], "group jump enters the chain")
+}
+
+run("resolver closest group jump policy wins") {
+    let rootJump = SSHHost(name: "root-jump", hostname: "root-jump")
+    let childJump = SSHHost(name: "child-jump", hostname: "child-jump")
+    let root = HostGroup(name: "Root", defaults: GroupDefaults(jumpPolicy: .hosts([rootJump.id])))
+    let child = HostGroup(
+        parentID: root.id,
+        name: "Child",
+        defaults: GroupDefaults(jumpPolicy: .hosts([childJump.id])))
+    let target = SSHHost(groupID: child.id, name: "target", hostname: "target")
+    let resolver = ConfigResolver(
+        catalog: Catalog(groups: [root, child], hosts: [rootJump, childJump, target]))
+    let inherited = resolver.jumpPolicy(for: target)
+    expectEqual(inherited?.source, "Group “Child”", "closest group wins")
+    expectEqual(inherited?.policy, JumpPolicy.hosts([childJump.id]), "child jump policy")
+    let resolved = try resolver.effective(for: target)
+    expectEqual(resolved.jumps.map(\.host.hostname), ["child-jump"], "only the child jump is used")
+}
+
+run("resolver host jump policy overrides group") {
+    let groupJump = SSHHost(name: "group-jump", hostname: "group-jump")
+    let hostJump = SSHHost(name: "host-jump", hostname: "host-jump")
+    let group = HostGroup(name: "Root", defaults: GroupDefaults(jumpPolicy: .hosts([groupJump.id])))
+    let direct = SSHHost(groupID: group.id, name: "direct", hostname: "direct",
+                         jumpPolicy: .direct)
+    let explicit = SSHHost(groupID: group.id, name: "explicit", hostname: "explicit",
+                           jumpPolicy: .hosts([hostJump.id]))
+    let resolver = ConfigResolver(catalog: Catalog(
+        groups: [group], hosts: [groupJump, hostJump, direct, explicit]))
+
+    let directPolicy = resolver.jumpPolicy(for: direct)
+    expectEqual(directPolicy?.source, "Host", "host direct override source")
+    expectEqual(directPolicy?.policy, JumpPolicy.direct, "host direct wins")
+    let directResolved = try resolver.effective(for: direct)
+    expect(directResolved.jumps.isEmpty, "direct host has no jump")
+
+    let explicitPolicy = resolver.jumpPolicy(for: explicit)
+    expectEqual(explicitPolicy?.source, "Host", "host explicit chain source")
+    let explicitResolved = try resolver.effective(for: explicit)
+    expectEqual(explicitResolved.jumps.map(\.host.hostname), ["host-jump"], "host chain wins")
+}
+
 run("resolver builds ordered jump chain") {
     let bastion = SSHHost(name: "bastion", hostname: "bastion")
     let inner = SSHHost(name: "inner", hostname: "inner", jumpPolicy: .hosts([bastion.id]))

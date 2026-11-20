@@ -250,7 +250,7 @@ struct GroupNodeView: View {
             }
             Button(L("连接分组内全部主机")) { app.openTabs(for: allHosts) }
             Button(L("新建子分组")) { app.beginNewGroup(parentID: node.group.id) }
-            Button(L("重命名分组")) { app.editingGroup = node.group }
+            Button(L("编辑分组…")) { app.editingGroup = node.group }
             Button(L("删除分组"), role: .destructive) {
                 let confirmed = Prompt.confirm(title: L("删除分组“") + node.group.name + "”？",
                                                message: L("分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。"),

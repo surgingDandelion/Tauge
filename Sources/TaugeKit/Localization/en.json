@@ -919,5 +919,17 @@
   "启用 Tauge MCP 通道": "Enable the Tauge MCP channel",
   "开启后，Tauge 提供本地 MCP 命令通道，复用当前主机目录、凭据库和 SSH 连接能力。": "When enabled, Tauge provides a local MCP command channel using the current host catalog, credential vault, and SSH connections.",
   "复制命令": "Copy command",
-  "连接方式为本地 stdio，不监听 TCP 端口，也不需要地址和端口。": "The connection uses local stdio. It does not listen on a TCP port and needs no address or port."
+  "连接方式为本地 stdio，不监听 TCP 端口，也不需要地址和端口。": "The connection uses local stdio. It does not listen on a TCP port and needs no address or port.",
+  "上级分组未设置跳板机，等同直连": "The parent group has no jump host; connects directly.",
+  "分组设置": "Group Settings",
+  "已失效的跳板机": "Missing jump host",
+  "当前继承自「%@」：%@": "Inheriting from “%@”: %@",
+  "当前继承自「%@」：直连": "Inheriting from “%@”: direct",
+  "未分组，等同直连": "Ungrouped, connects directly",
+  "组内主机的跳板机设为「继承分组设置」时使用这里的选择；越近的分组优先，主机自己的设置优先。": "Hosts in this group use this selection when their jump setting is “Inherit from Group”; the nearest group wins, and a host's own setting overrides it.",
+  "继承上级分组": "Inherit from Parent Group",
+  "继承自「%@」：%@": "Inherited from “%@”: %@",
+  "继承自「%@」：直连": "Inherited from “%@”: direct",
+  "编辑分组…": "Edit Group…",
+  "请选择至少一台跳板机，或选择直连": "Choose at least one jump host, or select direct."
 }

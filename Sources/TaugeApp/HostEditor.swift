@@ -14,8 +14,20 @@ struct HostEditorView: View {
     @ViewState private var passphrase = ""
     @ViewState private var validationMessage: String?
     @ViewState private var jumpQuery = ""
-    @ViewState private var draftProxy: ProxyConfig?
+    @ViewState private var editorSheet: HostEditorSheet?
     @ViewState private var showsAdvanced = false
+
+    private enum HostEditorSheet: Identifiable {
+        case proxy(ProxyConfig)
+        case group(HostGroup)
+
+        var id: String {
+            switch self {
+            case .proxy(let proxy): return "proxy-" + proxy.id.uuidString
+            case .group(let group): return "group-" + group.id.uuidString
+            }
+        }
+    }
 
     init(host: SSHHost) {
         _host = ViewState(wrappedValue: host)
@@ -56,20 +68,36 @@ struct HostEditorView: View {
         // window shows through and thin secondary labels lose their contrast.
         .background(Theme.windowBackground)
         .frame(width: 620, height: 620)
-        .sheet(item: $draftProxy) { draft in
-            ProxyEditorView(
-                proxy: draft,
-                onSave: { proxy, secret in
-                    if !secret.isEmpty {
-                        try? app.environment.secrets.setSecret(secret, for: .proxyPassword(proxy.id))
-                    }
-                    app.saveProxy(proxy)
-                    host.proxyPolicy = .use(proxy.id)
-                    draftProxy = nil
-                },
-                onCancel: { draftProxy = nil }
-            )
-            .environmentObject(app)
+        .sheet(item: $editorSheet) { sheet in
+            switch sheet {
+            case .proxy(let draft):
+                ProxyEditorView(
+                    proxy: draft,
+                    onSave: { proxy, secret in
+                        if !secret.isEmpty {
+                            try? app.environment.secrets.setSecret(
+                                secret,
+                                for: .proxyPassword(proxy.id)
+                            )
+                        }
+                        app.saveProxy(proxy)
+                        host.proxyPolicy = .use(proxy.id)
+                        editorSheet = nil
+                    },
+                    onCancel: { editorSheet = nil }
+                )
+                .environmentObject(app)
+            case .group(let group):
+                GroupEditorView(
+                    group: group,
+                    onSave: { saved in
+                        app.saveGroup(saved)
+                        editorSheet = nil
+                    },
+                    onCancel: { editorSheet = nil }
+                )
+                .environmentObject(app)
+            }
         }
     }
 
@@ -98,13 +126,18 @@ struct HostEditorView: View {
                     .textFieldStyle(.roundedBorder)
             }
             labeled(L("分组")) {
-                Picker("", selection: $host.groupID) {
-                    Text(L("未分组")).tag(UUID?.none)
-                    ForEach(app.groups) { group in
-                        Text(app.groupPath(for: group.id)).tag(Optional(group.id))
+                HStack(spacing: 6) {
+                    Picker("", selection: $host.groupID) {
+                        Text(L("未分组")).tag(UUID?.none)
+                        ForEach(app.groups) { group in
+                            Text(app.groupPath(for: group.id)).tag(Optional(group.id))
+                        }
                     }
+                    .labelsHidden()
+                    Button(L("编辑分组…")) { editSelectedGroup() }
+                        .font(.system(size: 11))
+                        .disabled(host.groupID == nil)
                 }
-                .labelsHidden()
             }
             ColorChoicePicker(colorHex: $host.colorHex)
         }
@@ -220,6 +253,13 @@ struct HostEditorView: View {
                     Text(L("指定跳板机")).tag("custom")
                 }
                 .labelsHidden()
+            }
+            if host.jumpPolicy.isInherit {
+                Text(inheritedJumpDescription)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 72)
             }
             if case .hosts(let ids) = host.jumpPolicy {
                 VStack(alignment: .leading, spacing: 8) {
@@ -525,12 +565,43 @@ struct HostEditorView: View {
                 set: { host[keyPath: path] = $0.isEmpty ? nil : $0 })
     }
 
+    // MARK: - Group defaults
+
+    private func editSelectedGroup() {
+        guard let id = host.groupID, let group = app.group(id: id) else { return }
+        editorSheet = .group(group)
+    }
+
+    private var inheritedJumpDescription: String {
+        guard let groupID = host.groupID else { return L("未分组，等同直连") }
+        var visited: Set<UUID> = []
+        var currentID: UUID? = groupID
+        while let id = currentID, let group = app.group(id: id), visited.insert(id).inserted {
+            switch group.defaults.jumpPolicy {
+            case .direct:
+                return L("继承自「%@」：直连", group.name)
+            case .hosts(let ids) where !ids.isEmpty:
+                return L("继承自「%@」：%@", group.name, jumpNames(ids))
+            case .hosts:
+                return L("继承自「%@」：直连", group.name)
+            case .inherit:
+                currentID = group.parentID
+            }
+        }
+        return L("上级分组未设置跳板机，等同直连")
+    }
+
+    private func jumpNames(_ ids: [UUID]) -> String {
+        ids.map { app.host(id: $0)?.name ?? L("已失效的跳板机") }
+            .joined(separator: " → ")
+    }
+
     // MARK: - Actions
 
     private func beginNewProxy(_ type: ProxyType) {
         var proxy = ProxyConfig(name: type.displayName, type: type)
         proxy.port = type.defaultPort
-        draftProxy = proxy
+        editorSheet = .proxy(proxy)
     }
 
     private func toggleJump(_ id: UUID, on: Bool) {
