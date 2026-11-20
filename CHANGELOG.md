@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.
   The highlight also snaps back onto a real row when typing shrinks the list.
 
+## [1.2.5] — 2026-11-20
+
+### Added
+
+- Group settings can now carry default jump hosts: pick up to three jump hosts on a group, and machines whose jump setting is "Inherit from Group" use the nearest group's choice. A machine's own setting still wins, and proxy and jump hosts stay mutually exclusive.
+- The group editor is now a full "Group Settings" sheet reachable from the sidebar and host editor, with inline parent-group editing and cycle protection.
+
+### Fixed
+
+- Universal release packaging no longer fails on the CLI lipo step: the TaugeCLI binary paths are now resolved with the correct component-append pattern, so `lipo` receives the real arm64 and x86_64 binaries instead of their containing directories. This is what blocked the v1.2.4 release.
+
 ## [1.2.4] — 2026-11-20
 
 ### Added
