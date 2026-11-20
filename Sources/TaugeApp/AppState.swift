@@ -939,19 +939,9 @@ final class AppState: ObservableObject {
     // MARK: - Tabs
 
     func openTab(for host: SSHHost, showsSFTP: Bool = false) {
-        // Only a shell tab can satisfy "reuse connection": an SFTP tab for the
-        // same host has no terminal channel to hand over.
-        if host.reuseConnection,
-           let existing = tabs.first(where: {
-               $0.kind == .terminal && $0.hostID == host.id && $0.connectionState.isConnected
-           }) {
-            selectedTabID = existing.id
-            selectedBoardID = nil
-            persistSelectedBoard()
-            persistWorkspace()
-            scheduleTerminalFocus()
-            return
-        }
+        // Each invocation creates a separate tab, even when another tab already
+        // connects to this host. This lets users keep independent shells,
+        // working directories, and Claude Code sessions side by side.
         let tab = TerminalTab(host: host,
                               localFiles: environment.localFiles,
                               startRemoteDirectory: lastSFTPPath(for: host.id) ?? host.startDirectory,

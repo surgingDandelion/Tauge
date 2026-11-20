@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ViewState private var newKnownHostWarning: String?
     @ViewState private var editingProxyDraft: ProxyConfig?
     @ViewState private var expandedTestProxyID: UUID?
+    @ViewState private var cliInstallMessage: String?
 
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general, appearance, terminal, transfer, proxies, security, shortcuts, advanced, about
@@ -132,6 +133,29 @@ struct SettingsView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Text("tauge mcp")
+                            .font(.system(size: 10, design: .monospaced))
+                            .textSelection(.enabled)
+                        Button(action: copyMCPCommand) {
+                            Label(L("复制命令"), systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Text(L("连接方式为本地 stdio，不监听 TCP 端口，也不需要地址和端口。"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(L("安装 tauge 命令"), action: installCLI)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    if let cliInstallMessage {
+                        Text(cliInstallMessage)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             row(L("隐私")) {
@@ -579,6 +603,20 @@ struct SettingsView: View {
             return L("此 Mac 没有可用的 Touch ID，连接时会直接读取凭据库。")
         }
         return L("每次启动后第一次连接会要求 Touch ID（也可用登录密码）；解锁一次后本次运行不再询问。")
+    }
+
+    private func copyMCPCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("tauge mcp", forType: .string)
+    }
+
+    private func installCLI() {
+        do {
+            let path = try TaugeCLIInstaller.install()
+            cliInstallMessage = L("已安装到 %@", path.path)
+        } catch {
+            cliInstallMessage = error.localizedDescription
+        }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {

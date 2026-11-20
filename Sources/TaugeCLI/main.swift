@@ -19,7 +19,7 @@ enum TaugeCLI {
             return
         }
         switch command {
-        case "machines":
+        case "machine", "machines":
             let context = try makeContext()
             defer { try? context.eventLoopGroup.syncShutdownGracefully() }
             try listMachines(service: context.service, arguments: Array(arguments.dropFirst()))
@@ -27,6 +27,10 @@ enum TaugeCLI {
             let context = try makeContext()
             defer { try? context.eventLoopGroup.syncShutdownGracefully() }
             try await execute(service: context.service, arguments: Array(arguments.dropFirst()))
+        case "cp":
+            let context = try makeContext()
+            defer { try? context.eventLoopGroup.syncShutdownGracefully() }
+            try await copy(service: context.service, arguments: Array(arguments.dropFirst()))
         case "mcp":
             let context = try makeContext()
             defer { try? context.eventLoopGroup.syncShutdownGracefully() }
@@ -77,6 +81,42 @@ enum TaugeCLI {
         }
     }
 
+    private static func copy(service: RemoteCommandService, arguments: [String]) async throws {
+        var values = arguments
+        let recursive = values.contains { $0 == "-r" || $0 == "--recursive" }
+        values.removeAll { $0 == "-r" || $0 == "--recursive" }
+        let json = values.contains("--json")
+        values.removeAll { $0 == "--json" }
+        guard values.count == 2 else {
+            throw CLIError.usage("cp 用法：tauge cp [-r] machineA:/source machineB:/destination")
+        }
+        let source = try parseRemotePath(values[0])
+        let destination = try parseRemotePath(values[1])
+        let result = try await service.copy(sourceTarget: source.target,
+                                            sourcePath: source.path,
+                                            destinationTarget: destination.target,
+                                            destinationPath: destination.path,
+                                            recursive: recursive)
+        if json {
+            let data = try JSONEncoder().encode(result)
+            print(String(decoding: data, as: UTF8.self))
+        } else {
+            print("copied (result.files) file(s), (result.bytes) bytes in (result.durationMilliseconds) ms")
+        }
+    }
+
+    private static func parseRemotePath(_ value: String) throws -> (target: String, path: String) {
+        guard let separator = value.firstIndex(of: ":") else {
+            throw CLIError.usage("远程路径必须使用 machine:/path 格式：" + value)
+        }
+        let target = String(value[..<separator])
+        let path = String(value[value.index(after: separator)...])
+        guard !target.isEmpty, !path.isEmpty else {
+            throw CLIError.usage("远程路径必须使用 machine:/path 格式：" + value)
+        }
+        return (target, path.hasPrefix("/") ? path : "/" + path)
+    }
+
     private static func makeContext() throws -> (service: RemoteCommandService,
                                                   database: SQLiteDatabase,
                                                   eventLoopGroup: MultiThreadedEventLoopGroup,
@@ -117,8 +157,9 @@ enum TaugeCLI {
 
     private static func printUsage() {
         print("""
-        tauge machines list [--json]
+        tauge machine list [--json]
         tauge exec --machine <name-or-id> [--json] -- <command> [args...]
+        tauge cp [-r] machineA:/source machineB:/destination
         tauge mcp
         """)
     }

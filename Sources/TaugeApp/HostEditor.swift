@@ -332,10 +332,6 @@ struct HostEditorView: View {
                         .labelsHidden()
                     }
                     labeled("") {
-                        Toggle(L("复用连接（同一主机多个标签共享一条 SSH 连接）"), isOn: $host.reuseConnection)
-                            .font(.system(size: 11))
-                    }
-                    labeled("") {
                         Toggle(L("记录会话日志"), isOn: sessionLoggingBinding)
                             .font(.system(size: 11))
                     }

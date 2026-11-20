@@ -11,7 +11,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "Tauge", targets: ["TaugeApp"]),
-        .executable(name: "tauge", targets: ["TaugeCLI"]),
+        .executable(name: "TaugeCLI", targets: ["TaugeCLI"]),
         .library(name: "TaugeKit", targets: ["TaugeKit"]),
         .executable(name: "TaugeChecks", targets: ["TaugeChecks"]),
     ],

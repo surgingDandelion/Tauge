@@ -601,7 +601,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var defaultTransferConcurrency: Int = 2
     public var transferRetryCount: Int = 3
     public var conflictPolicy: String = "ask"
-    public var autoReconnect: Bool = false
+    public var autoReconnect: Bool = true
     public var editorMaxFileSize: Int = 2 * 1024 * 1024
     public var showHiddenFiles: Bool = false
     public var language: String = TaugeLanguage.systemDefault.rawValue

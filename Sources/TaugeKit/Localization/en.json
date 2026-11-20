@@ -911,6 +911,13 @@
   "高危命令在执行前需要确认": "A high-risk command needs confirmation before it runs",
   "高危命令已取消": "The high-risk command was cancelled",
   "MCP 通道": "MCP Channel",
+  "命令行工具": "Command-line Tool",
+  "安装 tauge 命令": "Install the tauge command",
+  "已安装到 %@": "Installed at %@",
+  "当前应用包没有包含 tauge 命令行工具，请重新安装最新版本。": "This app bundle does not contain the tauge command-line tool. Reinstall the latest version.",
+  "没有可写的命令行工具目录。": "No writable command-line tool directory is available.",
   "启用 Tauge MCP 通道": "Enable the Tauge MCP channel",
-  "开启后，Tauge 提供本地 MCP 命令通道，复用当前主机目录、凭据库和 SSH 连接能力。": "When enabled, Tauge provides a local MCP command channel using the current host catalog, credential vault, and SSH connections."
+  "开启后，Tauge 提供本地 MCP 命令通道，复用当前主机目录、凭据库和 SSH 连接能力。": "When enabled, Tauge provides a local MCP command channel using the current host catalog, credential vault, and SSH connections.",
+  "复制命令": "Copy command",
+  "连接方式为本地 stdio，不监听 TCP 端口，也不需要地址和端口。": "The connection uses local stdio. It does not listen on a TCP port and needs no address or port."
 }

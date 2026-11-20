@@ -102,6 +102,11 @@ public struct TaugeVersion: Sendable, Equatable, Comparable, CustomStringConvert
 /// Facts read from the running app bundle. Kept in TaugeKit so the updater,
 /// the About panel and the command-line diagnostics all agree.
 public enum TaugeAppInfo {
+    /// The identifier used by the current Tauge product. Keep this separate
+    /// from `Bundle.main` so the first update can migrate an older ShellX app.
+    public static let productBundleIdentifier = "com.tauge.app"
+    public static let legacyBundleIdentifier = "com.shellx.app"
+
     public static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
@@ -111,6 +116,6 @@ public enum TaugeAppInfo {
     }
 
     public static var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? "com.tauge.app"
+        Bundle.main.bundleIdentifier ?? productBundleIdentifier
     }
 }

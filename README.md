@@ -106,6 +106,39 @@ the current Tauge data directory before opening them.
 - Password, Ed25519, ECDSA, and RSA authentication.
 - No account, no sync service, no analytics, and no crash reporting.
 
+## Command line and MCP
+
+Tauge ships a command-line client that uses the same host catalog, encrypted
+credential vault and SSH connection code as the app. It never takes a password
+or private key as a command-line argument.
+
+```bash
+tauge machine list
+tauge machine list --json
+tauge exec --machine prod-web -- uname -a
+tauge cp machineA:/var/log/app.log machineB:/tmp/app.log
+tauge cp -r machineA:/var/log/app machineB:/tmp/
+```
+
+The `tauge mcp` command starts a local stdio MCP server. Enable it in **Tauge →
+Settings → General → MCP Channel**, then configure an MCP client with the
+installed command and the `mcp` argument.
+
+```json
+{
+  "mcpServers": {
+    "tauge": {
+      "command": "/usr/local/bin/tauge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The app bundle contains `TaugeCLI`. Use **Install the tauge command** in the MCP
+settings card or run `scripts/install-cli.sh` to register the `tauge` command in
+`/usr/local/bin` or `~/.local/bin`.
+
 ## Build from source
 
 You need macOS 13 or later, the Command Line Tools (`xcode-select --install`),
@@ -122,16 +155,23 @@ open dist/Tauge.app
 Commands run through the same Tauge catalog, credential vault and SSH stack.
 
 ```bash
-swift run --disable-sandbox tauge machines list
-swift run --disable-sandbox tauge exec --machine prod-web -- uname -a
-swift run --disable-sandbox tauge exec --machine prod-web -- sudo systemctl restart nginx
-swift run --disable-sandbox tauge mcp
+swift build --disable-sandbox --product TaugeCLI
+./scripts/install-cli.sh
+tauge machine list
+tauge exec --machine prod-web -- uname -a
+tauge exec --machine prod-web -- sudo systemctl restart nginx
+tauge cp machineA:/var/log/app.log machineB:/tmp/app.log
+tauge mcp
 ```
 
 `tauge mcp` speaks the local stdio MCP transport and exposes the authorized
 machine list and remote command execution through the same Tauge vault and SSH
 stack. The Gateway is a transport adapter and leaves command decisions to the
 caller.
+
+After installing Tauge.app, run `./scripts/install-cli.sh` once. It installs
+the `tauge` command in `/usr/local/bin`, with `~/.local/bin` as the fallback
+when `/usr/local/bin` is not writable.
 
 `--disable-sandbox` is only needed where `sandbox-exec` is restricted. For a
 universal build, the self-check suite, project layout, and localisation notes,

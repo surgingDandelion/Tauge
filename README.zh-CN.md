@@ -86,6 +86,36 @@ Tauge 会每天在后台检查 GitHub Release，展示更新说明、校验下�
 - 支持密码、Ed25519、ECDSA 和 RSA 认证。
 - 没有账号，没有同步服务，没有统计和崩溃上报。
 
+## 命令行与 MCP
+
+Tauge 提供命令行客户端，复用应用的主机目录、加密凭据库和 SSH 连接能力。
+命令行参数不会接收密码或私钥。
+
+```bash
+tauge machine list
+tauge machine list --json
+tauge exec --machine prod-web -- uname -a
+tauge cp machineA:/var/log/app.log machineB:/tmp/app.log
+tauge cp -r machineA:/var/log/app machineB:/tmp/
+```
+
+`tauge mcp` 启动本地 stdio MCP 服务。先在 **Tauge → 设置 → 通用 → MCP 通道**
+打开开关，再把下面的配置填入 MCP 客户端。
+
+```json
+{
+  "mcpServers": {
+    "tauge": {
+      "command": "/usr/local/bin/tauge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+应用包内包含 `TaugeCLI`。可以在 MCP 设置卡片点击「安装 tauge 命令」，也可以运行
+`scripts/install-cli.sh`，把 `tauge` 注册到 `/usr/local/bin` 或 `~/.local/bin`。
+
 ## 从源码构建
 
 需要 macOS 13 及以上、Command Line Tools（`xcode-select --install`），以及
@@ -102,13 +132,18 @@ open dist/Tauge.app
 命令行复用 Tauge 的主机目录、加密凭据库和 SSH 连接能力，执行结果直接返回。
 
 ```bash
-swift run --disable-sandbox tauge machines list
-swift run --disable-sandbox tauge exec --machine prod-web -- uname -a
-swift run --disable-sandbox tauge exec --machine prod-web -- sudo systemctl restart nginx
-swift run --disable-sandbox tauge mcp
+swift build --disable-sandbox --product TaugeCLI
+./scripts/install-cli.sh
+tauge machine list
+tauge exec --machine prod-web -- uname -a
+tauge exec --machine prod-web -- sudo systemctl restart nginx
+tauge cp machineA:/var/log/app.log machineB:/tmp/app.log
+tauge mcp
 ```
 
 `tauge mcp` 使用本地 stdio MCP 传输，提供授权主机列表和远程命令执行，复用 Tauge 的凭据库与 SSH 连接能力。Gateway 只负责通道，不判断或拦截命令。
+
+安装 Tauge.app 后运行一次 `./scripts/install-cli.sh`，脚本会把 `tauge` 安装到 `/usr/local/bin`。没有写权限时会使用 `~/.local/bin`。之后可以直接使用 `tauge machine list`。
 
 只有在 `sandbox-exec` 受限的环境中才需要 `--disable-sandbox`。通用二进制、
 自检、代码结构和本地化说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。

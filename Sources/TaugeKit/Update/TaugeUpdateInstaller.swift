@@ -174,7 +174,9 @@ public enum TaugeUpdateInstaller {
         }
         let expectedID = current.bundleIdentifier ?? TaugeAppInfo.bundleIdentifier
         let actualID = staged.bundleIdentifier ?? ""
-        guard actualID == expectedID else {
+        let isLegacyBundleMigration = expectedID == TaugeAppInfo.legacyBundleIdentifier
+            && actualID == TaugeAppInfo.productBundleIdentifier
+        guard actualID == expectedID || isLegacyBundleMigration else {
             throw TaugeUpdateInstallError.identifierMismatch(expected: expectedID, actual: actualID)
         }
         let expectedVersion = update.version.description

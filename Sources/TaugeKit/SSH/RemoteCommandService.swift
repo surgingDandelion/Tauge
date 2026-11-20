@@ -31,12 +31,34 @@ public struct RemoteCommandResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct RemoteCopyResult: Codable, Equatable, Sendable {
+    public let sourceTargetID: UUID
+    public let destinationTargetID: UUID
+    public let sourcePath: String
+    public let destinationPath: String
+    public let files: Int
+    public let bytes: Int64
+    public let durationMilliseconds: Int
+
+    public init(sourceTargetID: UUID, destinationTargetID: UUID, sourcePath: String,
+                destinationPath: String, files: Int, bytes: Int64, durationMilliseconds: Int) {
+        self.sourceTargetID = sourceTargetID
+        self.destinationTargetID = destinationTargetID
+        self.sourcePath = sourcePath
+        self.destinationPath = destinationPath
+        self.files = files
+        self.bytes = bytes
+        self.durationMilliseconds = durationMilliseconds
+    }
+}
+
 public enum RemoteCommandServiceError: Error, LocalizedError, Sendable {
     case targetNotFound(String)
     case unsupportedRoute
     case unsupportedAuthentication(AuthMethod)
     case credentialUnavailable
     case privateKeyUnavailable
+    case recursiveRequired(String)
 
     public var errorDescription: String? {
         switch self {
@@ -45,6 +67,7 @@ public enum RemoteCommandServiceError: Error, LocalizedError, Sendable {
         case .unsupportedAuthentication(let method): return "The selected target uses unsupported authentication: " + method.rawValue
         case .credentialUnavailable: return "The saved credential is unavailable. Unlock Tauge and save the credential first."
         case .privateKeyUnavailable: return "The configured private key is unavailable."
+        case .recursiveRequired(let path): return "Source is a directory. Use --recursive for: " + path
         }
     }
 }
@@ -117,6 +140,145 @@ public final class RemoteCommandService: @unchecked Sendable {
                                        durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000))
         } catch {
             await client.shutdown()
+            throw error
+        }
+    }
+
+    public func copy(sourceTarget: String,
+                     sourcePath: String,
+                     destinationTarget: String,
+                     destinationPath: String,
+                     recursive: Bool = false) async throws -> RemoteCopyResult {
+        let source = try await openSFTP(target: sourceTarget)
+        let destination: (host: SSHHost, client: SSHClient, sftp: SFTPClient)
+        do {
+            destination = try await openSFTP(target: destinationTarget)
+        } catch {
+            await source.client.shutdown()
+            throw error
+        }
+        let started = Date()
+        do {
+            let sourceAttributes = try await source.sftp.stat(sourcePath)
+            let finalDestination = try await resolveCopyDestination(destination.sftp,
+                                                                      sourcePath: sourcePath,
+                                                                      destinationPath: destinationPath)
+            if sourceAttributes.isDirectory && !recursive {
+                throw RemoteCommandServiceError.recursiveRequired(sourcePath)
+            }
+            var files = 0
+            var bytes: Int64 = 0
+            try await copyNode(source: source.sftp,
+                               destination: destination.sftp,
+                               sourcePath: sourcePath,
+                               destinationPath: finalDestination,
+                               sourceAttributes: sourceAttributes,
+                               files: &files,
+                               bytes: &bytes)
+            await source.client.shutdown()
+            await destination.client.shutdown()
+            return RemoteCopyResult(sourceTargetID: source.host.id,
+                                    destinationTargetID: destination.host.id,
+                                    sourcePath: sourcePath,
+                                    destinationPath: finalDestination,
+                                    files: files,
+                                    bytes: bytes,
+                                    durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000))
+        } catch {
+            await source.client.shutdown()
+            await destination.client.shutdown()
+            throw error
+        }
+    }
+
+    private func openSFTP(target: String) async throws -> (host: SSHHost, client: SSHClient, sftp: SFTPClient) {
+        let host = try resolveTarget(target)
+        let catalog = Catalog(groups: try store.groups(), hosts: try store.hosts(),
+                              proxies: try store.proxies(), keys: try store.privateKeys())
+        let config = try ConfigResolver(catalog: catalog).effective(for: host)
+        guard config.host.transport != .system else { throw RemoteCommandServiceError.unsupportedRoute }
+        let auth = try authentication(for: host)
+        let validator = knownHostValidator()
+        let username = config.host.username.isEmpty ? NSUserName() : config.host.username
+        let jumps = try config.jumps.map { step in
+            SSHJumpEndpoint(host: step.host.hostname,
+                            port: step.host.port,
+                            username: step.host.username.isEmpty ? username : step.host.username,
+                            auth: try authentication(for: step.host),
+                            hostKeyValidator: validator)
+        }
+        let options = SSHConnectOptions(host: config.host.hostname, port: config.host.port,
+                                        username: username, auth: auth,
+                                        hostKeyValidator: validator,
+                                        proxy: try proxyEndpoint(for: config.proxy), jumps: jumps,
+                                        keepaliveSeconds: config.keepaliveSeconds)
+        let client = SSHClient(eventLoopGroup: eventLoopGroup)
+        do {
+            try await client.connect(options)
+            let sftp = try await client.openSFTP()
+            return (host, client, sftp)
+        } catch {
+            await client.shutdown()
+            throw error
+        }
+    }
+
+    private func resolveCopyDestination(_ destination: SFTPClient,
+                                        sourcePath: String,
+                                        destinationPath: String) async throws -> String {
+        if let attributes = try? await destination.stat(destinationPath), attributes.isDirectory {
+            return POSIXPath.join(destinationPath, (sourcePath as NSString).lastPathComponent)
+        }
+        return destinationPath
+    }
+
+    private func copyNode(source: SFTPClient, destination: SFTPClient,
+                          sourcePath: String, destinationPath: String,
+                          sourceAttributes: SFTPFileAttributes,
+                          files: inout Int, bytes: inout Int64) async throws {
+        if sourceAttributes.isDirectory {
+            if let existing = try? await destination.stat(destinationPath) {
+                guard existing.isDirectory else {
+                    throw RemoteCommandServiceError.targetNotFound(destinationPath)
+                }
+            } else {
+                try await destination.createDirectory(destinationPath, mode: 0o755)
+            }
+            let entries = try await source.listDirectory(sourcePath)
+            for entry in entries where entry.filename != "." && entry.filename != ".." {
+                let childSource = POSIXPath.join(sourcePath, entry.filename)
+                let childDestination = POSIXPath.join(destinationPath, entry.filename)
+                let childAttributes = try await source.stat(childSource)
+                try await copyNode(source: source, destination: destination,
+                                   sourcePath: childSource, destinationPath: childDestination,
+                                   sourceAttributes: childAttributes,
+                                   files: &files, bytes: &bytes)
+            }
+            return
+        }
+
+        let readHandle = try await source.open(sourcePath, flags: [.read])
+        let writeHandle = try await destination.open(destinationPath,
+                                                     flags: .writeTruncateCreate,
+                                                     attributes: SFTPFileAttributes(permissions: sourceAttributes.permissions))
+        do {
+            var offset: UInt64 = 0
+            while true {
+                let chunk = try await source.read(handle: readHandle, offset: offset, length: 32768)
+                if chunk.isEmpty { break }
+                try await destination.write(handle: writeHandle, offset: offset, data: chunk)
+                offset += UInt64(chunk.count)
+                bytes += Int64(chunk.count)
+            }
+            try await destination.close(writeHandle)
+            try await source.close(readHandle)
+            if let permissions = sourceAttributes.permissions {
+                try? await destination.setPermissions(destinationPath, mode: UInt16(permissions & 0o7777))
+            }
+            files += 1
+        } catch {
+            try? await destination.close(writeHandle)
+            try? await source.close(readHandle)
             throw error
         }
     }
