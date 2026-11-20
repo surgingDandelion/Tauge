@@ -55,7 +55,7 @@ else
 fi
 
 if [ "${#CLI_BIN_DIRS[@]}" -gt 1 ]; then
-  lipo -create "${CLI_BIN_DIRS[@]/%\/TaugeCLI}" -output "$APP/Contents/MacOS/TaugeCLI"
+  lipo -create "${CLI_BIN_DIRS[@]/%//TaugeCLI}" -output "$APP/Contents/MacOS/TaugeCLI"
 else
   cp "${CLI_BIN_DIRS[0]}/TaugeCLI" "$APP/Contents/MacOS/TaugeCLI"
 fi
