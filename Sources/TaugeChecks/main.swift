@@ -231,6 +231,58 @@ run("resolver host jump policy overrides group") {
     expectEqual(explicitResolved.jumps.map(\.host.hostname), ["host-jump"], "host chain wins")
 }
 
+// MARK: - Host color
+
+run("host color prefers the host's own value") {
+    let group = HostGroup(name: "Root", colorHex: "#16A34A")
+    let host = SSHHost(groupID: group.id, name: "host", colorHex: "#E11D48")
+    let resolved = HostColor.resolve(host: host, groups: [group])
+    expectEqual(resolved?.hex, "#E11D48", "explicit host color wins")
+    expectEqual(resolved?.source, HostColor.Source.host, "source is the host")
+}
+
+run("host color uses the closest group with a color") {
+    let root = HostGroup(name: "Root", colorHex: "#16A34A")
+    let child = HostGroup(parentID: root.id, name: "Child", colorHex: "#E11D48")
+    let leaf = HostGroup(parentID: child.id, name: "Leaf")
+    let host = SSHHost(groupID: leaf.id, name: "host")
+    let resolved = HostColor.resolve(host: host, groups: [root, child, leaf])
+    expectEqual(resolved?.hex, "#E11D48", "nearest colored group wins")
+    expectEqual(resolved?.source, HostColor.Source.group(id: child.id, name: "Child"),
+                "source names the group that supplied the color")
+}
+
+run("host color skips groups without a color") {
+    let root = HostGroup(name: "Root", colorHex: "#CA8A04")
+    let child = HostGroup(parentID: root.id, name: "Child", colorHex: "   ")
+    let host = SSHHost(groupID: child.id, name: "host")
+    let resolved = HostColor.resolve(host: host, groups: [root, child])
+    expectEqual(resolved?.hex, "#CA8A04", "blank group color is ignored")
+    expectEqual(resolved?.source, HostColor.Source.group(id: root.id, name: "Root"),
+                "source climbs past the blank group")
+}
+
+run("host color handles missing and cyclic groups") {
+    let plain = HostGroup(name: "Plain")
+    expect(HostColor.resolve(host: SSHHost(groupID: plain.id, name: "host"),
+                             groups: [plain]) == nil, "no color anywhere resolves to nil")
+    expect(HostColor.resolve(host: SSHHost(name: "loose"), groups: [plain]) == nil,
+           "ungrouped host has no color")
+
+    var a = HostGroup(name: "A")
+    var b = HostGroup(parentID: a.id, name: "B")
+    a.parentID = b.id
+    let cyclic = SSHHost(groupID: a.id, name: "cyclic")
+    expect(HostColor.resolve(host: cyclic, groups: [a, b]) == nil, "cycle terminates without a color")
+}
+
+run("host color recognizes a mirrored group value") {
+    expect(HostColor.isInherited(" #16a34a ", from: "#16A34A"), "case and spacing are normalized")
+    expect(!HostColor.isInherited(nil, from: "#16A34A"), "missing host color is not inherited")
+    expect(!HostColor.isInherited("#E11D48", from: "#16A34A"), "a different host color is explicit")
+    expect(HostColor.normalized("nope") == nil, "malformed colors are ignored")
+}
+
 run("resolver builds ordered jump chain") {
     let bastion = SSHHost(name: "bastion", hostname: "bastion")
     let inner = SSHHost(name: "inner", hostname: "inner", jumpPolicy: .hosts([bastion.id]))

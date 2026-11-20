@@ -868,14 +868,18 @@ private struct StartHostCard: View {
         host.tags.filter { $0 != "favorite" && $0 != "收藏" }
     }
 
-    /// Hosts can carry their own color; the rest get a stable muted tint so the
-    /// grid stays scannable without falling back to system blue.
-    private var customTint: Color {
-        host.colorHex.flatMap { Color(hex: $0) } ?? HostPalette.tint(for: host.id)
+    /// A host color, otherwise the closest group color. Hosts without either
+    /// keep a stable muted palette tint so the grid stays scannable.
+    private var resolvedTint: Color? {
+        app.resolvedColorHex(for: host).flatMap(Color.init(hex:))
     }
 
-    private var iconColor: Color {
-        customTint
+    private var customTint: Color {
+        resolvedTint ?? HostPalette.tint(for: host.id)
+    }
+
+    private var nameColor: Color {
+        resolvedTint ?? Color.primary
     }
 
     private var cardContentBase: some View {
@@ -883,18 +887,24 @@ private struct StartHostCard: View {
             HStack(alignment: .top, spacing: 9) {
                 ZStack(alignment: .topTrailing) {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(LinearGradient(colors: [customTint.opacity(hovering ? 0.26 : 0.18),
-                                                      customTint.opacity(hovering ? 0.15 : 0.10)],
+                        .fill(LinearGradient(colors: [customTint.opacity(resolvedTint == nil
+                                                                        ? (hovering ? 0.26 : 0.18)
+                                                                        : (hovering ? 0.38 : 0.27)),
+                                                      customTint.opacity(resolvedTint == nil
+                                                                        ? (hovering ? 0.15 : 0.10)
+                                                                        : (hovering ? 0.22 : 0.15))],
                                              startPoint: .top,
                                              endPoint: .bottom))
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(customTint.opacity(hovering ? 0.55 : 0.35), lineWidth: 0.8)
+                        .strokeBorder(customTint.opacity(resolvedTint == nil
+                                                         ? (hovering ? 0.55 : 0.35)
+                                                         : (hovering ? 0.75 : 0.55)), lineWidth: 0.8)
                     // Generic server glyph until the host has been logged into at
                     // least once; then the detected OS logo takes its place.
                     HostPlatformIcon(platform: app.platform(for: host.id),
                                      detail: app.platformInfo(for: host.id)?.detail,
                                      size: 16,
-                                     fallbackColor: iconColor)
+                                     fallbackColor: customTint)
                         .frame(width: 30, height: 30)
                     Rectangle()
                         .fill(customTint.opacity(hovering ? 0.9 : 0.5))
@@ -908,6 +918,7 @@ private struct StartHostCard: View {
                         Text(host.name)
                             .font(.system(size: 12.5, weight: .semibold))
                             .tracking(0.1)
+                            .foregroundStyle(nameColor)
                             .lineLimit(1)
                         if isFavorite {
                             Image(systemName: "star.fill")

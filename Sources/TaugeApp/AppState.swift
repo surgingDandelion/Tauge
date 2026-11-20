@@ -509,11 +509,25 @@ final class AppState: ObservableObject {
 
     // MARK: - Hosts and groups
 
+    /// The color a host currently displays: its own color, the closest group
+    /// color, or nil. Views use this instead of reading `host.colorHex`.
+    func resolvedColorHex(for host: SSHHost) -> String? {
+        HostColor.resolve(host: host, groups: groups)?.hex
+    }
+
     func saveHost(_ host: SSHHost) {
         var updated = host
         updated.updatedAt = Date()
         if updated.name.trimmingCharacters(in: .whitespaces).isEmpty {
             updated.name = updated.hostname
+        }
+        // Moving between groups releases a color that only mirrored the old
+        // group. A deliberately different host color survives the move.
+        if let previous = self.host(id: host.id), previous.groupID != updated.groupID,
+           HostColor.isInherited(updated.colorHex,
+                                from: HostColor.inheritedHex(forGroupID: previous.groupID,
+                                                             groups: groups)) {
+            updated.colorHex = nil
         }
         do {
             try store.save(host: updated)
@@ -546,6 +560,11 @@ final class AppState: ObservableObject {
         copy.createdAt = Date()
         copy.lastUsedAt = nil
         copy.useCount = 0
+        if HostColor.isInherited(copy.colorHex,
+                                 from: HostColor.inheritedHex(forGroupID: copy.groupID,
+                                                              groups: groups)) {
+            copy.colorHex = nil
+        }
         copySecrets(from: host.id, to: copy.id)
         editingHost = copy
     }
@@ -600,6 +619,7 @@ final class AppState: ObservableObject {
         do {
             try persistGroup(group)
             reloadCatalog()
+            syncOpenTabs()
             editingGroup = nil
         } catch {
             present(error)
@@ -618,14 +638,24 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Saves a group without painting its hosts. Hosts that were carrying the
+    /// group's previous effective color are released so they follow the new
+    /// one; hosts with their own color are left untouched.
     private func persistGroup(_ group: HostGroup) throws {
-        let oldColor = self.group(id: group.id)?.colorHex
+        let previous = self.group(id: group.id)
+        let previousColor = previous?.colorHex
         try store.save(group: group)
-        guard oldColor != group.colorHex else { return }
+        guard HostColor.normalized(previousColor) != HostColor.normalized(group.colorHex) else {
+            return
+        }
+        let previousTint = HostColor.normalized(previousColor)
+            ?? HostColor.inheritedHex(forGroupID: previous?.parentID, groups: groups)
+        guard previousTint != nil else { return }
         let groupIDs = descendantGroupIDs(startingAt: group.id)
         for host in hosts where host.groupID.map(groupIDs.contains) == true {
+            guard HostColor.isInherited(host.colorHex, from: previousTint) else { continue }
             var updated = host
-            updated.colorHex = group.colorHex
+            updated.colorHex = nil
             try store.save(host: updated)
         }
     }
@@ -674,10 +704,13 @@ final class AppState: ObservableObject {
     /// Moves a host into a group (or to the top level) from a sidebar drag.
     func moveHost(_ host: SSHHost, toGroup groupID: UUID?) {
         var updated = host
-        updated.groupID = groupID
-        if let groupID, let groupColor = group(id: groupID)?.colorHex {
-            updated.colorHex = groupColor
+        if updated.groupID != groupID,
+           HostColor.isInherited(updated.colorHex,
+                                from: HostColor.inheritedHex(forGroupID: updated.groupID,
+                                                             groups: groups)) {
+            updated.colorHex = nil
         }
+        updated.groupID = groupID
         do {
             try store.save(host: updated)
             reloadCatalog()
@@ -709,11 +742,14 @@ final class AppState: ObservableObject {
         do {
             for (position, member) in members.enumerated() {
                 var updated = member
+                if member.id == hostID, member.groupID != groupID,
+                   HostColor.isInherited(member.colorHex,
+                                        from: HostColor.inheritedHex(forGroupID: member.groupID,
+                                                                     groups: groups)) {
+                    updated.colorHex = nil
+                }
                 updated.groupID = groupID
                 updated.sortIndex = position
-                if member.id == hostID, let groupID, let groupColor = group(id: groupID)?.colorHex {
-                    updated.colorHex = groupColor
-                }
                 if member.sortIndex != position || member.groupID != groupID || member.id == hostID {
                     try store.save(host: updated)
                 }
@@ -750,11 +786,14 @@ final class AppState: ObservableObject {
             }
             for (position, member) in destinationMembers.enumerated() {
                 var updated = member
+                if member.id == hostID, member.groupID != groupID,
+                   HostColor.isInherited(member.colorHex,
+                                        from: HostColor.inheritedHex(forGroupID: member.groupID,
+                                                                     groups: groups)) {
+                    updated.colorHex = nil
+                }
                 updated.groupID = groupID
                 updated.sortIndex = position
-                if member.id == hostID, let groupID, let groupColor = group(id: groupID)?.colorHex {
-                    updated.colorHex = groupColor
-                }
                 if member.sortIndex != position || member.groupID != groupID || member.id == hostID {
                     try store.save(host: updated)
                 }

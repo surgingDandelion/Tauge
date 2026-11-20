@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] — 2026-11-20
+
+### Added
+
+- Host colors now follow the closest group color when a machine has no color of
+  its own. A machine's own color still wins, and an ungrouped or colorless
+  machine no longer falls back to system blue.
+- Machine names in the sidebar and on the start page now use the resolved color,
+  making the accent visible beyond the tiny icon or color strip.
+
 ### Changed
 
+- Group color edits no longer paint every descendant host. Hosts that were only
+  mirroring the group color are released so they follow the new color; hosts
+  with a distinct color keep it.
 - Quick Open lists each host once: the duplicate "· SFTP" row per machine is
   gone, so the list is half as long to walk with `↑`/`↓`. `⌘↩` still opens the
   highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.

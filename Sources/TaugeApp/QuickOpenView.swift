@@ -261,9 +261,9 @@ struct QuickOpenView: View {
     private func leadingIcon(for item: CommandPaletteItem, isSelected: Bool) -> some View {
         if let host = item.host, item.kind == .host {
             HStack(spacing: 4) {
-                if let color = host.colorHex.flatMap({ Color(hex: $0) }) {
+                if let color = app.resolvedColorHex(for: host).flatMap({ Color(hex: $0) }) {
                     Circle()
-                        .fill(color.opacity(isSelected ? 0.95 : 0.7))
+                        .fill(color.opacity(isSelected ? 1 : 0.8))
                         .frame(width: 5, height: 5)
                 }
                 HostPlatformIcon(platform: app.platform(for: host.id),

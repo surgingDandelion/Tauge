@@ -33,6 +33,10 @@ struct HostEditorView: View {
         _host = ViewState(wrappedValue: host)
     }
 
+    private var inheritedColorHex: String? {
+        HostColor.inheritedHex(forGroupID: host.groupID, groups: app.groups)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -139,7 +143,7 @@ struct HostEditorView: View {
                         .disabled(host.groupID == nil)
                 }
             }
-            ColorChoicePicker(colorHex: $host.colorHex)
+            ColorChoicePicker(colorHex: $host.colorHex, inheritedHex: inheritedColorHex)
         }
     }
 

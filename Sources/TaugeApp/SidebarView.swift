@@ -287,13 +287,17 @@ struct HostRowView: View {
         app.tabs.first { $0.hostID == host.id }
     }
 
+    private var resolvedColor: Color? {
+        app.resolvedColorHex(for: host).flatMap(Color.init(hex:))
+    }
+
     var body: some View {
         HStack(spacing: 7) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Color(hex: host.colorHex) ?? Theme.accent)
-                .frame(width: 2, height: 20)
-                .opacity(isSelected ? 1 : (hovering ? 0.85 : 0.55))
-                .shadow(color: (isSelected ? (Color(hex: host.colorHex) ?? Theme.accent) : .clear).opacity(0.5),
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(resolvedColor ?? Theme.secondary.opacity(0.35))
+                .frame(width: 3, height: 20)
+                .opacity(resolvedColor == nil ? (isSelected ? 0.7 : 0.4) : 1)
+                .shadow(color: (isSelected ? resolvedColor?.opacity(0.55) : nil) ?? .clear,
                         radius: 3)
             HostPlatformIcon(platform: app.platform(for: host.id),
                              detail: app.platformInfo(for: host.id)?.detail,
@@ -302,6 +306,7 @@ struct HostRowView: View {
                 Text(host.name)
                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                     .tracking(0.1)
+                    .foregroundStyle(resolvedColor ?? Color.primary)
                     .lineLimit(1)
                 Text(host.displayAddress)
                     .font(TechFont.mono(8.5))

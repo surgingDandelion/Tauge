@@ -8,6 +8,10 @@ import TaugeKit
 struct ColorChoicePicker: View {
     @Binding var colorHex: String?
     var title: String = "颜色"
+    /// The color this item would display while `colorHex` is nil. Hosts use
+    /// the closest group color; groups use their parent chain.
+    var inheritedHex: String?
+    var inheritedTitle: String = "继承分组颜色"
     var compact = false
     @ViewState private var isPresented = false
 
@@ -15,6 +19,27 @@ struct ColorChoicePicker: View {
         let hex: String
         let nameKey: String
         var id: String { hex }
+    }
+
+    private var hasInheritedColor: Bool {
+        inheritedHex != nil
+    }
+
+    private var showsInheritedColor: Bool {
+        colorHex == nil && inheritedHex != nil
+    }
+
+    private var swatchColor: Color {
+        Color(hex: colorHex) ?? Color(hex: inheritedHex) ?? Theme.secondary.opacity(0.35)
+    }
+
+    private var statusText: String {
+        if let choice = Self.choices.first(where: {
+            $0.hex.caseInsensitiveCompare(colorHex ?? "") == .orderedSame
+        }) {
+            return L(choice.nameKey)
+        }
+        return showsInheritedColor ? L(inheritedTitle) : L("默认")
     }
 
     private static let choices = [
@@ -44,15 +69,15 @@ struct ColorChoicePicker: View {
             } label: {
                 if compact {
                     Circle()
-                        .fill(Color(hex: colorHex) ?? Theme.accent)
+                        .fill(swatchColor)
                         .frame(width: 13, height: 13)
                         .overlay(Circle().stroke(Theme.hairline.opacity(0.8), lineWidth: 0.6))
                 } else {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(Color(hex: colorHex) ?? Theme.accent)
+                            .fill(swatchColor)
                             .frame(width: 13, height: 13)
-                        Text(Self.choices.first(where: { $0.hex == colorHex }).map { L($0.nameKey) } ?? L("默认"))
+                        Text(statusText)
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.secondary)
                     }
@@ -72,10 +97,17 @@ struct ColorChoicePicker: View {
                 isPresented = false
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "circle.dashed")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Theme.secondary)
-                    Text(L("跟随默认颜色"))
+                    if let inherited = Color(hex: inheritedHex) {
+                        Circle()
+                            .fill(inherited)
+                            .frame(width: 15, height: 15)
+                            .overlay(Circle().stroke(Color.primary.opacity(0.18), lineWidth: 0.5))
+                    } else {
+                        Image(systemName: "circle.dashed")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Theme.secondary)
+                    }
+                    Text(hasInheritedColor ? L(inheritedTitle) : L("跟随默认颜色"))
                         .font(.system(size: 11))
                     Spacer()
                 }
@@ -137,6 +169,11 @@ struct GroupEditorView: View {
         self.onCancel = onCancel
     }
 
+    /// The color this group itself would inherit from its parent chain.
+    private var inheritedColorHex: String? {
+        HostColor.inheritedHex(forGroupID: group.parentID, groups: app.groups)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -158,7 +195,13 @@ struct GroupEditorView: View {
                         Text(app.groupPath(for: candidate.id)).tag(Optional(candidate.id))
                     }
                 }
-                ColorChoicePicker(colorHex: $group.colorHex)
+                ColorChoicePicker(colorHex: $group.colorHex,
+                                  inheritedHex: inheritedColorHex,
+                                  inheritedTitle: "继承上级分组颜色")
+                Text(L("组内主机未单独设置颜色时继承这里的颜色；子分组会继续向上查找最近的颜色。"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Section(L("默认值（向下继承）")) {
                     Picker(L("代理"), selection: proxySelection) {
                         Text(L("继承上级分组")).tag("inherit")
