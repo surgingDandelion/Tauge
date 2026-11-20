@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.
   The highlight also snaps back onto a real row when typing shrinks the list.
 
+## [1.2.4] — 2026-11-20
+
+### Added
+
+- Added the Tauge CLI installer and local gateway command service.
+
+### Fixed
+
+- Published a transitional update with the legacy `com.shellx.app` bundle ID so existing installations can update without a Bundle ID mismatch.
+- The updater now accepts the one-time migration from `com.shellx.app` to `com.tauge.app` for a later release.
+
 ## [1.2.3] — 2026-11-20
 
 ### Added
