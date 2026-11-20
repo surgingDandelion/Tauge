@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted host as an SFTP tab, and `⇧⌘T` remains the global host picker.
   The highlight also snaps back onto a real row when typing shrinks the list.
 
+## [1.2.3] — 2026-11-20
+
+### Added
+
+- Renamed the product and package targets from ShellX to Tauge.
+- Added command safety confirmations and the local gateway command service.
+
+### Changed
+
+- Parent groups now render machines in separate child-group sections with dividers.
+- Group colors can be edited inline and propagate to machines in the group subtree.
+- Host card drag ordering uses delayed insertion previews and smooth animation.
+- Improved credential vault, workspace, quick-open, terminal, and transfer behavior.
+
 ## [1.2.2] — 2026-11-19
 
 ### Changed
