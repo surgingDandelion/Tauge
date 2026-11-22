@@ -16,8 +16,8 @@ extension Keychain: KeychainItemStore {}
 /// login-keychain password whenever it cannot match that ACL — which happens
 /// for every credential after the binary is re-signed (and for every build when
 /// the app is signed ad hoc). Keeping one item means the user authorises the
-/// app once per signature instead of once per host password; the app-level
-/// Touch ID gate then replaces the typed password for the day-to-day unlock.
+/// app once per signature instead of once per host password. This is a legacy
+/// format; the app and CLI only use the read-only migration method below.
 ///
 /// Values written by older builds live in one item per account. They are
 /// adopted lazily: the first time an account is read the legacy item is copied
@@ -53,6 +53,19 @@ public final class KeychainVaultStore: SecretStore {
     }
 
     // MARK: - Maintenance
+
+    /// Reads either legacy format without creating or updating a keychain
+    /// item. A deletion recorded by the old vault takes precedence over an
+    /// even older per-account item.
+    public func readForMigration(_ account: SecretAccount) throws -> String? {
+        try withLock {
+            let key = account.rawValue
+            if let doc = try currentLocked(), doc.seen.contains(key) {
+                return doc.items[key]
+            }
+            return try items.string(for: key)
+        }
+    }
 
     /// Every account the vault knows about, plus accounts that still only exist
     /// as legacy items.

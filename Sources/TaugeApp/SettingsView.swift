@@ -78,13 +78,7 @@ struct SettingsView: View {
         .sheet(item: $editingProxyDraft) { draft in
             ProxyEditorView(
                 proxy: draft,
-                onSave: { proxy, secret in
-                    if !secret.isEmpty {
-                        try? app.environment.secrets.setSecret(secret, for: .proxyPassword(proxy.id))
-                    }
-                    app.saveProxy(proxy)
-                    editingProxyDraft = nil
-                },
+                onSave: { _ in editingProxyDraft = nil },
                 onCancel: { editingProxyDraft = nil }
             )
             .environmentObject(app)
@@ -447,15 +441,7 @@ struct SettingsView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.secondary)
                 }
-                row(L("解锁方式")) {
-                    Toggle(L("使用 Touch ID 解锁凭据"), isOn: binding(\.unlockWithBiometrics))
-                        .disabled(!BiometricGate.hasBiometrics())
-                }
-                Text(biometricHint)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(L("凭据库与代码签名无关：重新构建、重装或换签名都不会再触发登录钥匙串密码框。旧版本的凭据会在无需授权时自动搬进本地库；若旧条目受旧签名保护，请在 Tauge 的主机密码框重新输入一次。"))
+                Text(L("启动、连接或显示已保存的密码时，不需要 Touch ID 或 Mac 登录密码。仅能无提示读取的旧钥匙串凭据会自动迁移；无法迁移时请在对应配置里重新输入一次。"))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -596,14 +582,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
-
-    /// Explains the Touch ID gate, or why it is unavailable on this Mac.
-    private var biometricHint: String {
-        guard BiometricGate.hasBiometrics() else {
-            return L("此 Mac 没有可用的 Touch ID，连接时会直接读取凭据库。")
-        }
-        return L("每次启动后第一次连接会要求 Touch ID（也可用登录密码）；解锁一次后本次运行不再询问。")
-    }
 
     private func copyMCPCommand() {
         NSPasteboard.general.clearContents()

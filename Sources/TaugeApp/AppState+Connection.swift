@@ -16,46 +16,6 @@ extension AppState {
         connect(tab: tab)
     }
 
-    /// Asks for Touch ID once per launch before a stored credential is read.
-    ///
-    /// The vault is a file, so macOS never asks for the keychain password and
-    /// nothing would stop a passer-by from connecting as the user. This gate is
-    /// what makes reading a stored credential fingerprint-first. It is skipped
-    /// when the setting is off, when the Mac has no sensor with an enrolled
-    /// finger, and after the first successful unlock in this process. A hard
-    /// authentication failure opens the vault rather than blocking the
-    /// connection: the gate is a convenience, the file permissions are the guard.
-    private func unlockCredentialsIfNeeded(tab: TerminalTab) async -> Bool {
-        guard settings.unlockWithBiometrics, BiometricGate.hasBiometrics() else { return true }
-        let gate = BiometricGate.shared
-        if gate.isUnlocked { return true }
-
-        let previous = tab.connectionState
-        tab.markConnecting(L("等待 Touch ID 解锁"))
-        switch await gate.unlock(reason: L("解锁已保存的登录密码与私钥口令")) {
-        case .unlocked, .unavailable:
-            return true
-        case .cancelled:
-            restore(tab, afterDismissedUnlock: previous, reason: L("已取消解锁"))
-            return false
-        case .failed:
-            // The sheet only reports this after repeated bad attempts. Open the
-            // vault instead of leaving the user unable to connect at all.
-            return true
-        }
-    }
-
-    /// Puts the tab back where it was when the unlock sheet was raised. A live
-    /// session must not be relabelled as disconnected just because the user
-    /// dismissed Touch ID, and a fresh tab has to show why nothing happened.
-    private func restore(_ tab: TerminalTab, afterDismissedUnlock previous: TabConnectionState, reason: String) {
-        if previous.isConnected {
-            tab.connectionState = .connected
-        } else {
-            tab.markDisconnected(reason)
-        }
-    }
-
     /// Connects the tab. A scheduled retry passes `force` because it moved the
     /// tab into the "reconnecting" state itself, which would otherwise look busy
     /// and make the retry a no-op.
@@ -77,7 +37,6 @@ extension AppState {
 
     private func performConnect(tab: TerminalTab) async {
         let host = tab.host
-        guard await unlockCredentialsIfNeeded(tab: tab) else { return }
         tab.markConnecting(L("解析配置"))
         do {
             let resolver = ConfigResolver(catalog: Catalog(groups: groups, hosts: hosts, proxies: proxies, keys: keys))
@@ -138,12 +97,15 @@ extension AppState {
                 return
             }
 
+            tab.bridge.prepare(settings: settings, columns: tab.terminalColumns, rows: tab.terminalRows)
+            let columns = tab.terminalColumns
+            let rows = tab.terminalRows
             let logger = makeSessionLogger(config: config, host: host, auth: established.auth)
             let session = try await client.openTerminal(term: config.terminalType,
-                                                        columns: tab.terminalColumns,
-                                                        rows: tab.terminalRows,
+                                                        columns: columns,
+                                                        rows: rows,
                                                         onData: { [weak tab] data in
-                                                            Task { @MainActor in tab?.receive(data) }
+                                                            DispatchQueue.main.async { [weak tab] in tab?.receive(data) }
                                                         },
                                                         onClose: { [weak self, weak tab] error in
                                                             Task { @MainActor in
@@ -156,9 +118,11 @@ extension AppState {
                        terminalType: config.terminalType,
                        route: route,
                        logger: logger)
-            // The view may have been resized again while the channel was opening;
-            // push the current size so the shell never keeps the placeholder one.
-            tab.resize(columns: tab.terminalColumns, rows: tab.terminalRows)
+            // A layout change during open updated the tab's size but couldn't
+            // notify the not-yet-attached channel. Synchronize that channel once.
+            if (columns, rows) != (tab.terminalColumns, tab.terminalRows) {
+                session.resize(columns: tab.terminalColumns, rows: tab.terminalRows)
+            }
             try? store.recordConnection(hostID: host.id)
             recentHosts = (try? store.recentHosts(limit: 20)) ?? recentHosts
             tab.runStartupCommandIfNeeded { [weak self, weak tab] command, assessment in
@@ -439,7 +403,7 @@ extension AppState {
     func authMaterial(for host: SSHHost, allowPrompt: Bool, fallback: SSHAuthMaterial? = nil) async throws -> SSHAuthMaterial? {
         switch host.authMethod {
         case .password, .keyboardInteractive:
-            if let password = try? environment.secrets.secret(for: .hostPassword(host.id)) {
+            if host.savesPassword, let password = try? environment.secrets.secret(for: .hostPassword(host.id)) {
                 return .password(password)
             }
             if let fallback { return fallback }
@@ -497,15 +461,13 @@ extension AppState {
                            suggestion: L("请在主机设置中选择私钥，或先导入 ~/.ssh 下的密钥。"))
         }
 
-        var passphrase: String?
-        let needsPassphrase = record?.hasPassphrase ?? false
-        if needsPassphrase {
-            passphrase = try? environment.secrets.secret(for: .hostPassphrase(host.id))
-            if passphrase == nil && allowPrompt {
-                passphrase = await promptForSecret(title: L("输入私钥口令"),
-                                                   detail: record?.name ?? L("私钥"),
-                                                   isPassphrase: true)
-            }
+        var passphrase = host.savesPassword
+            ? (try? environment.secrets.secret(for: .hostPassphrase(host.id)))
+            : nil
+        if passphrase == nil, allowPrompt, let record, record.hasPassphrase {
+            passphrase = await promptForSecret(title: L("输入私钥口令"),
+                                               detail: record.name,
+                                               isPassphrase: true)
         }
         return PrivateKeySource(data: data, passphrase: passphrase, name: record?.name ?? L("私钥"))
     }
@@ -533,7 +495,7 @@ extension AppState {
     func systemCredential(for host: SSHHost, allowPrompt: Bool) async throws -> SystemSSHCredential? {
         switch host.authMethod {
         case .password, .keyboardInteractive:
-            if let password = try? environment.secrets.secret(for: .hostPassword(host.id)) {
+            if host.savesPassword, let password = try? environment.secrets.secret(for: .hostPassword(host.id)) {
                 return .password(password)
             }
             guard allowPrompt else { return nil }
@@ -578,16 +540,16 @@ extension AppState {
 
     private func proxyEndpoint(for proxy: ProxyConfig?) async throws -> ProxyEndpoint? {
         guard let proxy else { return nil }
-        var password: String?
-        if proxy.savesPassword {
-            password = try? environment.secrets.secret(for: .proxyPassword(proxy.id))
-            if password == nil && !proxy.username.isEmpty {
-                password = await promptForSecret(title: L("输入代理密码"),
-                                                 detail: proxy.name + "（" + proxy.host + ":" + String(proxy.port) + "）",
-                                                 isPassphrase: false)
-                if let password {
-                    try? environment.secrets.setSecret(password, for: .proxyPassword(proxy.id))
-                }
+        var password = proxy.savesPassword
+            ? (try? environment.secrets.secret(for: .proxyPassword(proxy.id)))
+            : nil
+        if password == nil && !proxy.username.isEmpty {
+            guard let entered = await promptForSecret(title: L("输入代理密码"),
+                                                      detail: proxy.name + "（" + proxy.host + ":" + String(proxy.port) + "）",
+                                                      isPassphrase: false) else { throw CancellationError() }
+            password = entered
+            if proxy.savesPassword {
+                try? environment.secrets.setSecret(entered, for: .proxyPassword(proxy.id))
             }
         }
         return ProxyEndpoint(type: proxy.type,
@@ -602,14 +564,16 @@ extension AppState {
     /// probe would be confusing, and the editor passes the password still in its
     /// field explicitly.
     func proxyEndpointForTesting(_ proxy: ProxyConfig, password: String? = nil) -> ProxyEndpoint {
-        let saved = proxy.savesPassword
+        // A deliberately cleared field tests without authentication, not with
+        // the old password that still exists until the user saves the draft.
+        let secret = password ?? (proxy.savesPassword
             ? (try? environment.secrets.secret(for: .proxyPassword(proxy.id)))
-            : nil
+            : nil)
         return ProxyEndpoint(type: proxy.type,
                              host: proxy.host,
                              port: proxy.port,
                              username: proxy.username.isEmpty ? nil : proxy.username,
-                             password: password ?? saved)
+                             password: secret.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     func testProxy(_ proxy: ProxyConfig,

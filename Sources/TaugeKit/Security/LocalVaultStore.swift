@@ -28,11 +28,10 @@ public enum LocalVaultError: Error, LocalizedError, Equatable {
 /// - `vault.v1.enc` — the account map as JSON, sealed with AES-256-GCM.
 /// - `vault.key` — the 32-byte key, created once on the first write.
 ///
-/// Both are `0600`. The honest trade: the key sits next to the ciphertext, so
-/// this keeps plaintext passwords out of backups, greps, crash reports and
-/// screen sharing, but it does not defend against a process that already runs as
-/// the same user. In exchange the vault survives every rebuild and the keychain
-/// is touched at most once, when an old value has to be migrated.
+/// Both are `0600`. The key sits next to the ciphertext, so the app can open
+/// the vault without user interaction or a keychain grant. This avoids storing
+/// plaintext, but it does not defend against processes running as the same
+/// user or someone who has both files.
 ///
 /// Deleting an account is recorded in `seen`, so a stale keychain value can never
 /// resurrect a password the user removed.
@@ -169,7 +168,12 @@ public final class LocalVaultStore: SecretStore {
     }
 
     private func loadLocked() throws -> Document? {
-        guard let data = FileManager.default.contents(atPath: vaultURL.path) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: vaultURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return nil
+        }
         let envelope: Envelope
         do {
             envelope = try JSONDecoder().decode(Envelope.self, from: data)
@@ -244,51 +248,47 @@ public final class LocalVaultStore: SecretStore {
     }
 }
 
-/// Prefers the app's own vault and keeps the login keychain only as a source for
-/// credentials written by older builds.
-///
-/// Reads: local first. An account the vault has never handled falls through to
-/// the keychain once; a hit is copied into the vault so the next launch never
-/// touches the keychain again. An account the vault knows about — including one
-/// the user deleted — never falls through, so a stale keychain item cannot bring
-/// a removed password back.
-///
-/// Writes go to the vault only. If the vault cannot be written (a read-only data
-/// folder, a damaged key) the write lands in the keychain instead of being lost.
+/// All writes go to the local vault. The login keychain is a non-interactive,
+/// read-only migration source for accounts the local vault has never seen.
+/// A deletion or a read error must not bring a stale keychain item back.
 public final class MigratingSecretStore: SecretStore {
     private let local: LocalVaultStore
-    private let fallback: SecretStore
+    private let readLegacy: (SecretAccount) throws -> String?
     private let log: (String) -> Void
 
-    public init(local: LocalVaultStore, fallback: SecretStore, log: @escaping (String) -> Void = { _ in }) {
+    public convenience init(local: LocalVaultStore, log: @escaping (String) -> Void = { _ in }) {
+        let legacy = KeychainVaultStore(items: Keychain(allowsAuthenticationUI: false))
+        self.init(local: local, readLegacy: legacy.readForMigration, log: log)
+    }
+
+    public init(local: LocalVaultStore, readLegacy: @escaping (SecretAccount) throws -> String?,
+                log: @escaping (String) -> Void = { _ in }) {
         self.local = local
-        self.fallback = fallback
+        self.readLegacy = readLegacy
         self.log = log
     }
 
     public func secret(for account: SecretAccount) throws -> String? {
+        if let value = try local.secret(for: account) { return value }
+        if try local.knows(account) { return nil }
+
+        let legacy: String?
         do {
-            if let value = try local.secret(for: account) { return value }
-            if try local.knows(account) { return nil }
+            legacy = try readLegacy(account)
         } catch {
-            log("credential vault unreadable, using the keychain: " + error.localizedDescription)
+            log("could not read a legacy credential without authorization: " + error.localizedDescription)
+            return nil
         }
-        guard let legacy = try fallback.secret(for: account) else { return nil }
+        guard let legacy else { return nil }
         do {
             try local.setSecret(legacy, for: account)
-            log("migrated " + account.rawValue + " into the app vault")
         } catch {
-            log("could not migrate " + account.rawValue + ": " + error.localizedDescription)
+            log("could not migrate a legacy credential: " + error.localizedDescription)
         }
         return legacy
     }
 
     public func setSecret(_ value: String?, for account: SecretAccount) throws {
-        do {
-            try local.setSecret(value, for: account)
-        } catch {
-            log("credential vault is read-only, writing to the keychain: " + error.localizedDescription)
-            try fallback.setSecret(value, for: account)
-        }
+        try local.setSecret(value, for: account)
     }
 }

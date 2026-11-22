@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import TaugeKit
 
 /// A stand-in for the keychain so the migration path can be counted exactly.
@@ -43,6 +44,7 @@ private func permissions(_ url: URL) -> Int? {
 func runLocalVaultChecks() {
     let password = SecretAccount.hostPassword(UUID())
     let passphrase = SecretAccount.hostPassphrase(UUID())
+    let proxy = SecretAccount.proxyPassword(UUID())
 
     run("localVault round-trips secrets") {
         let directory = makeVaultDirectory()
@@ -51,8 +53,11 @@ func runLocalVaultChecks() {
 
         try vault.setSecret("hunter2", for: password)
         try vault.setSecret("pp", for: passphrase)
+        try vault.setSecret(" 代理 密码 ", for: proxy)
         expectEqual((try vault.secret(for: password)) ?? nil, "hunter2", "the password comes back")
         expectEqual((try vault.secret(for: passphrase)) ?? nil, "pp", "the passphrase comes back")
+        expectEqual(try LocalVaultStore(directory: directory).secret(for: proxy), " 代理 密码 ",
+                    "the exact proxy password survives reopening the file")
 
         try vault.setSecret(nil, for: password)
         expectEqual((try vault.secret(for: password)) ?? nil, nil, "a deleted secret is gone")
@@ -154,13 +159,13 @@ func runLocalVaultChecks() {
         let directory = makeVaultDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = SpySecretStore([password.rawValue: "legacy-pass"])
-        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), fallback: keychain)
+        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: keychain.secret(for:))
 
         expectEqual((try store.secret(for: password)) ?? nil, "legacy-pass", "the keychain still answers the first read")
         expectEqual(keychain.reads.count, 1, "the keychain is read for that account")
         expectEqual(try LocalVaultStore(directory: directory).knows(password), true, "the value is copied into the vault")
 
-        let second = MigratingSecretStore(local: LocalVaultStore(directory: directory), fallback: keychain)
+        let second = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: keychain.secret(for:))
         expectEqual((try second.secret(for: password)) ?? nil, "legacy-pass", "the next launch still gets the password")
         expectEqual(keychain.reads.count, 1, "and does not touch the keychain again")
         expectEqual(keychain.writes.count, 0, "nothing was written back to the keychain")
@@ -170,11 +175,12 @@ func runLocalVaultChecks() {
         let directory = makeVaultDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = SpySecretStore([password.rawValue: "legacy-pass"])
-        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), fallback: keychain)
+        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: keychain.secret(for:))
 
         _ = try store.secret(for: password)
         try store.setSecret(nil, for: password)
-        expectEqual((try store.secret(for: password)) ?? nil, nil, "the deleted password stays deleted")
+        let reopened = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: keychain.secret(for:))
+        expectEqual(try reopened.secret(for: password), nil, "the deleted password stays deleted after reopening")
         expectEqual(keychain.reads.count, 1, "the keychain is not consulted again")
         expectEqual(keychain.values[password.rawValue], "legacy-pass", "the old keychain item itself is untouched")
     }
@@ -183,7 +189,7 @@ func runLocalVaultChecks() {
         let directory = makeVaultDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = SpySecretStore()
-        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), fallback: keychain)
+        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: keychain.secret(for:))
 
         try store.setSecret("fresh", for: passphrase)
         expectEqual((try store.secret(for: passphrase)) ?? nil, "fresh", "the new secret is readable")
@@ -191,16 +197,51 @@ func runLocalVaultChecks() {
         expectEqual(keychain.reads.count, 0, "and is not consulted for it either")
     }
 
-    run("localVault falls back to the keychain when the folder is unwritable") {
+    run("an unwritable local vault reports save failure without consulting the keychain") {
         let directory = makeVaultDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         // A regular file where the vault folder should be makes every write fail.
         let blocked = directory.appendingPathComponent("blocked")
         FileManager.default.createFile(atPath: blocked.path, contents: Data("x".utf8))
         let keychain = SpySecretStore()
-        let store = MigratingSecretStore(local: LocalVaultStore(directory: blocked), fallback: keychain)
+        let store = MigratingSecretStore(local: LocalVaultStore(directory: blocked), readLegacy: keychain.secret(for:))
 
-        try store.setSecret("pw", for: password)
-        expectEqual(keychain.values[password.rawValue], "pw", "the write lands in the keychain instead of being lost")
+        do {
+            try store.setSecret("pw", for: password)
+            expect(false, "the caller must not think the write succeeded")
+        } catch {
+            expectEqual(keychain.reads, [], "the failed write does not look at the keychain")
+            expectEqual(keychain.writes, [], "the failed write does not save to the keychain")
+        }
+    }
+
+    run("localVault skips legacy credentials that need authorization") {
+        let directory = makeVaultDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var attempts = 0
+        let store = MigratingSecretStore(local: LocalVaultStore(directory: directory), readLegacy: { _ in
+            attempts += 1
+            throw KeychainError.unexpectedStatus(errSecInteractionNotAllowed)
+        })
+
+        expectEqual(try store.secret(for: proxy), nil, "a locked legacy item looks like a missing password")
+        try store.setSecret("re-entered", for: proxy)
+        expectEqual(try store.secret(for: proxy), "re-entered", "re-entering the credential works locally")
+        expectEqual(attempts, 1, "no further keychain reads are needed")
+    }
+
+    run("a damaged local vault cannot resurrect an older keychain password") {
+        let directory = makeVaultDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let local = LocalVaultStore(directory: directory)
+        try Data("broken vault".utf8).write(to: local.vaultURL)
+        let keychain = SpySecretStore([password.rawValue: "stale"])
+        let store = MigratingSecretStore(local: local, readLegacy: keychain.secret(for:))
+        do {
+            _ = try store.secret(for: password)
+            expect(false, "local vault corruption must be reported")
+        } catch {
+            expectEqual(keychain.reads, [], "local read errors do not fall through to older credentials")
+        }
     }
 }

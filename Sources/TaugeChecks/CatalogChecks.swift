@@ -44,6 +44,18 @@ func runCatalogChecks() {
         database.close()
     }
 
+    run("catalog ignores the removed Touch ID setting from older versions") {
+        let database = try SQLiteDatabase(path: root.appendingPathComponent("upgrade.sqlite").path)
+        defer { database.close() }
+        let store = try HostStore(database: database)
+        try store.setSetting(key: "app.settings", value: #"{"language":"en","unlockWithBiometrics":true}"#)
+        let settings = try store.settings()
+        expectEqual(settings.language, "en", "other settings survive reading an older catalog")
+        try store.save(settings: settings)
+        let serialized = try store.setting(key: "app.settings") ?? ""
+        expect(!serialized.contains("unlockWithBiometrics"), "the retired setting is no longer written")
+    }
+
     run("catalog preserves host and group colors") {
         let url = root.appendingPathComponent("colors.sqlite")
         let database = try SQLiteDatabase(path: url.path)

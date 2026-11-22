@@ -68,17 +68,11 @@ final class AppEnvironment {
         self.isEphemeralDatabase = isEphemeralDatabase
         self.catalogOpenFailure = catalogOpenFailure
         self.isReadOnlyCatalog = isReadOnlyCatalog
-        // Credentials live in the app's own folder, next to the catalog, so a new
-        // build never re-asks for the login-keychain password. The keychain is
-        // still read once per credential written by an older build and its value
-        // is migrated; after that it is never touched again. The legacy
-        // adapter is explicitly non-interactive: if an old item is locked to
-        // a previous signature, skip it and let the normal connection form
-        // collect the credential instead of showing a login-keychain prompt.
+        // Credentials live next to the catalog. Older keychain entries are
+        // only migrated when they can be read without an authorization prompt.
         let support = HostStore.defaultDatabaseURL().deletingLastPathComponent()
         let vaultDirectory = isEphemeralDatabase ? support : databaseURL.deletingLastPathComponent()
-        self.secrets = CachingSecretStore(upstream: MigratingSecretStore(local: LocalVaultStore(directory: vaultDirectory),
-                                                                        fallback: KeychainVaultStore(items: Keychain(allowsAuthenticationUI: false))) { message in
+        self.secrets = CachingSecretStore(upstream: MigratingSecretStore(local: LocalVaultStore(directory: vaultDirectory)) { message in
             FileHandle.standardError.write(Data(("Tauge: " + message + "\n").utf8))
         })
         self.localFiles = LocalFileService()

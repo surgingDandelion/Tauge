@@ -88,12 +88,11 @@ struct ProxyTestView: View {
         inputError = nil
         result = nil
         testing = true
-        let secret = password?.isEmpty == false ? password : nil
         // Run off the main thread: the probe blocks on the network for up to
         // its timeout, and the sheet must stay responsive.
         Task {
             let outcome = await app.testProxy(proxy,
-                                              password: secret,
+                                              password: password,
                                               targetHost: parsed.host,
                                               targetPort: parsed.port)
             await MainActor.run {

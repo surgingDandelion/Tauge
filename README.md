@@ -98,9 +98,10 @@ the current Tauge data directory before opening them.
 ### Local by default
 
 - Passwords and key passphrases are sealed with AES-256-GCM in Tauge's own
-  vault under `~/Library/Application Support/Tauge`, not in the login Keychain, so
-  updates and reinstalls never trigger a Keychain prompt. An optional Touch ID
-  check gates the app when it opens.
+  vault under `~/Library/Application Support/Tauge`, not in the login Keychain.
+  Tauge reads the local vault without Touch ID or your Mac login password.
+- Host and proxy passwords and host key passphrases are masked when you open an
+  editor. Click the eye beside the field to show or hide the saved value.
 - Host keys are checked on first connection. If a key changes, Tauge blocks the
   connection and shows both fingerprints.
 - Password, Ed25519, ECDSA, and RSA authentication.

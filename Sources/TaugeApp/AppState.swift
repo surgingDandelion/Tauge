@@ -816,14 +816,10 @@ final class AppState: ObservableObject {
 
     // MARK: - Proxies and keys
 
-    func saveProxy(_ proxy: ProxyConfig) {
-        do {
-            try store.save(proxy: proxy)
-            reloadCatalog()
-            editingProxy = nil
-        } catch {
-            present(error)
-        }
+    func saveProxy(_ proxy: ProxyConfig) throws {
+        try store.save(proxy: proxy)
+        reloadCatalog()
+        editingProxy = nil
     }
 
     func deleteProxy(_ id: UUID) {

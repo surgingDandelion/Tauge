@@ -137,7 +137,7 @@ public enum ProxyProbe {
                 + L(" 应答：确认「类型」与端口是否匹配（例如 8080 是 HTTP CONNECT，1080 才是 SOCKS5）。")
         case .httpStatus(let code):
             if code == 407 {
-                return L("代理要求认证：填写用户名和密码，并在「保存密码到凭据库」后重新测试。")
+                return L("代理要求认证：在代理配置里填写用户名和密码后再测试。")
             }
             if code == 403 {
                 return L("代理策略不允许访问该目标：换一个测试目标，或联系代理管理员放行。")

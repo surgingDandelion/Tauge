@@ -60,15 +60,15 @@ jobs:
           PY
 
           {
-            printf '**Tauge %s** — a local-first SSH/SFTP client for macOS.\n\n' "$GITHUB_REF_NAME"
-            printf "%s\n\n" "### What's changed"
+            printf '**Tauge %s**：macOS 本地 SSH / SFTP 客户端。\n\n' "$GITHUB_REF_NAME"
+            printf '%s\n\n' '## 更新日志'
             cat release-notes.md
-            printf '\n%s\n\n' "### Install"
-            printf '1. Download `Tauge-*.dmg`, open it, and drag **Tauge** to Applications.\n'
-            printf '2. Launch Tauge. The app stores everything locally; no account or cloud service is involved.\n\n'
-            printf 'The release is a universal build for Apple silicon and Intel and requires macOS 13 or later. `SHA256SUMS.txt` contains the checksums for the DMG and ZIP; verify them with `shasum -a 256 -c SHA256SUMS.txt`.\n\n'
-            printf 'If macOS blocks the first launch, follow [docs/INSTALL.md](https://github.com/%s/blob/main/docs/INSTALL.md). Release builds are ad-hoc signed unless the repository has Developer ID credentials configured.\n\n' "$GITHUB_REPOSITORY"
-            printf '**Full changelog:** https://github.com/%s/blob/main/CHANGELOG.md\n' "$GITHUB_REPOSITORY"
+            printf '\n%s\n\n' '## 安装'
+            printf '1. 下载并打开 `Tauge-*.dmg`，将 **Tauge** 拖到「应用程序」文件夹。\n'
+            printf '2. 启动 Tauge。应用数据保存在本机，无需注册账号。\n\n'
+            printf '安装包同时支持 Apple 芯片和 Intel Mac，需要 macOS 13 或更新版本。可用 `shasum -a 256 -c SHA256SUMS.txt` 校验 DMG 和 ZIP。\n\n'
+            printf '未配置 Developer ID 时，发布包使用临时签名。如果 macOS 阻止首次启动，请参阅[安装说明](https://github.com/%s/blob/main/docs/INSTALL.md)。\n\n' "$GITHUB_REPOSITORY"
+            printf '[完整更新日志](https://github.com/%s/blob/main/CHANGELOG.md)\n' "$GITHUB_REPOSITORY"
           } > release-body.md
 
       - name: Import Developer ID certificate

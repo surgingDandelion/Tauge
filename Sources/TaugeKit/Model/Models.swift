@@ -627,11 +627,6 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var mcpEnabled: Bool = false
     /// Timestamp of the last successful update check; drives the daily throttle.
     public var lastUpdateCheck: Date?
-    /// Ask for Touch ID (falling back to the device password) before a saved
-    /// password or key passphrase is read from the vault. On by default: the
-    /// vault is a file any process running as the user could open, so the gate
-    /// is what keeps a stored credential from being used by someone else.
-    public var unlockWithBiometrics: Bool = true
 
     public init() {}
 
@@ -671,7 +666,6 @@ public struct AppSettings: Codable, Sendable, Equatable {
         automaticallyChecksForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .automaticallyChecksForUpdates)) ?? automaticallyChecksForUpdates
         mcpEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .mcpEnabled)) ?? mcpEnabled
         lastUpdateCheck = (try? c.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)) ?? lastUpdateCheck
-        unlockWithBiometrics = (try? c.decodeIfPresent(Bool.self, forKey: .unlockWithBiometrics)) ?? unlockWithBiometrics
     }
 }
 

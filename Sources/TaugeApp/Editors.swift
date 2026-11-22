@@ -530,17 +530,21 @@ struct GroupEditorView: View {
 struct ProxyEditorView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var proxy: ProxyConfig
-    @ViewState private var password = ""
+    @ViewState private var password = SavedCredentialDraft()
+    @ViewState private var loadedCredentials = false
+    @ViewState private var validationMessage: String?
+    private let originallySavesPassword: Bool
     /// Optional callbacks let the host editor host this sheet itself: the single
     /// sheet router in ContentView owns `editingProxy`, so a proxy created from a
     /// host form must be handed back instead of touching the router.
-    private let onSave: ((ProxyConfig, String) -> Void)?
+    private let onSave: ((ProxyConfig) -> Void)?
     private let onCancel: (() -> Void)?
 
     init(proxy: ProxyConfig,
-         onSave: ((ProxyConfig, String) -> Void)? = nil,
+         onSave: ((ProxyConfig) -> Void)? = nil,
          onCancel: (() -> Void)? = nil) {
         _proxy = ViewState(wrappedValue: proxy)
+        originallySavesPassword = proxy.savesPassword
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -554,22 +558,18 @@ struct ProxyEditorView: View {
                     if let onCancel { onCancel() } else { app.editingProxy = nil }
                 }
                 .keyboardShortcut(.cancelAction)
-                Button(L("保存")) {
-                    if let onSave {
-                        onSave(proxy, password)
-                    } else {
-                        if !password.isEmpty {
-                            try? app.environment.secrets.setSecret(password, for: .proxyPassword(proxy.id))
-                        }
-                        app.saveProxy(proxy)
-                        app.editingProxy = nil
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
+                Button(L("保存")) { save() }
+                    .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
             Divider()
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.danger)
+                    .padding(12)
+            }
             Form {
                 TextField(L("名称"), text: $proxy.name)
                 Picker(L("类型"), selection: $proxy.type) {
@@ -580,7 +580,12 @@ struct ProxyEditorView: View {
                 TextField(L("地址"), text: $proxy.host)
                 TextField(L("端口"), value: $proxy.port, format: .number)
                 TextField(L("用户名（可选）"), text: $proxy.username)
-                SecureField(L("密码（可选）"), text: $password)
+                HStack(spacing: 8) {
+                    Text(L("密码（可选）")).fixedSize()
+                    Spacer(minLength: 0)
+                    RevealableCredentialField(title: L("密码"), text: $password.text)
+                        .frame(maxWidth: 254)
+                }
                 Toggle(L("保存密码到凭据库"), isOn: $proxy.savesPassword)
                 Text(L("作用域：主机 > 分组 > 全局；代理仅用于连接第一跳 TCP。选了代理的主机不再经过跳板机。"))
                     .font(.system(size: 10))
@@ -594,12 +599,39 @@ struct ProxyEditorView: View {
                 // window gets clipped, which hid the test button entirely.
                 Section(L("连接测试")) {
                     ProxyTestView(proxy: proxy,
-                                  password: password.isEmpty ? nil : password,
+                                  password: password.text,
                                   defaultTarget: "example.com:443")
                 }
             }
             .formStyle(.grouped)
         }
         .frame(width: 480, height: 520)
+        .onAppear { loadCredentials() }
+    }
+
+    private func loadCredentials() {
+        guard !loadedCredentials else { return }
+        loadedCredentials = true
+        do {
+            try password.load(from: app.environment.secrets, account: .proxyPassword(proxy.id))
+        } catch {
+            validationMessage = L("无法读取本地凭据。请检查凭据库文件是否可读且完整。")
+        }
+    }
+
+    private func save() {
+        do {
+            try password.save(to: app.environment.secrets, account: .proxyPassword(proxy.id),
+                              remember: proxy.savesPassword, wasRemembered: originallySavesPassword)
+        } catch {
+            validationMessage = L("无法保存本地凭据。请检查凭据库文件和目录是否可写。")
+            return
+        }
+        do {
+            try app.saveProxy(proxy)
+            onSave?(proxy)
+        } catch {
+            validationMessage = AppError(error).message
+        }
     }
 }

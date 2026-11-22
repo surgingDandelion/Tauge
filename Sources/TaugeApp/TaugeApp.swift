@@ -4,6 +4,7 @@ import AppKit
 
 @main
 enum TaugeMain {
+    @MainActor
     static func main() {
         // Diagnostic used by the packaging scripts and by anyone checking an
         // installed build: load the localisation table without starting AppKit and
@@ -13,6 +14,9 @@ enum TaugeMain {
             let count = TaugeL10n.shared.englishTranslations.count
             FileHandle.standardError.write(Data("localization entries: \(count)\n".utf8))
             exit(count > 700 ? 0 : 1)
+        }
+        if CommandLine.arguments.contains("--verify-terminal-tab-switch") {
+            TerminalTabSwitchCheck.run()
         }
         // Scriptable update probe: asks GitHub for the latest release without
         // starting AppKit. Used by packaging checks and by anyone verifying

@@ -297,7 +297,7 @@ public final class RemoteCommandService: @unchecked Sendable {
     private func authentication(for host: SSHHost) throws -> SSHAuthMaterial {
         switch host.authMethod {
         case .password, .keyboardInteractive:
-            guard let value = try secrets.secret(for: .hostPassword(host.id)), !value.isEmpty else {
+            guard host.savesPassword, let value = try secrets.secret(for: .hostPassword(host.id)), !value.isEmpty else {
                 throw RemoteCommandServiceError.credentialUnavailable
             }
             return .password(value)
@@ -315,8 +315,8 @@ public final class RemoteCommandService: @unchecked Sendable {
             } else {
                 throw RemoteCommandServiceError.privateKeyUnavailable
             }
-            let passphrase = try? secrets.secret(for: .hostPassphrase(host.id))
-            return .privateKey(try SSHKeyParser.parse(data: data, passphrase: passphrase ?? nil).key)
+            let passphrase = host.savesPassword ? (try? secrets.secret(for: .hostPassphrase(host.id))) : nil
+            return .privateKey(try SSHKeyParser.parse(data: data, passphrase: passphrase).key)
         case .agent:
             throw RemoteCommandServiceError.unsupportedAuthentication(.agent)
         }

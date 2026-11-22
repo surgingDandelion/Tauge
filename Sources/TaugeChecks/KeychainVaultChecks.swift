@@ -142,12 +142,22 @@ func runKeychainVaultChecks() {
         expectEqual(names, names.sorted(), "the list is sorted")
     }
 
-    run("biometric gate remembers an unlock until locked") {
-        let gate = BiometricGate()
-        expectEqual(gate.isUnlocked, false, "a fresh gate is locked")
-        gate.markUnlocked()
-        expectEqual(gate.isUnlocked, true, "an unlock is remembered")
-        gate.lock()
-        expectEqual(gate.isUnlocked, false, "locking forgets it")
+    run("keychain migration reads both legacy formats without writing") {
+        let store = FakeItemStore([password.rawValue: "old-host", proxy.rawValue: "stale-proxy"])
+        let vault = KeychainVaultStore(items: store)
+
+        expectEqual(try vault.readForMigration(password), "old-host", "an individual legacy item can be read")
+        expectEqual(store.writes, [], "reading the old item does not create a keychain vault")
+
+        try vault.setSecret("old-passphrase", for: passphrase)
+        try vault.setSecret(nil, for: proxy)
+        let snapshot = store.items
+        let writeCount = store.writes.count
+        let reopened = KeychainVaultStore(items: store)
+        expectEqual(try reopened.readForMigration(passphrase), "old-passphrase", "consolidated legacy values can be read")
+        expectEqual(try reopened.readForMigration(proxy), nil, "an old tombstone wins over any per-account item")
+        expectEqual(try reopened.readForMigration(password), "old-host", "unseen accounts still check the individual item")
+        expectEqual(store.writes.count, writeCount, "migration never updates the keychain")
+        expectEqual(store.items, snapshot, "migration leaves the old storage intact")
     }
 }

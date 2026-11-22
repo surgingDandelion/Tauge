@@ -63,14 +63,13 @@ they live in the app's own encrypted vault, not in the login keychain, so an
 update or re-signed build does not raise a Keychain prompt.
 
 The vault is `vault.v1.enc` with its random key in `vault.key`, both in
-Application Support and readable only by your user (`0600`). The app asks for
-Touch ID, or the device password, once per launch before it reads a saved
-credential (Settings → Security → `Unlock method`), and does not ask again until
-it quits. It is skipped on Macs without a sensor. An older credential is
-migrated into the vault when macOS can read it without authorization. If its
-old signature grant is no longer valid, Tauge skips the legacy item without
-showing a login-keychain password dialog; enter the host password once in Tauge
-and it is saved in the local vault.
+Application Support and readable only by your user (`0600`). The key is a local
+file, so Tauge does not ask for Touch ID or the Mac login password to read it.
+Keep both files private: anyone who can read both can decrypt the vault.
+An older credential is migrated when macOS can read it without authorization.
+If its old signature grant is no longer valid, Tauge skips it without showing a
+login-keychain password dialog. Re-enter the password or passphrase once in
+the corresponding configuration to save it in the local vault.
 
 ## Build from source
 

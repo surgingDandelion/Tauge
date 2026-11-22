@@ -10,12 +10,15 @@ import TaugeKit
 struct HostEditorView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var host: SSHHost
-    @ViewState private var password = ""
-    @ViewState private var passphrase = ""
+    @ViewState private var password = SavedCredentialDraft()
+    @ViewState private var passphrase = SavedCredentialDraft()
+    @ViewState private var loadedCredentials = false
+    @ViewState private var credentialError: String?
     @ViewState private var validationMessage: String?
     @ViewState private var jumpQuery = ""
     @ViewState private var editorSheet: HostEditorSheet?
     @ViewState private var showsAdvanced = false
+    private let originallySavesPassword: Bool
 
     private enum HostEditorSheet: Identifiable {
         case proxy(ProxyConfig)
@@ -31,6 +34,7 @@ struct HostEditorView: View {
 
     init(host: SSHHost) {
         _host = ViewState(wrappedValue: host)
+        originallySavesPassword = host.savesPassword
     }
 
     private var inheritedColorHex: String? {
@@ -51,6 +55,12 @@ struct HostEditorView: View {
             .padding(.horizontal, 16)
             .frame(height: 44)
             Divider()
+            if let credentialError {
+                Text(credentialError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.danger)
+                    .padding(12)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     connectionSection
@@ -72,19 +82,13 @@ struct HostEditorView: View {
         // window shows through and thin secondary labels lose their contrast.
         .background(Theme.windowBackground)
         .frame(width: 620, height: 620)
+        .onAppear { loadCredentials() }
         .sheet(item: $editorSheet) { sheet in
             switch sheet {
             case .proxy(let draft):
                 ProxyEditorView(
                     proxy: draft,
-                    onSave: { proxy, secret in
-                        if !secret.isEmpty {
-                            try? app.environment.secrets.setSecret(
-                                secret,
-                                for: .proxyPassword(proxy.id)
-                            )
-                        }
-                        app.saveProxy(proxy)
+                    onSave: { proxy in
                         host.proxyPolicy = .use(proxy.id)
                         editorSheet = nil
                     },
@@ -160,8 +164,8 @@ struct HostEditorView: View {
             switch host.authMethod {
             case .password, .keyboardInteractive:
                 labeled(L("密码")) {
-                    SecureField(L("留空则使用已保存的密码"), text: $password)
-                        .textFieldStyle(.roundedBorder)
+                    RevealableCredentialField(title: L("密码"), text: $password.text)
+                        .id(host.authMethod)
                 }
                 labeled("") {
                     Toggle(L("保存密码到凭据库"), isOn: $host.savesPassword)
@@ -188,8 +192,12 @@ struct HostEditorView: View {
                     }
                 }
                 labeled(L("口令")) {
-                    SecureField(L("私钥口令（可选）"), text: $passphrase)
-                        .textFieldStyle(.roundedBorder)
+                    RevealableCredentialField(title: L("私钥口令（可选）"), text: $passphrase.text,
+                                              isPassphrase: true)
+                }
+                labeled("") {
+                    Toggle(L("保存口令到凭据库"), isOn: $host.savesPassword)
+                        .font(.system(size: 11))
                 }
             case .agent:
                 Text(L("使用 ssh-agent 里的密钥；需要系统 ssh 连接方式，或在内置实现里可用且已加载的 agent 密钥。"))
@@ -602,6 +610,17 @@ struct HostEditorView: View {
 
     // MARK: - Actions
 
+    private func loadCredentials() {
+        guard !loadedCredentials else { return }
+        loadedCredentials = true
+        do {
+            try password.load(from: app.environment.secrets, account: .hostPassword(host.id))
+            try passphrase.load(from: app.environment.secrets, account: .hostPassphrase(host.id))
+        } catch {
+            credentialError = L("无法读取本地凭据。请检查凭据库文件是否可读且完整。")
+        }
+    }
+
     private func beginNewProxy(_ type: ProxyType) {
         var proxy = ProxyConfig(name: type.displayName, type: type)
         proxy.port = type.defaultPort
@@ -658,11 +677,15 @@ struct HostEditorView: View {
         let route = RouteRules.normalized(proxy: host.proxyPolicy, jump: host.jumpPolicy)
         host.proxyPolicy = route.proxy
         host.jumpPolicy = route.jump
-        if !password.isEmpty {
-            try? app.environment.secrets.setSecret(password, for: .hostPassword(host.id))
-        }
-        if !passphrase.isEmpty {
-            try? app.environment.secrets.setSecret(passphrase, for: .hostPassphrase(host.id))
+        let secrets = app.environment.secrets
+        do {
+            try password.save(to: secrets, account: .hostPassword(host.id),
+                              remember: host.savesPassword, wasRemembered: originallySavesPassword)
+            try passphrase.save(to: secrets, account: .hostPassphrase(host.id),
+                                remember: host.savesPassword, wasRemembered: originallySavesPassword)
+        } catch {
+            credentialError = L("无法保存本地凭据。请检查凭据库文件和目录是否可写。")
+            return
         }
         app.saveHost(host)
     }

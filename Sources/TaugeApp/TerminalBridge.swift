@@ -3,50 +3,118 @@ import SwiftUI
 import SwiftTerm
 import TaugeKit
 
-/// Bridges the SwiftTerm view and the SSH channel.
-///
-/// Data arrives from NIO threads long before SwiftUI has mounted the view, and
-/// it must survive tab switches, so the bridge buffers output until a view
-/// attaches and keeps a bounded replay buffer for re-attach.
+/// Owns a tab's emulator independently of its SwiftUI host. Replaying raw
+/// output on reattach isn't equivalent to restoring a terminal: the original
+/// stream can depend on earlier grid sizes, modes and cursor positions.
 @MainActor
-final class TerminalBridge {
-    weak var view: TaugeTerminalView?
-    private var pending: [Data] = []
-    private var replay: [Data] = []
-    private var replayBytes = 0
-    private let replayLimit = 512 * 1024
+final class TerminalBridge: TerminalViewDelegate {
+    private var terminal: TaugeTerminalView?
+    private var appliedSettings: AppSettings?
+    var onResize: ((Int, Int) -> Void)?
+    var onDirectoryChange: ((String) -> Void)?
+    var onBackgroundReply: ((Data) -> Void)?
 
-    func attach(_ view: TaugeTerminalView) {
-        self.view = view
-        let backlog = replay + pending
-        pending.removeAll()
-        for chunk in backlog {
-            view.feed(byteArray: ArraySlice(chunk))
-        }
+    /// Focus and search only target a mounted view, not an offscreen emulator.
+    var view: TaugeTerminalView? {
+        guard let terminal, terminal.superview is TerminalViewHost else { return nil }
+        return terminal
     }
 
-    func detach(_ view: TaugeTerminalView) {
-        if self.view === view { self.view = nil }
+    /// Also called before opening an SSH channel, so tabs that connect in the
+    /// background can parse output immediately even before their first mount.
+    @discardableResult
+    func prepare(settings: AppSettings, columns: Int, rows: Int) -> TaugeTerminalView {
+        if let terminal, appliedSettings == settings { return terminal }
+
+        let font = NSFont(name: settings.terminalFontFamily, size: settings.terminalFontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: settings.terminalFontSize, weight: .regular)
+        let view: TaugeTerminalView
+        if let terminal {
+            view = terminal
+            if view.font != font { view.font = font }
+            if appliedSettings?.scrollbackLines != settings.scrollbackLines {
+                view.changeScrollback(settings.scrollbackLines)
+            }
+        } else {
+            var options = TerminalOptions(cols: columns, rows: rows, termName: "xterm-256color",
+                                          scrollback: settings.scrollbackLines)
+            options.enableOsc8Hyperlinks = true
+            options.kittyClipboardPolicy = []
+            // SwiftTerm uses the options' grid only for a zero-sized frame.
+            view = TaugeTerminalView(frame: .zero, font: font, options: options)
+            terminal = view
+            view.terminalDelegate = self
+            view.registerForDraggedTypes([.fileURL])
+        }
+        view.optionAsMetaKey = settings.optionAsMeta
+        view.copyOnSelect = settings.copyOnSelect
+        view.confirmMultilinePaste = settings.confirmMultilinePaste
+        if appliedSettings?.terminalThemeName != settings.terminalThemeName {
+            let theme = TerminalThemeCatalog.theme(named: settings.terminalThemeName)
+            view.nativeForegroundColor = theme.foreground
+            view.nativeBackgroundColor = theme.background
+            view.caretColor = theme.caret
+            view.installColors(theme.ansi)
+        }
+        let opacity = CGFloat(max(0.5, min(1.0, settings.terminalBackgroundOpacity)))
+        if view.backgroundOpacity != opacity { view.backgroundOpacity = opacity }
+        let spacing = CGFloat(max(0.9, min(1.6, settings.terminalLineHeight)))
+        if view.lineSpacing != spacing { view.lineSpacing = spacing }
+        appliedSettings = settings
+        return view
     }
 
     func feed(_ data: Data) {
         guard !data.isEmpty else { return }
-        replay.append(data)
-        replayBytes += data.count
-        while replayBytes > replayLimit, replay.count > 1 {
-            replayBytes -= replay.removeFirst().count
-        }
-        if let view {
-            view.feed(byteArray: ArraySlice(data))
-        } else if pending.count < 512 {
-            pending.append(data)
+        terminal?.feed(byteArray: ArraySlice(data))
+    }
+
+    func close() {
+        terminal?.terminalDelegate = nil
+        terminal?.removeFromSuperview()
+        terminal?.updateUiClosed()
+        terminal = nil
+        appliedSettings = nil
+    }
+
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        onResize?(newCols, newRows)
+    }
+
+    // The tab label stays the host's name, regardless of the remote shell title.
+    func setTerminalTitle(source: TerminalView, title: String) {}
+
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        if let directory { onDirectoryChange?(directory) }
+    }
+
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        let bytes = Data(data)
+        if let send = (source.superview as? TerminalViewHost)?.onSend, source.window != nil {
+            send(bytes)
+        } else {
+            // A background shell may still ask the emulator for cursor/mode
+            // information. Reply to its own channel without broadcasting.
+            onBackgroundReply?(bytes)
         }
     }
 
-    func clear() {
-        replay.removeAll()
-        pending.removeAll()
-        replayBytes = 0
+    func scrolled(source: TerminalView, position: Double) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+
+    func clipboardCopy(source: TerminalView, content: Data) {
+        guard source.window != nil else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setData(content, forType: .string)
+    }
+
+    func clipboardRead(source: TerminalView) -> Data? {
+        guard source.window != nil else { return nil }
+        return NSPasteboard.general.string(forType: .string).map { Data($0.utf8) }
+    }
+
+    func bell(source: TerminalView) {
+        if source.window != nil { NSSound.beep() }
     }
 }
 
@@ -56,12 +124,7 @@ final class TaugeTerminalView: TerminalView {
     var copyOnSelect = true
     var confirmMultilinePaste = true
     private var lastCopiedSelection: String?
-    /// Called with files dropped from Finder. The container is responsible for
-    /// uploading them and echoing the remote paths back (without a newline).
-    var onFilesDropped: (([URL]) -> Void)?
-    /// Called whenever the terminal gains focus (click or keyboard), so the board
-    /// can highlight the pane the user is actually working in.
-    var onFocus: (() -> Void)?
+    private var host: TerminalViewHost? { superview as? TerminalViewHost }
 
     // SwiftTerm declares becomeFirstResponder as public (not open), so it cannot
     // be overridden from another module; the mouse-down hook is enough to tell the
@@ -72,7 +135,7 @@ final class TaugeTerminalView: TerminalView {
         // tab strip or the find bar left the terminal unable to receive keys —
         // the classic "sometimes I can't type" report. Take focus explicitly.
         takeFocus()
-        onFocus?()
+        host?.onFocus?()
         super.mouseDown(with: event)
     }
 
@@ -173,7 +236,7 @@ final class TaugeTerminalView: TerminalView {
         if let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
                                                             options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty,
-           let handler = onFilesDropped {
+           let handler = host?.onFilesDropped {
             handler(urls)
             takeFocus()
             return true
@@ -182,116 +245,62 @@ final class TaugeTerminalView: TerminalView {
     }
 }
 
-/// SwiftUI wrapper around SwiftTerm's macOS view.
+/// SwiftUI owns this wrapper, not the terminal subview. Mounting elsewhere
+/// transfers the same view; tearing down the old host cannot detach it again.
+final class TerminalViewHost: NSView {
+    var onSend: ((Data) -> Void)?
+    var onFilesDropped: (([URL]) -> Void)?
+    var onFocus: (() -> Void)?
+
+    private var terminal: TaugeTerminalView? { subviews.first as? TaugeTerminalView }
+
+    func mount(_ view: TaugeTerminalView) {
+        guard view.superview !== self else { return }
+        unmount()
+        view.removeFromSuperview()
+        addSubview(view)
+        fitTerminal()
+    }
+
+    func unmount() {
+        terminal?.removeFromSuperview()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        fitTerminal()
+    }
+
+    private func fitTerminal() {
+        // A freshly mounted host has no layout yet. Keep the terminal's last
+        // grid instead of sending a transient size to the shell.
+        guard let terminal, bounds.width > 0, bounds.height > 0, terminal.frame != bounds else { return }
+        terminal.frame = bounds
+    }
+}
+
 struct TerminalContainer: NSViewRepresentable {
     let bridge: TerminalBridge
     let settings: AppSettings
+    let initialColumns: Int
+    let initialRows: Int
     let onSend: (Data) -> Void
-    let onResize: (Int, Int) -> Void
-    let onDirectoryChange: (String?) -> Void
     var onFilesDropped: (([URL]) -> Void)? = nil
     var onFocus: (() -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+    func makeNSView(context: Context) -> TerminalViewHost {
+        TerminalViewHost(frame: .zero)
     }
 
-    func makeNSView(context: Context) -> TaugeTerminalView {
-        var options = TerminalOptions(cols: 100, rows: 30, termName: "xterm-256color", scrollback: settings.scrollbackLines)
-        options.enableOsc8Hyperlinks = true
-        options.kittyClipboardPolicy = []
-        let view = TaugeTerminalView(frame: CGRect(x: 0, y: 0, width: 900, height: 560), font: font, options: options)
-        view.optionAsMetaKey = settings.optionAsMeta
-        view.copyOnSelect = settings.copyOnSelect
-        view.confirmMultilinePaste = settings.confirmMultilinePaste
-        view.onFilesDropped = onFilesDropped
-        view.onFocus = onFocus
-        view.terminalDelegate = context.coordinator
-        view.registerForDraggedTypes([.fileURL])
-        applyTheme(to: view)
-        context.coordinator.view = view
-        bridge.attach(view)
-        return view
+    func updateNSView(_ host: TerminalViewHost, context: Context) {
+        host.onSend = onSend
+        host.onFilesDropped = onFilesDropped
+        host.onFocus = onFocus
+        host.mount(bridge.prepare(settings: settings, columns: initialColumns, rows: initialRows))
     }
 
-    func updateNSView(_ view: TaugeTerminalView, context: Context) {
-        context.coordinator.parent = self
-        view.optionAsMetaKey = settings.optionAsMeta
-        view.copyOnSelect = settings.copyOnSelect
-        view.confirmMultilinePaste = settings.confirmMultilinePaste
-        view.onFilesDropped = onFilesDropped
-        view.onFocus = onFocus
-        let theme = TerminalThemeCatalog.theme(named: settings.terminalThemeName)
-        if view.nativeBackgroundColor != theme.background
-            || view.font.pointSize != settings.terminalFontSize
-            || view.lineSpacing != CGFloat(settings.terminalLineHeight)
-            || view.backgroundOpacity != CGFloat(settings.terminalBackgroundOpacity) {
-            view.font = font
-            applyTheme(to: view)
-        }
-        if bridge.view !== view { bridge.attach(view) }
-    }
-
-    static func dismantleNSView(_ view: TaugeTerminalView, coordinator: Coordinator) {
-        coordinator.parent.bridge.detach(view)
-    }
-
-    private var font: NSFont {
-        NSFont(name: settings.terminalFontFamily, size: settings.terminalFontSize)
-            ?? NSFont.monospacedSystemFont(ofSize: settings.terminalFontSize, weight: .regular)
-    }
-
-    private func applyTheme(to view: TaugeTerminalView) {
-        let theme = TerminalThemeCatalog.theme(named: settings.terminalThemeName)
-        view.nativeForegroundColor = theme.foreground
-        view.nativeBackgroundColor = theme.background
-        view.caretColor = theme.caret
-        view.installColors(theme.ansi)
-        view.backgroundOpacity = CGFloat(max(0.5, min(1.0, settings.terminalBackgroundOpacity)))
-        view.lineSpacing = CGFloat(max(0.9, min(1.6, settings.terminalLineHeight)))
-    }
-
-    final class Coordinator: NSObject, TerminalViewDelegate {
-        var parent: TerminalContainer
-        weak var view: TaugeTerminalView?
-
-        init(parent: TerminalContainer) {
-            self.parent = parent
-        }
-
-        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            parent.onResize(newCols, newRows)
-        }
-
-        // Remote shells emit OSC 0/2 titles ("user@host: ~") through this
-        // delegate call. Tabs stay labelled with the host's own name, so the
-        // title is deliberately dropped instead of renaming the tab.
-        func setTerminalTitle(source: TerminalView, title: String) {}
-
-        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-            parent.onDirectoryChange(directory)
-        }
-
-        func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            parent.onSend(Data(data))
-        }
-
-        func scrolled(source: TerminalView, position: Double) {}
-
-        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-
-        func clipboardCopy(source: TerminalView, content: Data) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setData(content, forType: .string)
-        }
-
-        func clipboardRead(source: TerminalView) -> Data? {
-            NSPasteboard.general.string(forType: .string).map { Data($0.utf8) }
-        }
-
-        func bell(source: TerminalView) {
-            NSSound.beep()
-        }
+    static func dismantleNSView(_ host: TerminalViewHost, coordinator: Void) {
+        host.unmount()
     }
 }
 

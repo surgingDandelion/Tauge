@@ -37,7 +37,7 @@ enum TabKind: String, Codable, Sendable {
 /// background so the UI never blocks on the network.
 ///
 /// The tab strip is labelled with the host's own name, nothing the remote shell
-/// sends (see `TerminalContainer.Coordinator.setTerminalTitle`). Browser-only
+/// sends (see `TerminalBridge.setTerminalTitle`). Browser-only
 /// tabs get a suffix so they never collide with a shell tab of the same host.
 @MainActor
 final class TerminalTab: ObservableObject, Identifiable {
@@ -111,6 +111,9 @@ final class TerminalTab: ObservableObject, Identifiable {
         if let start = startRemoteDirectory, !start.isEmpty {
             self.remote.path = start
         }
+        bridge.onResize = { [weak self] columns, rows in self?.resize(columns: columns, rows: rows) }
+        bridge.onDirectoryChange = { [weak self] directory in self?.lastRemoteDirectory = directory }
+        bridge.onBackgroundReply = { [weak self] data in self?.write(data) }
     }
 
     /// Tab-strip label: exactly the name the user gave the host. Nothing else is
@@ -150,7 +153,7 @@ final class TerminalTab: ObservableObject, Identifiable {
     private(set) var terminalRows = 30
 
     func resize(columns: Int, rows: Int) {
-        guard columns > 0, rows > 0 else { return }
+        guard columns > 0, rows > 0, columns != terminalColumns || rows != terminalRows else { return }
         terminalColumns = columns
         terminalRows = rows
         terminalSession?.resize(columns: columns, rows: rows)
@@ -170,7 +173,6 @@ final class TerminalTab: ObservableObject, Identifiable {
         self.connectedAt = Date()
         self.reconnectAttempt = 0
         self.connectionState = .connected
-        self.bridge.feed(Data("\r\n".utf8))
     }
 
     /// Connection for a tab with no shell: keeps the client, skips the
@@ -271,6 +273,7 @@ final class TerminalTab: ObservableObject, Identifiable {
         for (_, task) in paneReconnectTasks { task.cancel() }
         paneReconnectTasks.removeAll()
         teardown()
+        bridge.close()
         extraRemotes.removeAll()
         connectionState = .idle
     }

@@ -462,13 +462,11 @@ struct TerminalPane: View {
             TerminalContainer(
                 bridge: tab.bridge,
                 settings: app.settings,
+                initialColumns: tab.terminalColumns,
+                initialRows: tab.terminalRows,
                 // One funnel for typed keys, pastes and drops, so command
                 // broadcast sees every byte that leaves this pane.
                 onSend: { data in app.sendInput(data, from: tab) },
-                onResize: { columns, rows in tab.resize(columns: columns, rows: rows) },
-                onDirectoryChange: { directory in
-                    if let directory { tab.lastRemoteDirectory = directory }
-                },
                 onFilesDropped: { urls in
                     handleDroppedFiles(urls)
                 },

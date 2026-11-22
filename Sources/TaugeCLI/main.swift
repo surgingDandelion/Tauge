@@ -130,8 +130,7 @@ enum TaugeCLI {
         let database = try SQLiteDatabase.openForReading(path: url.path)
         let store = try HostStore(database: database, createSchema: false)
         let vault = LocalVaultStore(directory: url.deletingLastPathComponent())
-        let fallback = KeychainVaultStore(items: Keychain(allowsAuthenticationUI: false))
-        let secrets = CachingSecretStore(upstream: MigratingSecretStore(local: vault, fallback: fallback))
+        let secrets = CachingSecretStore(upstream: MigratingSecretStore(local: vault))
         let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         return (RemoteCommandService(store: store,
                                      secrets: secrets,
