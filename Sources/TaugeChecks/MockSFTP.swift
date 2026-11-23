@@ -86,35 +86,33 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
     // MARK: - SFTPTransport
 
     func send(_ data: Data) async throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isClosed else { throw MockError.closed }
-        var buffer = data
-        while true {
-            let packet: SFTPPacket?
-            do {
-                packet = try SFTPCodec.decode(from: &buffer)
-            } catch {
-                break
-            }
-            guard let packet else { break }
-            for response in respond(to: packet) {
-                outbound.append(SFTPCodec.encode(response))
+        try lock.withLock {
+            guard !isClosed else { throw MockError.closed }
+            var buffer = data
+            while true {
+                let packet: SFTPPacket?
+                do {
+                    packet = try SFTPCodec.decode(from: &buffer)
+                } catch {
+                    break
+                }
+                guard let packet else { break }
+                for response in respond(to: packet) {
+                    outbound.append(SFTPCodec.encode(response))
+                }
             }
         }
     }
 
     func receive() async throws -> Data? {
         while true {
-            lock.lock()
-            if !outbound.isEmpty {
+            let (chunk, closed) = lock.withLock { () -> (Data?, Bool) in
+                if outbound.isEmpty { return (nil, isClosed) }
                 let chunk = outbound
                 outbound.removeAll()
-                lock.unlock()
-                return chunk
+                return (chunk, isClosed)
             }
-            let closed = isClosed
-            lock.unlock()
+            if let chunk { return chunk }
             if closed { return nil }
             try await Task.sleep(nanoseconds: 2_000_000)
         }
@@ -143,9 +141,7 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
     }
 
     func closeTransport() async {
-        lock.lock()
-        isClosed = true
-        lock.unlock()
+        lock.withLock { isClosed = true }
     }
 
     // MARK: - Request handling

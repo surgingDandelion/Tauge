@@ -353,7 +353,7 @@ data = json.load(open(path, encoding="utf-8"))
 if data.get("draft") or data.get("prerelease"):
     sys.exit(1)
 names = {asset.get("name") for asset in data.get("assets", [])}
-required = {f"Tauge-{version}.dmg", f"Tauge-{version}.zip", "SHA256SUMS.txt"}
+required = {f"Tauge-{version}.dmg", f"Tauge-{version}-arm64.zip", "SHA256SUMS.txt"}
 sys.exit(0 if required <= names else 1)
 PY
     then
@@ -364,7 +364,7 @@ PY
         -o "$TMP_PAGE" -w '%{http_code}' "$RELEASE_URL" 2>/dev/null || true)"
     if [ "$CODE" = "200" ] &&
        grep -q "Tauge-$TARGET_VERSION.dmg" "$TMP_PAGE" &&
-       grep -q "Tauge-$TARGET_VERSION.zip" "$TMP_PAGE"; then
+       grep -q "Tauge-$TARGET_VERSION-arm64.zip" "$TMP_PAGE"; then
         break
     fi
 
@@ -397,7 +397,7 @@ if data.get("draft") or data.get("prerelease"):
     sys.exit("release is draft or prerelease")
 
 assets = {asset["name"]: asset for asset in data.get("assets", [])}
-required = [f"Tauge-{version}.dmg", f"Tauge-{version}.zip", "SHA256SUMS.txt"]
+required = [f"Tauge-{version}.dmg", f"Tauge-{version}-arm64.zip", "SHA256SUMS.txt"]
 missing = [name for name in required if name not in assets]
 if missing:
     sys.exit("release is missing assets: " + ", ".join(missing))

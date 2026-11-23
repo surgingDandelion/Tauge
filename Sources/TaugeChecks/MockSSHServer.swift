@@ -127,20 +127,19 @@ final class MockSSHServer: @unchecked Sendable {
             // pipeline, otherwise a client KEXINIT can be dropped and the
             // handshake stalls forever.
             .childChannelInitializer { channel in
-                let handler = NIOSSHHandler(
-                    role: .server(SSHServerConfiguration(hostKeys: [self.hostKey],
-                                                        userAuthDelegate: self.authentication)),
-                    allocator: channel.allocator
-                ) { child, type in
-                    if case .directTCPIP(let request) = type {
-                        return self.acceptTunnel(child: child, request: request)
+                channel.eventLoop.makeCompletedFuture {
+                    let handler = NIOSSHHandler(
+                        role: .server(SSHServerConfiguration(hostKeys: [self.hostKey],
+                                                            userAuthDelegate: self.authentication)),
+                        allocator: channel.allocator
+                    ) { child, type in
+                        if case .directTCPIP(let request) = type {
+                            return self.acceptTunnel(child: child, request: request)
+                        }
+                        return child.pipeline.addHandler(MockSessionHandler(server: self))
                     }
-                    return child.pipeline.addHandler(MockSessionHandler(server: self))
+                    try channel.pipeline.syncOperations.addHandler(handler)
                 }
-                // Deliberately install the handler asynchronously, exactly like real
-                // sshd does: the server starts talking before it has processed the
-                // client's greeting, so the client is the side that must not drop it.
-                return channel.pipeline.addHandler(handler)
             }
         let bound = try bootstrap.bind(host: "127.0.0.1", port: 0).wait()
         channel = bound
@@ -309,7 +308,7 @@ final class TCPToSSHTunnelHandler: ChannelInboundHandler {
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        var buffer = unwrapInboundIn(data)
+        let buffer = unwrapInboundIn(data)
         server.noteTunnelBytes(down: buffer.readableBytes)
         ssh.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(buffer)), promise: nil)
     }

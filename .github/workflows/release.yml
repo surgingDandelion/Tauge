@@ -66,7 +66,8 @@ jobs:
             printf '\n%s\n\n' '## 安装'
             printf '1. 下载并打开 `Tauge-*.dmg`，将 **Tauge** 拖到「应用程序」文件夹。\n'
             printf '2. 启动 Tauge。应用数据保存在本机，无需注册账号。\n\n'
-            printf '安装包同时支持 Apple 芯片和 Intel Mac，需要 macOS 13 或更新版本。可用 `shasum -a 256 -c SHA256SUMS.txt` 校验 DMG 和 ZIP。\n\n'
+            printf '安装包需要搭载 Apple 芯片的 Mac，系统版本为 macOS 13 或更新版本。可用 `shasum -a 256 -c SHA256SUMS.txt` 校验 DMG 和 ZIP。\n\n'
+            printf '从旧版通用包升级时，请下载 DMG 手动更新一次。此后可继续使用应用内更新。\n\n'
             printf '未配置 Developer ID 时，发布包使用临时签名。如果 macOS 阻止首次启动，请参阅[安装说明](https://github.com/%s/blob/main/docs/INSTALL.md)。\n\n' "$GITHUB_REPOSITORY"
             printf '[完整更新日志](https://github.com/%s/blob/main/CHANGELOG.md)\n' "$GITHUB_REPOSITORY"
           } > release-body.md
@@ -98,7 +99,6 @@ jobs:
 
       - name: Package release
         env:
-          TAUGE_ARCHS: arm64 x86_64
           TAUGE_SIGN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           TAUGE_NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
           TAUGE_NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -117,7 +117,7 @@ jobs:
           name: Tauge-${{ github.ref_name }}
           path: |
             dist/release/*.dmg
-            dist/release/*.zip
+            dist/release/*-arm64.zip
             dist/release/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -126,7 +126,7 @@ jobs:
         with:
           files: |
             dist/release/*.dmg
-            dist/release/*.zip
+            dist/release/*-arm64.zip
             dist/release/SHA256SUMS.txt
           body_path: release-body.md
           fail_on_unmatched_files: true

@@ -2,8 +2,8 @@
 
 Releases are cut by [`scripts/release.sh`](../scripts/release.sh) and built by
 [`.github/workflows/release.yml`](../.github/workflows/release.yml). The tag is
-the release trigger: pushing `vX.Y.Z` starts a universal build, optional
-signing and notarisation, and publication of the DMG, ZIP, and checksums.
+the release trigger. Pushing `vX.Y.Z` builds Tauge for Apple silicon (`arm64`),
+optionally signs and notarises it, then publishes the DMG, ZIP, and checksums.
 
 ## 1. Cut a release
 
@@ -105,8 +105,7 @@ that is expected and documented for users.
 
 ## 4. Release assets and the updater
 
-The updater in 1.1.0 and later consumes the release directly, so the asset
-contract is part of the release:
+The updater consumes the release directly. These rules apply to arm64 releases:
 
 - The release must be **published, stable, and not a draft or pre-release**.
   The updater asks GitHub for `/releases/latest`, which ignores drafts and
@@ -114,14 +113,18 @@ contract is part of the release:
 - The tag must be `vX.Y.Z` and must exactly match `CFBundleShortVersionString`.
   The workflow already enforces the match, and the updater compares the tag's
   semantic version with the running bundle.
-- `Tauge-<version>.zip` and `SHA256SUMS.txt` must keep those exact names.
-  `SHA256SUMS.txt` must list the ZIP. The DMG is for new installs; the updater
-  installs from the ZIP.
+- Publish `Tauge-<version>.dmg` for manual installation and
+  `Tauge-<version>-arm64.zip` for in-app updates. `SHA256SUMS.txt` must list
+  both files. Publish the ZIP under the arm64 name alone so older universal
+  builds on Intel Macs cannot fetch it as an update.
 - Every asset URL must be HTTPS. The updater rejects anything else.
 - Release notes become the "What's New" text in the update window. The workflow
   now fills them from the matching `CHANGELOG.md` section.
 
-After publishing, verify from a machine running the previous version:
+For the first arm64-only release, verify that the DMG can replace an existing
+universal installation on Apple silicon. This manual upgrade is required once.
+For subsequent releases, verify the updater from an Apple silicon Mac running
+the previous arm64 release:
 
 ```bash
 /Applications/Tauge.app/Contents/MacOS/Tauge --check-updates

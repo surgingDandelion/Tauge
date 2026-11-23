@@ -215,7 +215,7 @@ public enum Salsa20Poly1305 {
             h3 &+= ((m3 << 18) | (m2 >> 14)) & 0x3ff_ffff
             h4 &+= (m3 >> 8) | (isFullBlock ? (1 << 24) : 0)
 
-            var d0 = UInt64(h0) &* UInt64(r0) &+ UInt64(h1) &* UInt64(s4) &+ UInt64(h2) &* UInt64(s3) &+ UInt64(h3) &* UInt64(s2) &+ UInt64(h4) &* UInt64(s1)
+            let d0 = UInt64(h0) &* UInt64(r0) &+ UInt64(h1) &* UInt64(s4) &+ UInt64(h2) &* UInt64(s3) &+ UInt64(h3) &* UInt64(s2) &+ UInt64(h4) &* UInt64(s1)
             var d1 = UInt64(h0) &* UInt64(r1) &+ UInt64(h1) &* UInt64(r0) &+ UInt64(h2) &* UInt64(s4) &+ UInt64(h3) &* UInt64(s3) &+ UInt64(h4) &* UInt64(s2)
             var d2 = UInt64(h0) &* UInt64(r2) &+ UInt64(h1) &* UInt64(r1) &+ UInt64(h2) &* UInt64(r0) &+ UInt64(h3) &* UInt64(s4) &+ UInt64(h4) &* UInt64(s3)
             var d3 = UInt64(h0) &* UInt64(r3) &+ UInt64(h1) &* UInt64(r2) &+ UInt64(h2) &* UInt64(r1) &+ UInt64(h3) &* UInt64(r0) &+ UInt64(h4) &* UInt64(s4)

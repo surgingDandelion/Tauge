@@ -169,7 +169,7 @@ public enum TermiusImporter {
                     summary.passwordsStored += 1
                 }
             }
-            if let record, let passphrase = keyPassphrases[candidate.keyLabel?.lowercased() ?? ""] {
+            if record != nil, let passphrase = keyPassphrases[candidate.keyLabel?.lowercased() ?? ""] {
                 try? secrets.setSecret(passphrase, for: .hostPassphrase(host.id))
             }
             if record != nil, host.tags.isEmpty {

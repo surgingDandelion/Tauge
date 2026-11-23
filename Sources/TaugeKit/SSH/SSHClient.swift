@@ -139,7 +139,6 @@ public actor SSHClient {
     private var group: MultiThreadedEventLoopGroup?
     private let ownsGroup: Bool
     private var rootChannel: Channel?
-    private var sshHandler: NIOSSHHandler?
     private var state: SSHClientState = .idle
     private var hopDescriptions: [String] = []
     private var targetAuthDelegate: SSHAuthDelegate?
@@ -249,8 +248,6 @@ public actor SSHClient {
             openedChannel = transport
             var descriptions: [String] = []
             var tunnelHops: [SSHJumpEndpoint] = options.jumps
-            var destinationHost = options.host
-            var destinationPort = options.port
             var hopIndex = 0
 
             while !tunnelHops.isEmpty {
@@ -260,18 +257,17 @@ public actor SSHClient {
                 activePort = jump.port
                 hopContext = L("第 ") + String(hopIndex) + L(" 跳 ") + jump.username + "@" + jump.host + ":" + String(jump.port)
                 stage = .keyExchange
-                let (jumpHandler, jumpAuthDelegate) = try await addSSHHandler(to: transport,
+                let jumpAuthDelegate = try await addSSHHandler(to: transport,
                                                                host: jump.host,
                                                                port: jump.port,
                                                                username: jump.username,
                                                                auth: jump.auth,
                                                                validator: jump.hostKeyValidator)
                 descriptions.append(jump.username + "@" + jump.host + ":" + String(jump.port))
-                let nextHost = tunnelHops.first?.host ?? destinationHost
-                let nextPort = tunnelHops.first?.port ?? destinationPort
+                let nextHost = tunnelHops.first?.host ?? options.host
+                let nextPort = tunnelHops.first?.port ?? options.port
                 stage = .channel
-                let tunnel = try await openTunnelChannel(handler: jumpHandler,
-                                                         parent: transport,
+                let tunnel = try await openTunnelChannel(parent: transport,
                                                          targetHost: nextHost,
                                                          targetPort: nextPort,
                                                          authDelegate: jumpAuthDelegate)
@@ -286,14 +282,13 @@ public actor SSHClient {
                 hopContext = L("经 ") + String(hopIndex) + L(" 跳")
             }
             stage = .keyExchange
-            let (handler, authDelegate) = try await addSSHHandler(to: transport,
-                                                                  host: options.host,
-                                                                  port: options.port,
-                                                                  username: options.username,
-                                                                  auth: options.auth,
-                                                                  validator: options.hostKeyValidator)
+            let authDelegate = try await addSSHHandler(to: transport,
+                                                       host: options.host,
+                                                       port: options.port,
+                                                       username: options.username,
+                                                       auth: options.auth,
+                                                       validator: options.hostKeyValidator)
             self.rootChannel = transport
-            self.sshHandler = handler
             self.targetAuthDelegate = authDelegate
             self.channelTimeout = options.connectTimeout
             self.hopDescriptions = descriptions
@@ -308,7 +303,7 @@ public actor SSHClient {
             // system ssh client.
             let handshakeProbe: Channel
             do {
-                handshakeProbe = try await openChildChannel(handler: handler, parent: transport, type: .session)
+                handshakeProbe = try await openChildChannel(parent: transport, type: .session)
             } catch {
                 let mapped = SSHClient.mapError(error, stage: .keyExchange, host: options.host, port: options.port)
                 // The TCP connection is up, so a probe channel that never opens means the
@@ -360,7 +355,7 @@ public actor SSHClient {
                                port: Int,
                                username: String,
                                auth: SSHAuthMaterial,
-                               validator: @escaping HostKeyValidator) async throws -> (NIOSSHHandler, SSHAuthDelegate) {
+                               validator: @escaping HostKeyValidator) async throws -> SSHAuthDelegate {
         var offers: [NIOSSHUserAuthenticationOffer.Offer]
         switch auth {
         case .password(let password):
@@ -381,13 +376,15 @@ public actor SSHClient {
         }
         let authDelegate = SSHAuthDelegate(username: username, offers: offers)
         let serverDelegate = HostKeyValidationDelegate(host: host, port: port, validator: validator)
-        let configuration = SSHClientConfiguration(userAuthDelegate: authDelegate, serverAuthDelegate: serverDelegate)
-        let handler = NIOSSHHandler(role: .client(configuration),
-                                    allocator: channel.allocator,
-                                    inboundChildChannelInitializer: nil)
-        try await channel.pipeline.addHandler(handler).get()
+        try await channel.eventLoop.submit {
+            let configuration = SSHClientConfiguration(userAuthDelegate: authDelegate, serverAuthDelegate: serverDelegate)
+            let handler = NIOSSHHandler(role: .client(configuration),
+                                        allocator: channel.allocator,
+                                        inboundChildChannelInitializer: nil)
+            try channel.pipeline.syncOperations.addHandler(handler)
+        }.get()
         try await TCPConnector.startReading(channel)
-        return (handler, authDelegate)
+        return authDelegate
     }
 
     private final class AdapterBox: @unchecked Sendable {
@@ -407,10 +404,9 @@ public actor SSHClient {
         }
     }
 
-    private func openChildChannel(handler: NIOSSHHandler,
-                                  parent: Channel,
+    private func openChildChannel(parent: Channel,
                                   type: SSHChannelType,
-                                  adapter: ChannelHandler? = nil,
+                                  adapter: (any ChannelHandler & Sendable)? = nil,
                                   authDelegate: SSHAuthDelegate? = nil,
                                   deferReads: Bool = false) async throws -> Channel {
         let promise = parent.eventLoop.makePromise(of: Channel.self)
@@ -419,7 +415,13 @@ public actor SSHClient {
         let timeoutTask = parent.eventLoop.scheduleTask(in: channelTimeout) {
             promise.fail(SSHClientError.channelOpenTimedOut)
         }
+        defer { timeoutTask.cancel() }
         parent.eventLoop.execute {
+            // The pipeline owns the non-Sendable handler. Look it up on its event loop.
+            guard let handler = try? parent.pipeline.syncOperations.handler(type: NIOSSHHandler.self) else {
+                promise.fail(ChannelError.ioOnClosedChannel)
+                return
+            }
             handler.createChannel(promise, channelType: type) { channel, _ in
                 // A tunneled channel carries a nested SSH handshake whose greeting is
                 // sent by the peer unprompted, so reads stay paused until the caller has
@@ -437,7 +439,6 @@ public actor SSHClient {
         }
         do {
             let channel = try await promise.futureResult.get()
-            timeoutTask.cancel()
             openedChannelCount += 1
             return channel
         } catch {
@@ -466,8 +467,7 @@ public actor SSHClient {
         return error
     }
 
-    private func openTunnelChannel(handler: NIOSSHHandler,
-                                   parent: Channel,
+    private func openTunnelChannel(parent: Channel,
                                    targetHost: String,
                                    targetPort: Int,
                                    authDelegate: SSHAuthDelegate) async throws -> Channel {
@@ -478,8 +478,7 @@ public actor SSHClient {
                                                     targetPort: targetPort,
                                                     originatorAddress: try SocketAddress(ipAddress: "0.0.0.0", port: 0)))
         // Reads start when addSSHHandler installs the next hop's handler and calls startReading.
-        return try await openChildChannel(handler: handler,
-                                          parent: parent,
+        return try await openChildChannel(parent: parent,
                                           type: type,
                                           adapter: adapter,
                                           authDelegate: authDelegate,
@@ -499,13 +498,13 @@ public actor SSHClient {
                                           onData: onData,
                                           onClose: onClose)
         }
-        guard let handler = sshHandler, let root = rootChannel, root.isActive else {
+        guard let root = rootChannel, root.isActive else {
             throw handshakeFailure ?? SSHClientError.notConnected
         }
         let box = AdapterBox()
         let adapter = SSHChannelAdapter()
         box.adapter = adapter
-        let channel = try await openChildChannel(handler: handler, parent: root, type: .session, adapter: adapter)
+        let channel = try await openChildChannel(parent: root, type: .session, adapter: adapter)
         let pty = SSHChannelRequestEvent.PseudoTerminalRequest(wantReply: true,
                                                                term: term,
                                                                terminalCharacterWidth: max(columns, 1),
@@ -528,11 +527,11 @@ public actor SSHClient {
         if transportKind == .system {
             return try await openSystemSFTP()
         }
-        guard let handler = sshHandler, let root = rootChannel, root.isActive else {
+        guard let root = rootChannel, root.isActive else {
             throw handshakeFailure ?? SSHClientError.notConnected
         }
         let adapter = SSHChannelAdapter()
-        let channel = try await openChildChannel(handler: handler, parent: root, type: .session, adapter: adapter)
+        let channel = try await openChildChannel(parent: root, type: .session, adapter: adapter)
         do {
             try await channel.triggerUserOutboundEvent(SSHChannelRequestEvent.SubsystemRequest(subsystem: "sftp", wantReply: true)).get()
         } catch {
@@ -561,7 +560,7 @@ public actor SSHClient {
         if transportKind == .system {
             return try await runSystemCommand(command, timeout: timeout)
         }
-        guard let handler = sshHandler, let root = rootChannel, root.isActive else {
+        guard let root = rootChannel, root.isActive else {
             throw handshakeFailure ?? SSHClientError.notConnected
         }
         let collector = SSHCommandCollector()
@@ -578,7 +577,7 @@ public actor SSHClient {
         adapter.onClose = { _ in
             if latch.fire() { done.succeed(()) }
         }
-        let channel = try await openChildChannel(handler: handler, parent: root, type: .session, adapter: adapter)
+        let channel = try await openChildChannel(parent: root, type: .session, adapter: adapter)
         let timeoutTask = channel.eventLoop.scheduleTask(in: timeout) {
             channel.close(mode: .all, promise: nil)
             if latch.fire() { done.succeed(()) }
@@ -762,7 +761,6 @@ public actor SSHClient {
         transportKind = .builtin
         rootChannel?.close(mode: .all, promise: nil)
         rootChannel = nil
-        sshHandler = nil
         state = .disconnected(L("已断开"))
     }
 
@@ -825,11 +823,17 @@ public actor SSHClient {
 
     /// Sends one keepalive probe and waits (bounded) for the peer to answer.
     private func sendKeepalive(timeout: Int) async throws {
-        guard transportKind == .builtin, let handler = sshHandler, let channel = rootChannel else {
+        guard transportKind == .builtin, let channel = rootChannel else {
             throw SSHClientError.notConnected
         }
         let promise = channel.eventLoop.makePromise(of: Void.self)
-        handler.sendKeepaliveRequest(promise: promise)
+        channel.eventLoop.execute {
+            guard let handler = try? channel.pipeline.syncOperations.handler(type: NIOSSHHandler.self) else {
+                promise.fail(ChannelError.ioOnClosedChannel)
+                return
+            }
+            handler.sendKeepaliveRequest(promise: promise)
+        }
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await promise.futureResult.get() }
             group.addTask {
@@ -851,7 +855,6 @@ public actor SSHClient {
         state = .disconnected(reason)
         rootChannel?.close(mode: .all, promise: nil)
         rootChannel = nil
-        sshHandler = nil
         notifyDisconnect(reason)
     }
 

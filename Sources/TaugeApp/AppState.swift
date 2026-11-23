@@ -111,12 +111,12 @@ final class AppState: ObservableObject {
     /// connections, so both are first-class tabs.
     @Published var openBoardIDs: [UUID] = []
     @Published var selectedBoardID: UUID?
-    @Published internal(set) var boards: [BoardDefinition] = []
+    @Published var boards: [BoardDefinition] = []
     @Published var currentBoard: BoardDefinition?
     /// Structural workspace edits (panes added or removed) are not written to
     /// the catalog immediately: the header shows 未保存 and ⌘S commits them.
     @Published var boardDirty = false
-    @Published internal(set) var boardSessions: [TerminalTab] = []
+    @Published var boardSessions: [TerminalTab] = []
     /// Sessions stay alive when the user switches to another board; this keeps
     /// their connections (and scrollback) around.
     var boardSessionCache: [UUID: [UUID: TerminalTab]] = [:]
@@ -344,7 +344,9 @@ final class AppState: ObservableObject {
 
     var ungroupedHosts: [SSHHost] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        let list = hosts.filter { $0.groupID == nil }
+        let groupIDs = Set(groups.map(\.id))
+        // An imported host may refer to a group that no longer exists.
+        let list = hosts.filter { $0.groupID.map(groupIDs.contains) != true }
         guard !query.isEmpty else { return list }
         return list.filter { matchesSearch($0, query: query) }
     }

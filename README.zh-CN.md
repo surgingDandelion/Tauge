@@ -10,7 +10,7 @@ macOS 自带终端，但一直没有顺手的方式在终端旁边浏览远程�
 [![CI](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml/badge.svg)](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/surgingDandelion/Tauge?display_name=tag)](https://github.com/surgingDandelion/Tauge/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/macOS-13%2B-black)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/macOS-13%2B%20%28arm64%29-black)](https://www.apple.com/macos/)
 
 [English](README.md) · 简体中文
 
@@ -21,14 +21,16 @@ macOS 自带终端，但一直没有顺手的方式在终端旁边浏览远程�
 从 [Releases](https://github.com/surgingDandelion/Tauge/releases/latest) 下载
 最新的 `Tauge-<version>.dmg`，把 Tauge 拖进「应用程序」，然后打开。
 
-系统要求：macOS 13 Ventura 及以上，Apple 芯片和 Intel Mac 都支持。
+新版 Tauge 需要搭载 Apple 芯片（`arm64`）并运行 macOS 13 Ventura 或更新版本的 Mac。
 
 当前发布包在未配置 Developer ID 签名和公证凭据时为 ad-hoc 签名。如果 macOS
 拦截首次启动，右键点击应用选择「打开」，或参考
 [docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch)。
 
-Tauge 会每天在后台检查 GitHub Release，展示更新说明、校验下载内容，并在退出后
-完成替换。也可以随时使用 **Tauge → 检查更新…**。
+如果已经在 Apple 芯片 Mac 上安装了通用版，请退出 Tauge，打开新版 DMG 并手动替换
+「应用程序」中的 Tauge。只需手动升级一次，之后可以继续使用应用内更新。Tauge 每天
+在后台检查 GitHub Release，安装前可以查看更新说明，也可以随时使用
+**Tauge → 检查更新…**。
 
 主机、设置和加密凭据都保存在应用包之外。Tauge 更名后的首次启动会先把旧目录中的
 目录数据库和凭据库复制到当前 Tauge 目录，再打开它们。
@@ -118,8 +120,8 @@ tauge cp -r machineA:/var/log/app machineB:/tmp/
 
 ## 从源码构建
 
-需要 macOS 13 及以上、Command Line Tools（`xcode-select --install`），以及
-首次解析依赖时的网络连接。
+需要搭载 Apple 芯片且运行 macOS 13 或更新版本的 Mac、Command Line Tools
+（`xcode-select --install`），以及首次解析依赖时的网络连接。
 
 ```bash
 git clone https://github.com/surgingDandelion/Tauge.git
@@ -145,8 +147,8 @@ tauge mcp
 
 安装 Tauge.app 后运行一次 `./scripts/install-cli.sh`，脚本会把 `tauge` 安装到 `/usr/local/bin`。没有写权限时会使用 `~/.local/bin`。之后可以直接使用 `tauge machine list`。
 
-只有在 `sandbox-exec` 受限的环境中才需要 `--disable-sandbox`。通用二进制、
-自检、代码结构和本地化说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+只有在 `sandbox-exec` 受限的环境中才需要 `--disable-sandbox`。构建、自检、
+代码结构和本地化说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 目前还不支持
 

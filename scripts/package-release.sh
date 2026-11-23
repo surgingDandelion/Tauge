@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build a distributable Tauge release: DMG + ZIP + SHA-256 checksums.
+# Build an Apple silicon release with DMG, ZIP and SHA-256 checksums.
 #
 #   ./scripts/package-release.sh
 #
@@ -23,9 +23,9 @@ cd "$(dirname "$0")/.."
 APP="dist/Tauge.app"
 OUT="dist/release"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
-ARCHS="${TAUGE_ARCHS:-arm64 x86_64}"
 DMG="$OUT/Tauge-$VERSION.dmg"
-ZIP="$OUT/Tauge-$VERSION.zip"
+# Older updaters also run on Intel and look for the unsuffixed asset name.
+ZIP="$OUT/Tauge-$VERSION-arm64.zip"
 
 SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${TAUGE_SIGN_IDENTITY:-}}"
 SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${TAUGE_SIGN_KEYCHAIN:-}}"
@@ -80,10 +80,10 @@ notarize_submit() {
   xcrun notarytool submit "$path" $args --wait
 }
 
+./scripts/build-app.sh release
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
-
-TAUGE_ARCHS="$ARCHS" ./scripts/build-app.sh release
 
 if [ "$DISTRIBUTION_SIGNING" = 1 ] && [ -n "$(notary_args)" ]; then
   # Notarise the app inside a zip first, then staple the ticket to the bundle

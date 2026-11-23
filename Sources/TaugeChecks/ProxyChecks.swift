@@ -119,7 +119,6 @@ func runProxyChecks() async {
         // and every proxy looked unreachable/silent until the timeout fired.
         let recorder = ProxyRequestRecorder()
         let stub = try await startStub { HTTPProxyStub(recorder: recorder) }
-        defer { stub.channel.close(promise: nil); try? stub.group.syncShutdownGracefully() }
 
         let result = await ProxyProbe.test(ProxyEndpoint(type: .http, host: "127.0.0.1", port: stub.port),
                                            targetHost: "example.com", targetPort: 443,
@@ -128,12 +127,13 @@ func runProxyChecks() async {
         expect(result.elapsedMilliseconds < 3000, "the tunnel opens immediately, not after a timeout")
         expect(recorder.requestLine == "CONNECT example.com:443 HTTP/1.1",
                "the proxy received the CONNECT line, got " + (recorder.requestLine ?? "nothing"))
+        stub.channel.close(promise: nil)
+        try? await stub.group.shutdownGracefully()
     }
 
     await runAsync("socks5 handshake is written to an already-connected proxy socket") {
         let recorder = ProxyRequestRecorder()
         let stub = try await startStub { SOCKS5ProxyStub(recorder: recorder) }
-        defer { stub.channel.close(promise: nil); try? stub.group.syncShutdownGracefully() }
 
         let result = await ProxyProbe.test(ProxyEndpoint(type: .socks5, host: "127.0.0.1", port: stub.port),
                                            targetHost: "example.com", targetPort: 443,
@@ -142,6 +142,8 @@ func runProxyChecks() async {
         expectEqual(result.outcome, .ok, "SOCKS5 stub grants the tunnel")
         expect(result.elapsedMilliseconds < 3000, "the SOCKS5 tunnel opens immediately")
         expect(recorder.requestLine != nil, "the stub received the greeting")
+        stub.channel.close(promise: nil)
+        try? await stub.group.shutdownGracefully()
     }
 
 

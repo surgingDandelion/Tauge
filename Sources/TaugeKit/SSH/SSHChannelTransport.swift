@@ -104,34 +104,18 @@ public final class SSHByteStreamTransport: SFTPTransport, @unchecked Sendable {
     }
 
     public func receive() async -> Data? {
-        lock.lock()
-        if !buffer.isEmpty {
-            let chunk = buffer
-            buffer.removeAll(keepingCapacity: true)
-            lock.unlock()
-            return chunk
-        }
-        if closed {
-            lock.unlock()
-            return nil
-        }
-        lock.unlock()
-        return await withCheckedContinuation { continuation in
-            lock.lock()
-            if !buffer.isEmpty {
-                let chunk = buffer
-                buffer.removeAll(keepingCapacity: true)
-                lock.unlock()
-                continuation.resume(returning: chunk)
-                return
+        await withCheckedContinuation { continuation in
+            let (ready, chunk) = lock.withLock { () -> (Bool, Data?) in
+                if !buffer.isEmpty {
+                    let chunk = buffer
+                    buffer.removeAll(keepingCapacity: true)
+                    return (true, chunk)
+                }
+                if closed { return (true, nil) }
+                waiter = continuation
+                return (false, nil)
             }
-            if closed {
-                lock.unlock()
-                continuation.resume(returning: nil)
-                return
-            }
-            waiter = continuation
-            lock.unlock()
+            if ready { continuation.resume(returning: chunk) }
         }
     }
 

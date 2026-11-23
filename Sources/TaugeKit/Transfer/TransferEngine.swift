@@ -680,7 +680,6 @@ public actor TransferEngine {
             let window = activeConfiguration.downloadWindow
             let chunkSize = Int64(activeConfiguration.chunkSize)
             let started = Date()
-            var windowBytes: Int64 = offset
 
             while true {
                 try checkCancellation(itemID)
@@ -703,7 +702,6 @@ public actor TransferEngine {
 
                 let elapsed = Date().timeIntervalSince(started)
                 let speed = elapsed > 0.3 ? Double(writeOffset - offset) / elapsed : 0
-                _ = windowBytes
                 mutate(itemID) { progress in
                     progress.bytesCompleted += Int64(data.count)
                     progress.bytesPerSecond = speed

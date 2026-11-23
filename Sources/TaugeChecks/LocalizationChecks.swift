@@ -53,7 +53,7 @@ func runLocalizationChecks() {
 
 private func formatTokens(_ text: String) -> [String] {
     var tokens: [String] = []
-    var scalars = Array(text.unicodeScalars)
+    let scalars = Array(text.unicodeScalars)
     var index = 0
     while index < scalars.count {
         if scalars[index] == "%", index + 1 < scalars.count {

@@ -200,7 +200,7 @@ final class TaugeTerminalView: TerminalView {
         guard confirmMultilinePaste,
               let text = NSPasteboard.general.string(forType: .string),
               text.contains("\n") || text.contains("\r") else {
-            super.paste(sender)
+            super.paste(sender as Any)
             return
         }
         let lines = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).filter { !$0.isEmpty }.count
@@ -211,7 +211,7 @@ final class TaugeTerminalView: TerminalView {
         alert.addButton(withTitle: L("粘贴"))
         alert.addButton(withTitle: L("取消"))
         if alert.runModal() == .alertFirstButtonReturn {
-            super.paste(sender)
+            super.paste(sender as Any)
         }
         // The modal alert took the keyboard away; hand it back so the next
         // keystroke is not swallowed.

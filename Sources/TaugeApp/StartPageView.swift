@@ -2,11 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import TaugeKit
 
-/// The landing surface shown when no tab and no workspace is selected.
-///
-/// Two columns only: a scrollable list of workspaces and host groups on the
-/// left, the cards of the selected group on the right. Groups no longer stack
-/// down the page, so a catalog with twenty groups still fits one screen.
 /// Which collection the start page's right column shows.
 ///
 /// It lives on `AppState` rather than in the view: opening a host in another tab
@@ -20,6 +15,7 @@ enum StartPageSelection: Hashable {
     case ungrouped
 }
 
+/// The landing surface shown when no terminal or workspace tab is selected.
 struct StartPageView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var query = ""
@@ -371,33 +367,53 @@ struct StartPageView: View {
     }
 
     private struct HostGroupSection: Identifiable {
-        let group: HostGroup
+        let group: HostGroup?
         let hosts: [SSHHost]
-        var id: UUID { group.id }
+        var id: UUID? { group?.id }
     }
 
-    private func hostGroupSections(rootID: UUID, hosts: [SSHHost]) -> [HostGroupSection] {
-        var sections: [HostGroupSection] = []
+    private func hostGroupSections(for hosts: [SSHHost]) -> [HostGroupSection] {
+        let rootID: UUID?
+        switch selection {
+        case .all:
+            rootID = nil
+        case .group(let id) where showsDescendants && selectedGroupDescendants > 0:
+            rootID = id
+        default:
+            return []
+        }
 
-        func walk(_ groupID: UUID) {
-            guard let group = app.group(id: groupID) else { return }
-            let directHosts = hosts.filter { $0.groupID == groupID }
-            if !directHosts.isEmpty {
+        let groups = app.groups.sorted {
+            $0.sortIndex == $1.sortIndex ? $0.name < $1.name : $0.sortIndex < $1.sortIndex
+        }
+        let groupsByParent = Dictionary(grouping: groups, by: \.parentID)
+        let groupIDs = Set(groups.map(\.id))
+        let hostsByGroup = Dictionary(grouping: hosts) { host in
+            host.groupID.flatMap { groupIDs.contains($0) ? $0 : nil }
+        }
+        var sections: [HostGroupSection] = []
+        var visited = Set<UUID>()
+
+        func walk(_ group: HostGroup) {
+            guard visited.insert(group.id).inserted else { return }
+            if let directHosts = hostsByGroup[group.id] {
                 sections.append(HostGroupSection(group: group, hosts: directHosts))
             }
-            let children = app.groups
-                .filter { $0.parentID == groupID }
-                .sorted {
-                    $0.sortIndex == $1.sortIndex
-                        ? $0.name < $1.name
-                        : $0.sortIndex < $1.sortIndex
-                }
-            for child in children {
-                walk(child.id)
+            for child in groupsByParent[group.id] ?? [] {
+                walk(child)
             }
         }
 
-        walk(rootID)
+        if let rootID {
+            if let root = app.group(id: rootID) { walk(root) }
+        } else {
+            for root in groupsByParent[nil] ?? [] { walk(root) }
+            // An imported group may be disconnected from the root tree.
+            for group in groups where !visited.contains(group.id) { walk(group) }
+            if let ungrouped = hostsByGroup[nil] {
+                sections.append(HostGroupSection(group: nil, hosts: ungrouped))
+            }
+        }
         return sections
     }
 
@@ -411,11 +427,10 @@ struct StartPageView: View {
         }
     }
 
-    /// Groups are listed separately, so the group path only shows as a caption
-    /// when the grid mixes several groups.
+    /// Flat collections show the group path on each card.
     private var showsGroupCaption: Bool {
         switch selection {
-        case .all, .favorites, .recent: return true
+        case .favorites, .recent: return true
         default: return false
         }
     }
@@ -436,14 +451,16 @@ struct StartPageView: View {
     }
 
     private var hostArea: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let hosts = visibleHosts
+        let sections = hostGroupSections(for: hosts)
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text(query.isEmpty ? selectionTitle : L("搜索结果"))
                     .font(.system(size: 12.5, weight: .semibold))
                     .tracking(0.2)
                 TechTag(text: query.isEmpty
-                        ? String(visibleHosts.count) + L(" 台")
-                        : String(visibleHosts.count) + L(" 个结果"))
+                        ? String(hosts.count) + L(" 台")
+                        : String(hosts.count) + L(" 个结果"))
                 if query.isEmpty, !showsDescendants, selectedGroupDescendants > 0,
                    case .group = selection {
                     Text(L("不含 ") + String(selectedGroupDescendants) + L(" 个子分组"))
@@ -484,15 +501,12 @@ struct StartPageView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if app.hosts.isEmpty {
                         emptyHosts
-                    } else if visibleHosts.isEmpty {
+                    } else if hosts.isEmpty {
                         emptySelection
-                    } else if case .group(let id) = selection,
-                              showsDescendants,
-                              selectedGroupDescendants > 0,
-                              !hostGroupSections(rootID: id, hosts: visibleHosts).isEmpty {
-                        groupedHostSections(rootID: id, hosts: visibleHosts)
+                    } else if !sections.isEmpty {
+                        groupedHostSections(sections)
                     } else {
-                        hostGrid(visibleHosts)
+                        hostGrid(hosts)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -525,19 +539,20 @@ struct StartPageView: View {
         TechActionButton(title: title, kind: .ghost, height: 20, action: action)
     }
 
-    private func groupedHostSections(rootID: UUID, hosts: [SSHHost]) -> some View {
-        let sections = hostGroupSections(rootID: rootID, hosts: hosts)
-        return VStack(alignment: .leading, spacing: 12) {
+    private func groupedHostSections(_ sections: [HostGroupSection]) -> some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                let title = selection == .all ? app.groupPath(for: section.id) : (section.group?.name ?? L("未分组"))
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 7) {
                         RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(section.group.colorHex.flatMap { Color(hex: $0) }
-                                  ?? Theme.secondary)
+                            .fill(Color(hex: section.group?.colorHex) ?? Theme.secondary)
                             .frame(width: 3, height: 14)
-                        Text(section.group.name)
+                        Text(title)
                             .font(.system(size: 11.5, weight: .semibold))
                             .lineLimit(1)
+                            .help(title)
+                            .accessibilityAddTraits(.isHeader)
                         TechTag(text: String(section.hosts.count) + L(" 台"))
                         Spacer(minLength: 0)
                     }

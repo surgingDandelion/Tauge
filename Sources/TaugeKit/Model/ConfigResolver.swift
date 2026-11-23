@@ -104,7 +104,7 @@ public struct ConfigResolver: Sendable {
             effectiveHost.defaultUploadDirectory = uploadDirectory
         }
 
-        let jumpSteps = try jumps.map { jump -> EffectiveHostConfig.JumpStep in
+        let jumpSteps = jumps.map { jump -> EffectiveHostConfig.JumpStep in
             let jumpProxy = proxyResolution(for: jump).proxy
             return EffectiveHostConfig.JumpStep(host: jump, proxy: jumpProxy)
         }

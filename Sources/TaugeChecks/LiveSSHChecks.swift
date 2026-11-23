@@ -72,14 +72,14 @@ func runLiveSSHChecks() async {
             output.append(String(decoding: data, as: UTF8.self))
         }, onClose: { _ in }) }
         print("live: terminal opened")
-        try await session.write("echo tauge-live-ok\n")
-        try await session.resize(columns: 120, rows: 40)
+        session.write("echo tauge-live-ok\n")
+        session.resize(columns: 120, rows: 40)
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline, !output.get().contains("tauge-live-ok\r\n") && !output.get().contains("tauge-live-ok\n") {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         expect(output.get().contains("tauge-live-ok"), "shell echoed the marker, got: " + String(output.get().suffix(200)))
-        try? await session.write("exit\n")
+        session.write("exit\n")
         session.close()
 
         await client.shutdown()

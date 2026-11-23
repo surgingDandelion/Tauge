@@ -65,7 +65,13 @@ jobs:
           set -euo pipefail
           fail() { echo "::error::Verify bundle: $*"; exit 1; }
           test -d dist/Tauge.app || fail "dist/Tauge.app is missing"
-          test -x dist/Tauge.app/Contents/MacOS/Tauge || fail "main executable is missing"
+          for name in Tauge TaugeCLI; do
+            executable="dist/Tauge.app/Contents/MacOS/$name"
+            test -x "$executable" || fail "$name executable is missing"
+            archs="$(lipo -archs "$executable")" || fail "lipo could not read $name"
+            test "$archs" = arm64 || fail "$name must contain only arm64 (found: $archs)"
+            echo "$name architecture: $archs"
+          done
           EN_JSON="$(find dist/Tauge.app/Contents/Resources -name en.json -print -quit)"
           if [ -z "$EN_JSON" ]; then
             echo "::group::Bundle resource tree"
@@ -79,7 +85,6 @@ jobs:
             codesign -dvvv dist/Tauge.app || true
             fail "codesign --verify rejected the app"
           fi
-          lipo -archs dist/Tauge.app/Contents/MacOS/Tauge || fail "lipo could not read the executable"
           if ! dist/Tauge.app/Contents/MacOS/Tauge --verify-localization; then
             echo "::group::Bundle resource tree"
             find dist/Tauge.app/Contents/Resources -maxdepth 5 -print

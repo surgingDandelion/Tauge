@@ -20,24 +20,24 @@ enum TaugeCLI {
         }
         switch command {
         case "machine", "machines":
-            let context = try makeContext()
-            defer { try? context.eventLoopGroup.syncShutdownGracefully() }
-            try listMachines(service: context.service, arguments: Array(arguments.dropFirst()))
-        case "exec":
-            let context = try makeContext()
-            defer { try? context.eventLoopGroup.syncShutdownGracefully() }
-            try await execute(service: context.service, arguments: Array(arguments.dropFirst()))
-        case "cp":
-            let context = try makeContext()
-            defer { try? context.eventLoopGroup.syncShutdownGracefully() }
-            try await copy(service: context.service, arguments: Array(arguments.dropFirst()))
-        case "mcp":
-            let context = try makeContext()
-            defer { try? context.eventLoopGroup.syncShutdownGracefully() }
-            guard context.mcpEnabled else {
-                throw CLIError.message("MCP 通道未启用，请在 Tauge 设置的通用区打开 MCP 开关。")
+            try await withContext { service, _ in
+                try listMachines(service: service, arguments: Array(arguments.dropFirst()))
             }
-            try await runMCP(service: context.service)
+        case "exec":
+            try await withContext { service, _ in
+                try await execute(service: service, arguments: Array(arguments.dropFirst()))
+            }
+        case "cp":
+            try await withContext { service, _ in
+                try await copy(service: service, arguments: Array(arguments.dropFirst()))
+            }
+        case "mcp":
+            try await withContext { service, mcpEnabled in
+                guard mcpEnabled else {
+                    throw CLIError.message("MCP 通道未启用，请在 Tauge 设置的通用区打开 MCP 开关。")
+                }
+                try await runMCP(service: service)
+            }
         case "help", "--help", "-h":
             printUsage()
         default:
@@ -117,25 +117,27 @@ enum TaugeCLI {
         return (target, path.hasPrefix("/") ? path : "/" + path)
     }
 
-    private static func makeContext() throws -> (service: RemoteCommandService,
-                                                  database: SQLiteDatabase,
-                                                  eventLoopGroup: MultiThreadedEventLoopGroup,
-                                                  mcpEnabled: Bool) {
+    private static func withContext(_ operation: (RemoteCommandService, Bool) async throws -> Void) async throws {
         let url = catalogURL()
-        try? HostStore.migrateLegacyDatabaseIfNeeded(to: url)
-        try? LocalVaultStore.migrateLegacyDirectoryIfNeeded(to: url.deletingLastPathComponent())
+        _ = try? HostStore.migrateLegacyDatabaseIfNeeded(to: url)
+        _ = try? LocalVaultStore.migrateLegacyDirectoryIfNeeded(to: url.deletingLastPathComponent())
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw CLIError.message("找不到 Tauge 配置数据库：" + url.path)
         }
         let database = try SQLiteDatabase.openForReading(path: url.path)
         let store = try HostStore(database: database, createSchema: false)
+        let mcpEnabled = try store.settings().mcpEnabled
         let vault = LocalVaultStore(directory: url.deletingLastPathComponent())
         let secrets = CachingSecretStore(upstream: MigratingSecretStore(local: vault))
         let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        return (RemoteCommandService(store: store,
-                                     secrets: secrets,
-                                     eventLoopGroup: eventLoopGroup), database, eventLoopGroup,
-                try store.settings().mcpEnabled)
+        let service = RemoteCommandService(store: store, secrets: secrets, eventLoopGroup: eventLoopGroup)
+        do {
+            try await operation(service, mcpEnabled)
+        } catch {
+            try? await eventLoopGroup.shutdownGracefully()
+            throw error
+        }
+        try? await eventLoopGroup.shutdownGracefully()
     }
 
     private static func catalogURL() -> URL {

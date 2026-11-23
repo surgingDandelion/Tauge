@@ -5,7 +5,7 @@ with SwiftPM only — no Xcode project, no external package manager.
 
 ## Requirements
 
-- macOS 13 or later (Apple silicon or Intel)
+- An Apple silicon Mac (`arm64`) running macOS 13 or later
 - Command Line Tools with Swift 5.9 or later (`xcode-select --install`)
 - Python 3 (only for regenerating icons)
 

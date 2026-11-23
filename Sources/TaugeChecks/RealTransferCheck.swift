@@ -29,13 +29,15 @@ func runRealTransferChecks() async {
         let material = SSHAuthMaterial.privateKey(parsed.key)
         let trustAll: HostKeyValidator = { _ in .trust(remember: false) }
 
-        var jumps: [SSHJumpEndpoint] = []
+        let jumps: [SSHJumpEndpoint]
         if let via, let viaUser {
             jumps = [SSHJumpEndpoint(host: via,
                                      port: viaPort,
                                      username: viaUser,
                                      auth: material,
                                      hostKeyValidator: trustAll)]
+        } else {
+            jumps = []
         }
         let client = SSHClient()
         defer { Task { await client.shutdown() } }

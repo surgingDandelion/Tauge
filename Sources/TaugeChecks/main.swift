@@ -38,6 +38,7 @@ func run(_ name: String, _ body: () throws -> Void) {
     }
 }
 
+@MainActor
 func runAsync(_ name: String, _ body: @MainActor () async throws -> Void) async {
     do {
         try await body()
@@ -270,7 +271,7 @@ run("host color handles missing and cyclic groups") {
            "ungrouped host has no color")
 
     var a = HostGroup(name: "A")
-    var b = HostGroup(parentID: a.id, name: "B")
+    let b = HostGroup(parentID: a.id, name: "B")
     a.parentID = b.id
     let cyclic = SSHHost(groupID: a.id, name: "cyclic")
     expect(HostColor.resolve(host: cyclic, groups: [a, b]) == nil, "cycle terminates without a color")

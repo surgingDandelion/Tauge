@@ -1,6 +1,7 @@
 # Installing Tauge
 
-Tauge requires **macOS 13 Ventura or later** on Apple silicon or Intel.
+New Tauge releases require a Mac with **Apple silicon (`arm64`)** running
+**macOS 13 Ventura or later**.
 
 ## From a release
 
@@ -44,10 +45,14 @@ you verified.
 
 ### Updating
 
-Tauge updates itself. It checks GitHub releases once a day in the background,
-and **Tauge → Check for Updates…** runs a check immediately. When a newer
-version exists, the update window shows its release notes; **Download and
-Install** fetches `Tauge-<version>.zip`, verifies it against the release's
+If you are upgrading a universal build on Apple silicon, quit Tauge and replace
+`/Applications/Tauge.app` with the copy from the new DMG. This one-time manual
+upgrade lets you use in-app updates for subsequent releases.
+
+Tauge checks GitHub releases once a day in the background, and
+**Tauge → Check for Updates…** runs a check immediately. When a newer version is
+available, the update window shows its release notes. **Download and Install**
+fetches `Tauge-<version>-arm64.zip`, verifies it against the release's
 `SHA256SUMS.txt`, validates the new bundle, then quits, swaps the app in place,
 and relaunches it. No administrator password is normally required for
 `/Applications`.
@@ -73,8 +78,9 @@ the corresponding configuration to save it in the local vault.
 
 ## Build from source
 
-Requirements: macOS 13+, Command Line Tools (`xcode-select --install`), and
-network access the first time SwiftPM resolves dependencies.
+Build on an Apple silicon Mac running macOS 13 or later with the Command Line
+Tools (`xcode-select --install`). SwiftPM needs network access the first time
+it resolves dependencies.
 
 ```bash
 git clone https://github.com/surgingDandelion/Tauge.git
@@ -92,12 +98,6 @@ open dist/Tauge.app
 `--disable-sandbox` is only required when `sandbox-exec` is unavailable in
 the build environment (for example inside another sandbox). A normal Terminal
 session can omit it.
-
-For a universal build:
-
-```bash
-TAUGE_ARCHS="arm64 x86_64" ./scripts/build-app.sh release
-```
 
 Create a DMG, ZIP, and checksums with:
 

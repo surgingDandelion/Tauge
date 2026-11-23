@@ -10,7 +10,7 @@ switching apps.
 [![CI](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml/badge.svg)](https://github.com/surgingDandelion/Tauge/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/surgingDandelion/Tauge?display_name=tag)](https://github.com/surgingDandelion/Tauge/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/macOS-13%2B-black)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/macOS-13%2B%20%28arm64%29-black)](https://www.apple.com/macos/)
 
 English · [简体中文](README.zh-CN.md)
 
@@ -22,17 +22,19 @@ Download the latest `Tauge-<version>.dmg` from
 [Releases](https://github.com/surgingDandelion/Tauge/releases/latest), drag
 Tauge into Applications, and launch it.
 
-Tauge requires macOS 13 Ventura or later and runs on both Apple silicon and
-Intel Macs.
+New Tauge releases require a Mac with Apple silicon (`arm64`) running macOS 13
+Ventura or later.
 
 Release builds are ad-hoc signed unless the repository is configured with
 Developer ID signing and notarisation credentials. If macOS blocks the first
 launch, right-click the app and choose **Open**, or follow
 [docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch).
 
-Tauge keeps itself up to date from GitHub Releases. It checks once a day in the
-background, shows the release notes, verifies the download, and replaces the
-app after it quits. Use **Tauge → Check for Updates…** to check immediately.
+If you already use a universal build on Apple silicon, quit Tauge and replace
+it with the app from the new DMG once. Later releases are available through
+in-app updates. Tauge checks GitHub Releases once a day and lets you review the
+release notes before installing. Use **Tauge → Check for Updates…** to check
+immediately.
 
 Hosts, settings and encrypted credentials live outside the app bundle. The
 first launch after the Tauge rename copies the previous catalog and vault into
@@ -142,8 +144,8 @@ settings card or run `scripts/install-cli.sh` to register the `tauge` command in
 
 ## Build from source
 
-You need macOS 13 or later, the Command Line Tools (`xcode-select --install`),
-and network access for the first dependency resolution.
+You need an Apple silicon Mac running macOS 13 or later, the Command Line Tools
+(`xcode-select --install`), and network access for the first dependency resolution.
 
 ```bash
 git clone https://github.com/surgingDandelion/Tauge.git
@@ -174,9 +176,9 @@ After installing Tauge.app, run `./scripts/install-cli.sh` once. It installs
 the `tauge` command in `/usr/local/bin`, with `~/.local/bin` as the fallback
 when `/usr/local/bin` is not writable.
 
-`--disable-sandbox` is only needed where `sandbox-exec` is restricted. For a
-universal build, the self-check suite, project layout, and localisation notes,
-see [CONTRIBUTING.md](CONTRIBUTING.md).
+`--disable-sandbox` is only needed where `sandbox-exec` is restricted. For build
+instructions, the self-check suite, project layout, and localisation notes, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Current limitations
 

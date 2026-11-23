@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         languageObserver = NotificationCenter.default.addObserver(
             forName: .taugeLanguageDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.installStatusItem()
+            MainActor.assumeIsolated { self?.installStatusItem() }
         }
         observeWindowClosing()
         WindowSnapshot.runIfRequested()
@@ -223,16 +223,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let closing = note.object as? NSWindow,
-                  closing.sheetParent == nil,
-                  closing === self?.mainWindow else { return }
-            Task { @MainActor in
-                // Let SwiftUI finish its own teardown before deciding.
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                let remaining = NSApp.windows.filter {
-                    $0.isVisible && $0.canBecomeMain && !($0 is NSPanel)
+            guard let closing = note.object as? NSWindow else { return }
+            MainActor.assumeIsolated {
+                guard closing.sheetParent == nil, closing === self?.mainWindow else { return }
+                Task { @MainActor in
+                    // Let SwiftUI finish its own teardown before deciding.
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    let remaining = NSApp.windows.filter {
+                        $0.isVisible && $0.canBecomeMain && !($0 is NSPanel)
+                    }
+                    if remaining.isEmpty { NSApp.terminate(nil) }
                 }
-                if remaining.isEmpty { NSApp.terminate(nil) }
             }
         }
         windowObservers.append(observer)

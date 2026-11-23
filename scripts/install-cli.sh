@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if [ "$(uname -m)" != arm64 ]; then
+  echo "error: Install the Tauge CLI from a native arm64 shell on an Apple silicon Mac." >&2
+  exit 1
+fi
+
 APP_PATH="${TAUGE_APP_PATH:-/Applications/Tauge.app}"
 DEST_DIR="${TAUGE_CLI_DIR:-/usr/local/bin}"
 DEST="$DEST_DIR/tauge"

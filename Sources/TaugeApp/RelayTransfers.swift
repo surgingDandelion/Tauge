@@ -75,7 +75,7 @@ extension AppState {
                                                      client: targetClient) else { return }
 
         let progressID = UUID()
-        var progress = TransferProgress(id: progressID,
+        let progress = TransferProgress(id: progressID,
                                         // The transfer task is shown at its destination.
                                         // This keeps the label aligned with the target
                                         // pane's title when several SFTP panes are open.

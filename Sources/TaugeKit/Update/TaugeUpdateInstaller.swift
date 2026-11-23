@@ -95,7 +95,7 @@ public enum TaugeUpdateInstaller {
                 throw TaugeUpdateInstallError.invalidBundle
             }
             try validate(stagedApp: stagedApp, currentApp: destination, update: update)
-            try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stagedApp.path])
+            _ = try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stagedApp.path])
 
             let privileged = !writable
             let script = stagingRoot.appendingPathComponent("install.sh")

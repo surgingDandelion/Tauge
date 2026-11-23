@@ -636,7 +636,7 @@ public final class SystemSSHSFTPTransport: SFTPTransport, SystemSSHChild, @unche
 
     private let lock = NSLock()
     private var buffer = Data()
-    private var waiter: CheckedContinuation<Data?, Never>?
+    private var waiter: CheckedContinuation<Data?, Error>?
     private var closed = false
     private var stderrData = Data()
 
@@ -695,56 +695,38 @@ public final class SystemSSHSFTPTransport: SFTPTransport, SystemSSHChild, @unche
     }
 
     public func send(_ data: Data) async throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !closed else { return }
         // TransferEngine intentionally has a request window. FileHandle writes
         // from those concurrent SFTP tasks can otherwise interleave bytes on
         // the single `ssh -s sftp` stdin, which corrupts packets on jumped
         // system-ssh sessions.
-        try input.write(contentsOf: data)
+        try lock.withLock {
+            guard !closed else { return }
+            try input.write(contentsOf: data)
+        }
     }
 
     public func receive() async throws -> Data? {
-        lock.lock()
-        if !buffer.isEmpty {
-            let chunk = buffer
-            buffer.removeAll(keepingCapacity: true)
-            lock.unlock()
-            return chunk
-        }
-        if closed {
-            let text = String(decoding: stderrData, as: UTF8.self)
-            lock.unlock()
-            if !text.isEmpty {
-                throw SFTPError.transport(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        try await withCheckedThrowingContinuation { continuation in
+            let result = lock.withLock { () -> Result<Data?, Error>? in
+                if !buffer.isEmpty {
+                    let chunk = buffer
+                    buffer.removeAll(keepingCapacity: true)
+                    return .success(chunk)
+                }
+                if closed {
+                    let text = String(decoding: stderrData, as: UTF8.self)
+                    if text.isEmpty { return .success(nil) }
+                    return .failure(SFTPError.transport(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+                }
+                waiter = continuation
+                return nil
             }
-            return nil
-        }
-        lock.unlock()
-        return await withCheckedContinuation { continuation in
-            lock.lock()
-            if !buffer.isEmpty {
-                let chunk = buffer
-                buffer.removeAll(keepingCapacity: true)
-                lock.unlock()
-                continuation.resume(returning: chunk)
-                return
-            }
-            if closed {
-                lock.unlock()
-                continuation.resume(returning: nil)
-                return
-            }
-            waiter = continuation
-            lock.unlock()
+            if let result { continuation.resume(with: result) }
         }
     }
 
     public func closeTransport() async {
-        lock.lock()
-        let done = closed
-        lock.unlock()
+        let done = lock.withLock { closed }
         if !done { terminate() }
         closeStream(nil)
     }

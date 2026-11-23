@@ -154,7 +154,7 @@ public struct TermiusCatalogue: Sendable {
         for entry in history {
             historyByHost[entry.host.lowercased(), default: []].append(entry)
         }
-        var keyLabels = Set(keys.map { $0.label.lowercased() })
+        let keyLabels = Set(keys.map { $0.label.lowercased() })
 
         var result: [TermiusImportedHost] = []
         var seen = Set<String>()

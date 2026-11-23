@@ -1334,7 +1334,7 @@ open class TerminalView: NSView, NSUserInterfaceValidations, TerminalDelegate {
         if settingFg { return }
         // An asynchronous echo must not apply once the model has moved on to a different color.
         // setupOptions broadcasts the defaults on every pass, and that echo can land on main after a host installed its own palette.
-        if let terminal, withTerminal({ $0.foregroundColor }) != newValue.getTerminalColor() { return }
+        if terminal != nil, withTerminal({ $0.foregroundColor }) != newValue.getTerminalColor() { return }
         settingFg = true
         _nativeFg = newValue
         refreshCachedViewState()
@@ -1346,7 +1346,7 @@ open class TerminalView: NSView, NSUserInterfaceValidations, TerminalDelegate {
         if settingBg { return }
         // Stale-echo guard, see setNativeForegroundColorFromTerminal.
         // The setup-time default stamp used to echo a black background that overwrote a host background for one frame.
-        if let terminal, withTerminal({ $0.backgroundColor }) != newValue.getTerminalColor() { return }
+        if terminal != nil, withTerminal({ $0.backgroundColor }) != newValue.getTerminalColor() { return }
         settingBg = true
         // The terminal model stores RGB only. Keep the host opacity when its
         // asynchronous color callback reconstructs an opaque native color.

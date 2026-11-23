@@ -1,11 +1,9 @@
 #!/bin/bash
-# Build Tauge.app with SwiftPM only.
+# Build Tauge.app for Apple silicon with SwiftPM only.
 #
 #   ./scripts/build-app.sh [debug|release]
 #
 # Environment:
-#   TAUGE_ARCHS          Space-separated architectures (default: host arch).
-#                        Use "arm64 x86_64" for a universal build.
 #   TAUGE_SIGN_IDENTITY  Code-signing identity (default: "Tauge Local Signing").
 #                        Use "-" to force an ad-hoc signature for distribution.
 #   TAUGE_SIGN_KEYCHAIN  Keychain holding the identity (default: local dev keychain).
@@ -15,8 +13,11 @@ cd "$(dirname "$0")/.."
 
 CONFIG="${1:-release}"
 APP="dist/Tauge.app"
+if [ "$(uname -m)" != arm64 ]; then
+  echo "error: Build Tauge from a native arm64 shell on an Apple silicon Mac." >&2
+  exit 1
+fi
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
-ARCHS="${TAUGE_ARCHS:-$(uname -m)}"
 
 export TMPDIR="$PWD/.build/tmp"
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/modulecache"
@@ -25,22 +26,14 @@ mkdir -p "$TMPDIR" "$CLANG_MODULE_CACHE_PATH"
 
 SPM_FLAGS=(--disable-sandbox --cache-path .swiftpm/cache --config-path .swiftpm/config --security-path .swiftpm/security)
 
-echo "==> building Tauge $VERSION ($CONFIG) for: $ARCHS"
-BIN_DIRS=()
-CLI_BIN_DIRS=()
-for ARCH in $ARCHS; do
-  if [ "$(uname -m)" = "$ARCH" ] && [ "$ARCHS" = "$(uname -m)" ]; then
-    swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}"
-    BIN_DIRS+=("$(swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --show-bin-path)")
-    swift build -c "$CONFIG" --product TaugeCLI "${SPM_FLAGS[@]}"
-    CLI_BIN_DIRS+=("$(swift build -c "$CONFIG" --product TaugeCLI "${SPM_FLAGS[@]}" --show-bin-path)")
-  else
-    TRIPLE="$ARCH-apple-macosx13.0"
-    SCRATCH=".build/$ARCH"
-    swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH"
-    BIN_DIRS+=("$(swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH" --show-bin-path)")
-    swift build -c "$CONFIG" --product TaugeCLI "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH"
-    CLI_BIN_DIRS+=("$(swift build -c "$CONFIG" --product TaugeCLI "${SPM_FLAGS[@]}" --triple "$TRIPLE" --scratch-path "$SCRATCH" --show-bin-path)")
+echo "==> building Tauge $VERSION ($CONFIG) for arm64"
+swift build -c "$CONFIG" --product Tauge "${SPM_FLAGS[@]}"
+swift build -c "$CONFIG" --product TaugeCLI "${SPM_FLAGS[@]}"
+BIN_DIR="$(swift build -c "$CONFIG" "${SPM_FLAGS[@]}" --show-bin-path)"
+for EXECUTABLE in Tauge TaugeCLI; do
+  if [ "$(lipo -archs "$BIN_DIR/$EXECUTABLE")" != arm64 ]; then
+    echo "error: Expected an arm64-only $EXECUTABLE executable." >&2
+    exit 1
   fi
 done
 
@@ -48,17 +41,7 @@ echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-if [ "${#BIN_DIRS[@]}" -gt 1 ]; then
-  lipo -create "${BIN_DIRS[@]/%//Tauge}" -output "$APP/Contents/MacOS/Tauge"
-else
-  cp "${BIN_DIRS[0]}/Tauge" "$APP/Contents/MacOS/Tauge"
-fi
-
-if [ "${#CLI_BIN_DIRS[@]}" -gt 1 ]; then
-  lipo -create "${CLI_BIN_DIRS[@]/%//TaugeCLI}" -output "$APP/Contents/MacOS/TaugeCLI"
-else
-  cp "${CLI_BIN_DIRS[0]}/TaugeCLI" "$APP/Contents/MacOS/TaugeCLI"
-fi
+cp "$BIN_DIR/Tauge" "$BIN_DIR/TaugeCLI" "$APP/Contents/MacOS/"
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [ -n "${TAUGE_BUILD_NUMBER:-}" ]; then
@@ -76,7 +59,7 @@ fi
 # Contents/Resources so they are sealed by the app signature. The localisation
 # loader looks inside the bundle directly instead of using the generated
 # Bundle.module accessor, whose search path differs between SwiftPM toolchains.
-for BUNDLE in "${BIN_DIRS[0]}"/*.bundle; do
+for BUNDLE in "$BIN_DIR"/*.bundle; do
   [ -d "$BUNDLE" ] || continue
   NAME="$(basename "$BUNDLE")"
   cp -R "$BUNDLE" "$APP/Contents/Resources/"
@@ -128,4 +111,4 @@ echo "==> verify localization"
 
 echo "==> done: $APP"
 echo "    version: $VERSION"
-echo "    archs:   $(lipo -archs "$APP/Contents/MacOS/Tauge" 2>/dev/null || echo unknown)"
+echo "    arch:    arm64"

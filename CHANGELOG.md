@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] — 2026-11-23
+
+### 平台支持
+
+- **Tauge 和 `tauge` CLI 仅支持搭载 Apple 芯片（arm64）的 Mac**，需要 macOS 13 Ventura 或更新版本。
+- **在 Apple 芯片 Mac 上从旧通用版升级时，需要用 DMG 手动升级一次。** 退出 Tauge，打开 `Tauge-1.2.8.dmg`，把新版 Tauge 拖到「应用程序」并选择替换。之后可继续使用应用内更新。
+
+### 改进
+
+- 起始页的「全部主机」按主机分组显示，子分组标明完整路径，搜索结果沿用分区。
+- 工作区窗格标题栏跟随主机自定义色或分组继承色，配色改动会更新已打开的窗格。
+
+### 修复
+
+- 清理 SSH、SFTP、CLI 和部分依赖的 Swift 编译告警，调整事件循环与锁的用法。
+
 ## [1.2.7] — 2026-11-22
 
 ### 修复

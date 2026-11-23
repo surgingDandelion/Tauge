@@ -299,7 +299,7 @@ public actor SFTPClient {
                 do {
                     try await self.transport.send(encoded)
                 } catch {
-                    await self.failRequest(id, with: SFTPError.transport(String(describing: error)))
+                    self.failRequest(id, with: SFTPError.transport(String(describing: error)))
                 }
             }
         }

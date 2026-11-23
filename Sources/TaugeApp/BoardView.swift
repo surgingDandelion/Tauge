@@ -642,7 +642,10 @@ private struct BoardPaneView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
+        // The session can outlive catalog edits, including a move to a new group.
+        let host = app.host(id: session.hostID) ?? session.host
+        let tint = Color(hex: app.resolvedColorHex(for: host))
+        return HStack(spacing: 6) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 6, height: 6)
@@ -682,11 +685,13 @@ private struct BoardPaneView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 30)
-        .background(headerBackground)
+        .background {
+            headerBackground.overlay(tint?.opacity(isFocused ? 0.26 : 0.18) ?? Color.clear)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Theme.separator)
-                .frame(height: 0.5)
+                .fill(tint?.opacity(0.6) ?? Theme.separator)
+                .frame(height: tint == nil ? 0.5 : 1)
         }
         .contentShape(Rectangle())
         .onHover { inside in
@@ -704,9 +709,7 @@ private struct BoardPaneView: View {
         .help(L("拖动标题栏可移动窗格，双击最大化"))
     }
 
-    /// Opaque so the title bar never picks up a shell colour drawn under it.
-    /// Unfocused panes use the shared header band; the focused one is a step
-    /// brighter and keeps the accent border, so focus reads without a tint.
+    /// The opaque base keeps shell colours from bleeding into the title bar.
     private var headerBackground: Color {
         isFocused ? Theme.paneHeader : Theme.headerBackground
     }
