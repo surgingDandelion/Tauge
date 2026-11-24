@@ -9,6 +9,9 @@ struct RevealableCredentialField: View {
     let title: String
     @Binding var text: String
     var isPassphrase = false
+    /// Embedding forms can provide their own border around the field and
+    /// reveal button. Keep AppKit's normal field style for the other editors.
+    var usesPlainEditorStyle = false
     @ViewState private var isRevealed = false
     @FocusState private var focusedField: Field?
 
@@ -19,18 +22,11 @@ struct RevealableCredentialField: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Group {
-                if isRevealed {
-                    TextField(title, text: $text)
-                        .disableAutocorrection(true)
-                        .focused($focusedField, equals: .revealed)
-                } else {
-                    SecureField(title, text: $text)
-                        .focused($focusedField, equals: .masked)
-                }
+            if usesPlainEditorStyle {
+                valueField.textFieldStyle(.plain)
+            } else {
+                valueField.textFieldStyle(.roundedBorder)
             }
-            .labelsHidden()
-            .textFieldStyle(.roundedBorder)
 
             Button {
                 let wasEditing = focusedField != nil
@@ -47,6 +43,20 @@ struct RevealableCredentialField: View {
             .help(toggleLabel)
         }
         .onDisappear { isRevealed = false }
+    }
+
+    private var valueField: some View {
+        Group {
+            if isRevealed {
+                TextField(title, text: $text)
+                    .disableAutocorrection(true)
+                    .focused($focusedField, equals: .revealed)
+            } else {
+                SecureField(title, text: $text)
+                    .focused($focusedField, equals: .masked)
+            }
+        }
+        .labelsHidden()
     }
 }
 

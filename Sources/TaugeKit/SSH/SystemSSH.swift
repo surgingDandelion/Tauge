@@ -53,6 +53,8 @@ public struct SystemSSHOptions: Sendable {
     public var connectTimeoutSeconds: Int
     public var keepaliveSeconds: Int
     public var term: String
+    /// Headless callers require host keys already trusted by OpenSSH.
+    var requiresKnownHost = false
 
     public init(host: String,
                 port: Int,
@@ -110,15 +112,21 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
     public private(set) var askpassPath: String?
     /// ProxyCommand that tunnels through every configured jump host.
     public private(set) var jumpProxyPath: String?
+    let entryProxyCommand: String?
 
     private let lock = NSLock()
     private var cleaned = false
 
-    public init(options: SystemSSHOptions, sshExecutable: String = "/usr/bin/ssh") throws {
+    public convenience init(options: SystemSSHOptions, sshExecutable: String = "/usr/bin/ssh") throws {
+        try self.init(options: options, sshExecutable: sshExecutable, entryProxyCommand: nil)
+    }
+
+    init(options: SystemSSHOptions, sshExecutable: String, entryProxyCommand: String?) throws {
         guard FileManager.default.isExecutableFile(atPath: sshExecutable) else {
             throw SystemSSHError.missingExecutable(sshExecutable)
         }
         self.sshExecutable = sshExecutable
+        self.entryProxyCommand = entryProxyCommand
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tauge-systemssh-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root,
@@ -150,7 +158,8 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
                                                                         sshExecutable: sshExecutable,
                                                                         root: root,
                                                                         keyPath: keyPath,
-                                                                        askpassAvailable: askpassPath != nil)
+                                                                        askpassPath: askpassPath,
+                                                                        entryProxyCommand: entryProxyCommand)
         }
     }
 
@@ -162,37 +171,50 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
                                          sshExecutable: String,
                                          root: URL,
                                          keyPath: String?,
-                                         askpassAvailable: Bool) throws -> String {
+                                         askpassPath: String?,
+                                         entryProxyCommand: String?) throws -> String {
         var previous: String?
         for (index, jump) in options.jumps.enumerated() {
             var command = shellQuoted(sshExecutable)
             let hopFiles = try writeJumpCredential(jump.credential, root: root, index: index)
-            let hopUsesCredential = !isNone(jump.credential)
+            let usesTargetCredential = isNone(jump.credential)
+            let hopAskpassPath = usesTargetCredential ? askpassPath : hopFiles.askpassPath
+            let hopKeyPath = usesTargetCredential ? keyPath : hopFiles.keyPath
             var hopOptions = SystemSSHCommandBuilder.baseOptions(
                 options: options,
-                askpassAvailable: hopFiles.askpassPath != nil || (!hopUsesCredential && askpassAvailable)
+                askpassAvailable: hopAskpassPath != nil
             )
-            if let hopKeyPath = hopFiles.keyPath {
+            if let hopKeyPath {
                 hopOptions += ["-i", hopKeyPath, "-o", "IdentitiesOnly=yes"]
-            } else if !hopUsesCredential, let keyPath {
-                // Backward-compatible fallback for callers that only supplied
-                // one identity and leave hop authentication to that key.
-                hopOptions += ["-i", keyPath, "-o", "IdentitiesOnly=yes"]
+            } else if case .password = jump.credential {
+                hopOptions += SystemSSHCommandBuilder.passwordAuthenticationOptions
             }
             command += " " + hopOptions.map(shellQuoted).joined(separator: " ")
             if let previous {
                 // The path lives in our own temporary directory, so it never needs
                 // its own quoting level here.
                 command += " -o " + shellQuoted("ProxyCommand=" + previous + " %h %p")
+            } else if let entryProxyCommand {
+                command += " -o " + shellQuoted("ProxyCommand=" + entryProxyCommand)
             }
             command += " -p " + String(jump.port)
             if !jump.username.isEmpty {
                 command += " -l " + shellQuoted(jump.username)
             }
             command += " -W \"$1:$2\""
-            command += " " + shellQuoted(jump.host)
+            command += " -- " + shellQuoted(jump.host)
             let path = root.appendingPathComponent("jump\(index + 1).sh").path
-            try ("#!/bin/sh\nexec " + command + "\n").write(toFile: path, atomically: false, encoding: .utf8)
+            var script = "#!/bin/sh\n"
+            // A nested ProxyCommand inherits the previous hop's environment.
+            // Set or clear the helper explicitly before starting this hop.
+            if let hopAskpassPath {
+                script += "export SSH_ASKPASS=" + shellQuoted(hopAskpassPath) + "\n"
+                script += "export SSH_ASKPASS_REQUIRE=force\nexport DISPLAY=\"${DISPLAY:-:0}\"\n"
+            } else {
+                script += "unset SSH_ASKPASS SSH_ASKPASS_REQUIRE\n"
+            }
+            script += "exec " + command + "\n"
+            try script.write(toFile: path, atomically: false, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
             previous = path
         }
@@ -210,7 +232,7 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
         var keyPath: String?
         if case .key(let text, _) = credential {
             guard !text.isEmpty else { throw SystemSSHError.keyUnavailable }
-            let path = root.appendingPathComponent("jump(index + 1)-identity").path
+            let path = root.appendingPathComponent("jump\(index + 1)-identity").path
             var contents = text
             if !contents.hasSuffix("\n") { contents += "\n" }
             try contents.write(toFile: path, atomically: false, encoding: .utf8)
@@ -220,7 +242,7 @@ public final class SystemSSHWorkspace: @unchecked Sendable {
 
         var askpassPath: String?
         if let secret = credential.askpassSecret {
-            let path = root.appendingPathComponent("jump(index + 1)-askpass").path
+            let path = root.appendingPathComponent("jump\(index + 1)-askpass").path
             let quoted = secret.replacingOccurrences(of: "'", with: "'\\''")
             let script = "#!/bin/sh\nprintf '%s\\n' '" + quoted + "'\n"
             try script.write(toFile: path, atomically: false, encoding: .utf8)
@@ -270,13 +292,20 @@ public enum SystemSSHCommandBuilder {
         "-o", "MACs=+hmac-sha1,hmac-sha2-256",
     ]
 
+    static let passwordAuthenticationOptions = [
+        "-o", "PubkeyAuthentication=no",
+        "-o", "KbdInteractiveAuthentication=yes",
+        "-o", "PreferredAuthentications=password,keyboard-interactive",
+        "-o", "NumberOfPasswordPrompts=1",
+    ]
+
     /// Options every hop of a chain needs: non-interactive, no shared control
     /// socket, and the legacy algorithms an old server may require.
     static func baseOptions(options: SystemSSHOptions,
                             askpassAvailable: Bool = false) -> [String] {
         var args: [String] = []
         args += ["-o", "BatchMode=" + (askpassAvailable ? "no" : "yes")]
-        args += ["-o", "StrictHostKeyChecking=accept-new"]
+        args += ["-o", "StrictHostKeyChecking=" + (options.requiresKnownHost ? "yes" : "accept-new")]
         args += ["-o", "LogLevel=ERROR"]
         args += ["-o", "ConnectTimeout=" + String(max(options.connectTimeoutSeconds, 1))]
         args += ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
@@ -291,13 +320,10 @@ public enum SystemSSHCommandBuilder {
             args += ["-o", "ServerAliveCountMax=3"]
         }
 
-        if let proxy = options.proxy {
-            if let command = proxyCommand(for: proxy) {
-                args += ["-o", "ProxyCommand=" + command]
-            }
-        }
         if let jumpProxy = workspace.jumpProxyPath {
             args += ["-o", "ProxyCommand=" + jumpProxy + " %h %p"]
+        } else if let command = workspace.entryProxyCommand ?? options.proxy.flatMap(proxyCommand(for:)) {
+            args += ["-o", "ProxyCommand=" + command]
         }
 
         switch options.credential {
@@ -307,10 +333,7 @@ public enum SystemSSHCommandBuilder {
                 args += ["-o", "IdentitiesOnly=yes"]
             }
         case .password:
-            args += ["-o", "PubkeyAuthentication=no"]
-            args += ["-o", "KbdInteractiveAuthentication=yes"]
-            args += ["-o", "PreferredAuthentications=password,keyboard-interactive"]
-            args += ["-o", "NumberOfPasswordPrompts=1"]
+            args += passwordAuthenticationOptions
         case .none:
             args += ["-o", "PubkeyAuthentication=no"]
         case .agent:
@@ -355,7 +378,10 @@ public enum SystemSSHCommandBuilder {
     /// proxies cannot be expressed this way, so they stay unsupported.
     static func proxyCommand(for proxy: ProxyEndpoint) -> String? {
         if proxy.username?.isEmpty == false || proxy.password?.isEmpty == false { return nil }
-        let endpoint = proxy.host + ":" + String(proxy.port)
+        // OpenSSH expands percent tokens before the shell sees ProxyCommand.
+        let endpoint = SystemSSHWorkspace.shellQuoted(
+            proxy.host.replacingOccurrences(of: "%", with: "%%") + ":" + String(proxy.port)
+        )
         switch proxy.type {
         case .socks5, .socks5h:
             return "/usr/bin/nc -X 5 -x " + endpoint + " %h %p"
@@ -366,7 +392,8 @@ public enum SystemSSHCommandBuilder {
         }
     }
 
-    /// Throws when the requested route cannot be expressed to the system client.
+    /// Validates a standalone route using nc. SSHClient supplies its own relay
+    /// for OpenSSH sessions that need proxy authentication or a jump chain.
     public static func validate(options: SystemSSHOptions) throws {
         guard let proxy = options.proxy else { return }
         if proxyCommand(for: proxy) == nil {

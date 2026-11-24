@@ -18,15 +18,20 @@ enum StartPageSelection: Hashable {
 /// The landing surface shown when no terminal or workspace tab is selected.
 struct StartPageView: View {
     @EnvironmentObject private var app: AppState
-    @ViewState private var query = ""
     @ViewState private var isAreaDropTarget = false
-    @FocusState private var searchFocused: Bool
 
     typealias Selection = StartPageSelection
 
+    private var query: String {
+        app.startPageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var selection: Selection {
         get { app.startPageSelection }
-        nonmutating set { app.startPageSelection = newValue }
+        nonmutating set {
+            if app.showingCatalogSearch { app.showStartPage() }
+            app.startPageSelection = newValue
+        }
     }
 
     /// A group includes all descendant hosts by default. The toggle is kept
@@ -38,208 +43,141 @@ struct StartPageView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().opacity(0.5)
-            HStack(spacing: 0) {
+        HStack(spacing: 0) {
+            if app.settings.startPageSidebarVisible {
                 collectionList
-                    .frame(width: 210)
-                Divider().opacity(0.5)
-                hostArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(width: 216)
+                Rectangle()
+                    .fill(Theme.separator)
+                    .frame(width: 1)
             }
-            Divider().opacity(0.5)
-            footer
+            Group {
+                if app.showingCatalogSearch {
+                    CatalogSearchView()
+                } else {
+                    hostArea
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(Theme.windowGradient)
+        .background(Theme.cardBackground)
         .onChange(of: selection) { _ in
             showsDescendants = true
+            revealSelection()
         }
         .onAppear {
-            // A group can be deleted while the page is away; do not come back to
-            // an empty list.
-            if case .group(let id) = app.startPageSelection, app.group(id: id) == nil {
+            if case .group(let id) = selection, app.group(id: id) == nil {
                 app.startPageSelection = .all
             }
+            revealSelection()
         }
     }
 
-    // MARK: - Header
-
-    private var headerSummary: String {
-        [L(app.hosts.count, " 台主机"),
-         L(app.groups.count, " 个分组"),
-         L(app.boards.count, " 个工作区")].joined(separator: " · ")
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            TechAppLogo(size: 30)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(L("起始页"))
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .tracking(0.2)
-                Text(headerSummary)
-                    .font(TechFont.mono(9, .medium))
-                    .foregroundStyle(Theme.secondary.opacity(0.92))
-            }
-            Spacer(minLength: 12)
-            searchField
-            TechActionButton(systemName: "arrow.up.arrow.down",
-                             title: L("新建 SFTP"),
-                             isEnabled: !app.hosts.isEmpty) {
-                app.beginNewSFTPTab()
-            }
-            .help(L("选择一台或多台服务器，打开 SFTP 标签"))
-            TechActionButton(systemName: "plus", title: L("新建主机")) {
-                app.editingHost = SSHHost(name: L("新主机"))
-            }
-            .help(L("新建一台主机"))
-            Menu {
-                Button(L("新建分组…")) { app.beginNewGroup() }
-                Button(L("新建工作区…")) { app.promptCreateBoard() }
-                Divider()
-                Button(L("导入 ~/.ssh/config")) { app.importSSHConfig() }
-                Button(L("从 Termius 导入…")) { app.beginTermiusImport() }
-                Divider()
-                Button(L("快速打开…")) { app.showQuickOpen() }
-                Button(L("传输中心")) { app.showingTransferCenter = true }
-                Button(L("设置…")) { app.showingSettings = true }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.secondary)
-                    .frame(width: 26, height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                            .fill(LinearGradient(colors: [Theme.cardTop, Theme.cardBottom],
-                                                 startPoint: .top,
-                                                 endPoint: .bottom))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                            .strokeBorder(Theme.hairline.opacity(0.85), lineWidth: 0.8)
-                    )
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 26)
-            .help(L("更多"))
-        }
-        .controlSize(.small)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(searchFocused ? Theme.accent : Theme.secondary)
-            TextField(L("搜索主机、地址、标签"), text: $query)
-                .textFieldStyle(.plain)
-                .font(TechFont.mono(10.5))
-                .focused($searchFocused)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Theme.secondary)
-                        .frame(width: 16, height: 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(Theme.secondary.opacity(0.10))
-                        )
-                }
-                .buttonStyle(.plain)
-                .help(L("清空搜索"))
-            }
-        }
-        .padding(.horizontal, 7)
-        .frame(width: 210, height: 26)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Theme.fieldBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(searchFocused ? Theme.accent.opacity(0.55) : Theme.hairline.opacity(0.9),
-                              lineWidth: 0.8)
-        )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(searchFocused ? Theme.accent.opacity(0.8) : Color.clear)
-                .frame(height: 1)
-                .padding(.horizontal, 5)
-        }
-        .shadow(color: searchFocused ? Theme.accent.opacity(0.12) : Color.clear,
-                radius: 4, y: 0)
-        .onExitCommand {
-            if query.isEmpty { searchFocused = false } else { query = "" }
-        }
-    }
-
-    // MARK: - Left column
+    // MARK: - Navigation
 
     private struct GroupRow: Identifiable {
         let group: HostGroup
         let depth: Int
-        /// Hosts that live in this group itself — the same set the grid shows,
-        /// so the number next to the name always matches what you see.
         let count: Int
-        /// Every group below this one (direct children and deeper).
-        let descendantCount: Int
+        let hasChildren: Bool
         var id: UUID { group.id }
     }
 
     private var groupRows: [GroupRow] {
+        var counts: [UUID: Int] = [:]
         var result: [GroupRow] = []
-        func walk(_ nodes: [SidebarGroupNode], depth: Int) {
-            for node in nodes {
-                result.append(GroupRow(group: node.group,
-                                       depth: depth,
-                                       count: app.hosts(inGroup: node.group.id,
-                                                        includingDescendants: true).count,
-                                       descendantCount: countDescendants(node)))
-                walk(node.children, depth: depth + 1)
+
+        func count(_ node: SidebarGroupNode) -> Int {
+            if let cached = counts[node.id] { return cached }
+            let total = node.children.reduce(node.hosts.count) {
+                $0 + count($1)
+            }
+            counts[node.id] = total
+            return total
+        }
+
+        func walk(_ branch: [SidebarGroupNode], depth: Int) {
+            for node in branch {
+                result.append(GroupRow(group: node.group, depth: depth, count: count(node),
+                                       hasChildren: !node.children.isEmpty))
+                if !app.startPageCollapsedGroups.contains(node.id) {
+                    walk(node.children, depth: depth + 1)
+                }
             }
         }
-        walk(app.sidebarTree, depth: 0)
+
+        walk(app.catalogTree, depth: 0)
         return result
     }
 
-    private func countDescendants(_ node: SidebarGroupNode) -> Int {
-        node.children.reduce(0) { $0 + 1 + countDescendants($1) }
+    private func ancestors(of groupID: UUID) -> [HostGroup] {
+        var result: [HostGroup] = []
+        var visited: Set<UUID> = [groupID]
+        var next = app.group(id: groupID)?.parentID
+        while let id = next, visited.insert(id).inserted, let group = app.group(id: id) {
+            result.append(group)
+            next = group.parentID
+        }
+        return result.reversed()
     }
 
     private var selectedGroupDescendants: Int {
         guard case .group(let id) = selection else { return 0 }
-        return groupRows.first { $0.id == id }?.descendantCount ?? 0
+        let groupsByParent = Dictionary(grouping: app.groups, by: \.parentID)
+        var visited: Set<UUID> = [id]
+        var remaining: [UUID] = [id]
+        while let parent = remaining.popLast() {
+            for child in groupsByParent[parent, default: []] where visited.insert(child.id).inserted {
+                remaining.append(child.id)
+            }
+        }
+        return visited.count - 1
+    }
+
+    private func revealSelection() {
+        guard case .group(let id) = selection else { return }
+        let ancestorIDs = ancestors(of: id).map(\.id)
+        let collapsed = app.startPageCollapsedGroups.subtracting(ancestorIDs)
+        if collapsed != app.startPageCollapsedGroups {
+            app.startPageCollapsedGroups = collapsed
+        }
+    }
+
+    private func toggleGroup(_ groupID: UUID) {
+        if app.startPageCollapsedGroups.remove(groupID) != nil { return }
+        app.startPageCollapsedGroups.insert(groupID)
+        if case .group(let id) = selection, ancestors(of: id).contains(where: { $0.id == groupID }) {
+            app.startPageSelection = .group(groupID)
+        }
     }
 
     private var collectionList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 1) {
-                if !app.boards.isEmpty {
-                    sectionLabel(L("工作区"), addHelp: L("新建工作区"), addAction: { app.promptCreateBoard() })
-                    ForEach(app.boards) { board in
-                        StartListRow(symbol: "rectangle.split.3x3",
-                                     title: board.name,
-                                     detail: String(board.panes.count),
-                                     isSelected: false,
-                                     accent: board.colorHex.flatMap { Color(hex: $0) },
-                                     action: { app.openBoardTab(board.id) })
-                            .contextMenu {
-                                Button(L("编辑工作区…")) { app.editingBoard = board }
-                                Button(L("连接全部窗格")) { app.openBoardTab(board.id) }
-                                Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
-                            }
-                    }
+        let ungrouped = app.catalogUngroupedHosts
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 1) {
+                sectionLabel(L("工作区"), addHelp: L("新建工作区")) { app.promptCreateBoard() }
+                ForEach(app.boards) { board in
+                    StartListRow(symbol: "rectangle.split.2x2",
+                                 title: board.name,
+                                 detail: String(board.panes.count),
+                                 isSelected: false,
+                                 accent: board.colorHex.flatMap { Color(hex: $0) },
+                                 isWorkspace: true,
+                                 action: { app.openBoardTab(board.id) })
+                        .contextMenu {
+                            Button(L("编辑工作区…")) { app.editingBoard = board }
+                            Button(L("连接全部窗格")) { app.openBoardTab(board.id) }
+                            Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
+                        }
                 }
 
-                sectionLabel(L("分组"), addHelp: L("新建分组"), addAction: { app.beginNewGroup() })
+                Rectangle()
+                    .fill(Theme.separator.opacity(0.75))
+                    .frame(height: 1)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 12)
+
+                sectionLabel(L("连接库"))
                 StartListRow(symbol: "square.grid.2x2",
                              title: L("全部主机"),
                              detail: String(app.hosts.count),
@@ -259,93 +197,88 @@ struct StartPageView: View {
                                  isSelected: selection == .recent,
                                  action: { selection = .recent })
                 }
-                ForEach(groupRows) { row in
-                    // The sidebar is hidden by default, so the list carries the
-                    // whole group lifecycle: create a child, rename, delete.
-                    StartListRow(symbol: row.depth == 0 ? "folder" : "folder.badge.minus",
-                                 title: row.group.name,
-                                 detail: String(row.count),
-                                 isSelected: selection == .group(row.group.id),
-                                 indentation: CGFloat(row.depth) * 12,
-                                 accent: row.group.colorHex.flatMap { Color(hex: $0) },
-                                 onDropHost: { app.moveHost($0, onto: nil, in: row.group.id) },
-                                 action: { selection = .group(row.group.id) })
-                        .contextMenu {
-                            Button(L("连接组内全部主机")) {
-                                app.openTabs(for: app.hosts(inGroup: row.group.id))
-                            }
-                            Button(L("新建主机到此分组")) {
-                                var host = SSHHost(name: L("新主机"))
-                                host.groupID = row.group.id
-                                app.editingHost = host
-                            }
-                            Divider()
-                            Button(L("新建子分组")) { app.beginNewGroup(parentID: row.group.id) }
-                            Button(L("编辑分组…")) {
-                                app.editingGroup = app.group(id: row.group.id) ?? row.group
-                            }
-                            Button(L("删除分组"), role: .destructive) {
-                                let confirmed = Prompt.confirm(
-                                    title: L("删除分组“") + row.group.name + "”？",
-                                    message: L("分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。"),
-                                    destructiveTitle: L("删除"))
-                                if confirmed { app.deleteGroup(row.group.id) }
-                            }
-                        }
-                }
-                if !app.ungroupedHosts.isEmpty {
+
+                sectionLabel(L("分组"), addHelp: L("新建分组")) { app.beginNewGroup() }
+                    .padding(.top, 14)
+                ForEach(groupRows, content: groupRow)
+                if !ungrouped.isEmpty {
                     StartListRow(symbol: "tray",
                                  title: L("未分组"),
-                                 detail: String(app.ungroupedHosts.count),
+                                 detail: String(ungrouped.count),
                                  isSelected: selection == .ungrouped,
                                  onDropHost: { app.moveHost($0, onto: nil, in: nil) },
                                  action: { selection = .ungrouped })
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 14)
         }
-        .background(Theme.sidebarBackground)
+        .background(Theme.cardBackground)
+        .accessibilityLabel(L("分组"))
     }
 
-    private func addButton(_ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(Theme.secondary)
-                .frame(width: 16, height: 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .fill(Theme.tagBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.6)
-                )
-        }
-        .buttonStyle(.plain)
-        .help(help)
+    private func groupRow(_ row: GroupRow) -> some View {
+        let isExpanded = !app.startPageCollapsedGroups.contains(row.id)
+        return StartListRow(symbol: row.hasChildren && isExpanded ? "folder.fill" : "folder",
+                            title: row.group.name,
+                            detail: String(row.count),
+                            isSelected: selection == .group(row.id),
+                            depth: row.depth,
+                            accent: row.group.colorHex.flatMap { Color(hex: $0) },
+                            disclosure: row.hasChildren
+                                ? StartListRow.Disclosure(isExpanded: isExpanded, action: { toggleGroup(row.id) })
+                                : nil,
+                            onDropHost: { app.moveHost($0, onto: nil, in: row.id) },
+                            action: { selection = .group(row.id) })
+            .contextMenu {
+                Button(L("连接组内全部主机")) { app.openTabs(for: app.hosts(inGroup: row.id)) }
+                Button(L("新建主机到此分组")) { newHost(in: row.id) }
+                Divider()
+                Button(L("新建子分组")) { app.beginNewGroup(parentID: row.id) }
+                Button(L("编辑分组…")) { app.editingGroup = app.group(id: row.id) ?? row.group }
+                Button(L("删除分组"), role: .destructive) {
+                    let confirmed = Prompt.confirm(
+                        title: L("删除分组“") + row.group.name + "”？",
+                        message: L("分组内的主机会移动到“未分组”，子分组会一并删除。此操作不可撤销。"),
+                        destructiveTitle: L("删除"))
+                    if confirmed { app.deleteGroup(row.id) }
+                }
+            }
     }
 
-    private func sectionLabel(_ title: String, addHelp: String? = nil, addAction: (() -> Void)? = nil) -> some View {
-        HStack(spacing: 6) {
-            Rectangle()
-                .fill(Theme.accent.opacity(0.75))
-                .frame(width: 2, height: 7)
+    private func sectionLabel(_ title: String,
+                              addHelp: String? = nil,
+                              addAction: (() -> Void)? = nil) -> some View {
+        HStack {
             Text(title)
-                .font(TechFont.mono(9, .semibold))
-                .tracking(0.4)
+                .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(Theme.secondary)
-            Rectangle()
-                .fill(Theme.hairline.opacity(0.7))
-                .frame(height: 0.5)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
             if let addHelp, let addAction {
-                addButton(addHelp, action: addAction)
+                Button(action: addAction) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(width: 23, height: 23)
+                        .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.separator, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(addHelp)
+                .accessibilityLabel(addHelp)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 10)
-        .padding(.bottom, 3)
+        .padding(.horizontal, 7)
+        .padding(.bottom, 4)
+    }
+
+    private func newHost(in groupID: UUID) {
+        var host = SSHHost(name: L("新主机"))
+        host.groupID = groupID
+        app.editingHost = host
     }
 
     // MARK: - Right column
@@ -356,7 +289,7 @@ struct StartPageView: View {
         case .favorites: return app.favoriteHosts
         case .recent: return app.recentHosts
         case .group(let id): return app.hosts(inGroup: id, includingDescendants: showsDescendants)
-        case .ungrouped: return app.ungroupedHosts
+        case .ungrouped: return app.catalogUngroupedHosts
         }
     }
 
@@ -422,7 +355,7 @@ struct StartPageView: View {
         case .all: return L("全部主机")
         case .favorites: return L("收藏")
         case .recent: return L("最近连接")
-        case .group(let id): return app.groupPath(for: id)
+        case .group(let id): return app.group(id: id)?.name ?? L("分组")
         case .ungrouped: return L("未分组")
         }
     }
@@ -454,126 +387,170 @@ struct StartPageView: View {
         let hosts = visibleHosts
         let sections = hostGroupSections(for: hosts)
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text(query.isEmpty ? selectionTitle : L("搜索结果"))
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .tracking(0.2)
-                TechTag(text: query.isEmpty
-                        ? String(hosts.count) + L(" 台")
-                        : String(hosts.count) + L(" 个结果"))
-                if query.isEmpty, !showsDescendants, selectedGroupDescendants > 0,
-                   case .group = selection {
-                    Text(L("不含 ") + String(selectedGroupDescendants) + L(" 个子分组"))
-                        .font(TechFont.mono(9))
-                        .foregroundStyle(Theme.secondary.opacity(0.8))
-                }
-                Spacer(minLength: 8)
-                if !query.isEmpty {
-                    Text(L("在整个目录中搜索"))
-                        .font(TechFont.mono(9))
-                        .foregroundStyle(Theme.secondary.opacity(0.8))
-                } else if case .group(let id) = selection {
-                    if selectedGroupDescendants > 0 {
-                        areaButton(showsDescendants
-                                   ? L("仅本组")
-                                   : L("含子分组（") + String(selectedGroupDescendants) + "）") {
-                            showsDescendants.toggle()
-                        }
-                    }
-                    areaButton(L("全部连接")) {
-                        app.openTabs(for: app.hosts(inGroup: id,
-                                                    includingDescendants: showsDescendants))
-                    }
-                    areaButton(L("新建主机")) {
-                        var host = SSHHost(name: L("新主机"))
-                        host.groupID = id
-                        app.editingHost = host
-                    }
-                    areaButton(L("分组设置")) { app.editingGroup = app.group(id: id) }
-                    areaButton(L("新建子分组")) { app.beginNewGroup(parentID: id) }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
-
+            scopeHeader(hostCount: hosts.count)
+                .padding(.horizontal, 26)
+                .padding(.top, 24)
+                .padding(.bottom, 22)
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
                     if app.hosts.isEmpty {
                         emptyHosts
                     } else if hosts.isEmpty {
                         emptySelection
-                    } else if !sections.isEmpty {
-                        groupedHostSections(sections)
-                    } else {
+                    } else if sections.isEmpty {
                         hostGrid(hosts)
+                    } else {
+                        groupedHostSections(sections)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .overlay(alignment: .top) {
-                    if isAreaDropTarget {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.35),
-                                          style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 12)
-                    }
-                }
-                .onDrop(of: [UTType.text], isTargeted: $isAreaDropTarget) { providers in
-                    guard case .group(let groupID) = dropScope else { return false }
-                    HostDropLoader.load(providers) { dragged in
-                        app.moveHost(dragged, onto: nil, in: groupID)
-                    }
-                    return true
+                .padding(.horizontal, 26)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .overlay {
+                if isAreaDropTarget {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.accent.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                        .padding(8)
+                        .allowsHitTesting(false)
                 }
             }
-            .background { TechDotGrid() }
+            .onDrop(of: [UTType.text], isTargeted: $isAreaDropTarget) { providers in
+                guard case .group(let groupID) = dropScope else { return false }
+                HostDropLoader.load(providers) { dragged in
+                    app.moveHost(dragged, onto: nil, in: groupID)
+                }
+                return true
+            }
         }
     }
 
-    /// Neutral pill used for the small actions in the header row. The old
-    /// `.link` style painted every one of them system blue.
-    private func areaButton(_ title: String, action: @escaping () -> Void) -> some View {
-        TechActionButton(title: title, kind: .ghost, height: 20, action: action)
+    private func scopeHeader(hostCount: Int) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            let path: [HostGroup] = {
+                guard case .group(let id) = selection else { return [] }
+                return ancestors(of: id)
+            }()
+            ViewThatFits(in: .horizontal) {
+                breadcrumb(path).fixedSize(horizontal: true, vertical: false)
+                breadcrumb(Array(path.suffix(1)))
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(query.isEmpty ? selectionTitle : L("搜索结果"))
+                    .font(.system(size: 29, weight: .bold))
+                    .tracking(-0.8)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Text(String(hostCount) + L(query.isEmpty ? " 台主机" : " 个结果"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize()
+                Spacer(minLength: 6)
+                if !query.isEmpty {
+                    Text(selectionTitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.secondary)
+                        .lineLimit(1)
+                } else if case .group(let id) = selection {
+                    if selectedGroupDescendants > 0 {
+                        TechActionButton(systemName: "list.bullet.indent",
+                                         title: showsDescendants
+                                             ? L("仅本组")
+                                             : L("含子分组（") + String(selectedGroupDescendants) + "）",
+                                         height: 29) { showsDescendants.toggle() }
+                    }
+                    groupActions(id)
+                }
+            }
+        }
+    }
+
+    private func breadcrumb(_ path: [HostGroup]) -> some View {
+        HStack(spacing: 7) {
+            crumb(L("连接库")) { selection = .all }
+            ForEach(path) { group in
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                    .accessibilityHidden(true)
+                crumb(group.name) { selection = .group(group.id) }
+            }
+        }
+    }
+
+    private func crumb(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.secondary)
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    private func groupActions(_ groupID: UUID) -> some View {
+        Menu {
+            Button(L("全部连接")) {
+                app.openTabs(for: app.hosts(inGroup: groupID, includingDescendants: showsDescendants))
+            }
+            Button(L("新建主机到此分组")) { newHost(in: groupID) }
+            Divider()
+            Button(L("分组设置")) { app.editingGroup = app.group(id: groupID) }
+            Button(L("新建子分组")) { app.beginNewGroup(parentID: groupID) }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 28, height: 29)
+                .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.separator, lineWidth: 1)
+                }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L("更多"))
+        .accessibilityLabel(L("更多"))
     }
 
     private func groupedHostSections(_ sections: [HostGroupSection]) -> some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+        LazyVStack(alignment: .leading, spacing: 21) {
+            ForEach(sections) { section in
                 let title = selection == .all ? app.groupPath(for: section.id) : (section.group?.name ?? L("未分组"))
-                VStack(alignment: .leading, spacing: 8) {
+                let identity = HostColor.inheritedHex(forGroupID: section.id, groups: app.groups)
+                    .flatMap(Color.init(hex:))
+                    .map(Theme.quietIdentity)
+                VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 7) {
                         RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(Color(hex: section.group?.colorHex) ?? Theme.secondary)
-                            .frame(width: 3, height: 14)
+                            .fill(identity ?? Theme.secondary.opacity(0.6))
+                            .frame(width: 3, height: 12)
+                            .accessibilityHidden(true)
                         Text(title)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
                             .help(title)
                             .accessibilityAddTraits(.isHeader)
-                        TechTag(text: String(section.hosts.count) + L(" 台"))
+                        Text(String(section.hosts.count) + L(" 台"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.secondary)
+                            .fixedSize()
                         Spacer(minLength: 0)
                     }
                     hostGrid(section.hosts)
-                }
-
-                if index < sections.count - 1 {
-                    Divider()
-                        .opacity(0.6)
-                        .padding(.vertical, 2)
                 }
             }
         }
     }
 
     private func hostGrid(_ hosts: [SSHHost]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 420),
-                                     spacing: 12,
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 218, maximum: 420),
+                                     spacing: 14,
                                      alignment: .top)],
                   alignment: .leading,
-                  spacing: 12) {
+                  spacing: 14) {
             ForEach(hosts) { host in
                 StartHostCard(host: host,
                               caption: showsGroupCaption ? groupPath(for: host) : nil)
@@ -597,11 +574,7 @@ struct StartPageView: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(Theme.secondary)
                 }
-                Button(L("新建主机到此分组")) {
-                    var host = SSHHost(name: L("新主机"))
-                    host.groupID = id
-                    app.editingHost = host
-                }
+                Button(L("新建主机到此分组")) { newHost(in: id) }
                 .controlSize(.small)
             }
         }
@@ -679,142 +652,126 @@ struct StartPageView: View {
         return app.groupPath(for: groupID)
     }
 
-    // MARK: - Footer
-
-    /// The bottom row is the only place the start page advertises shortcuts, so
-    /// the two toolbar actions (new SFTP / new host) lead it. The drag-help
-    /// sentence on the right is the first thing to drop when the window gets
-    /// narrow: the hints are the point of the row, the sentence is a bonus.
-    private var footer: some View {
-        ViewThatFits(in: .horizontal) {
-            footerRow(showsDragHelp: true)
-            footerRow(showsDragHelp: false)
-        }
-        .padding(.horizontal, 18)
-        .frame(height: 26)
-    }
-
-    private func footerRow(showsDragHelp: Bool) -> some View {
-        HStack(spacing: 14) {
-            hint("⇧⌘T", L("新建 SFTP"))
-            hint("⌘N", L("新建主机"))
-            hint("⌘T", L("新建标签"))
-            hint("⇧⌘B", L("新建工作区"))
-            hint("⌘K", L("快速打开"))
-            hint("⌘F", L("终端查找"))
-            Spacer(minLength: 0)
-            if showsDragHelp {
-                Text(L("双击连接 · 拖动卡片可排序，拖到左侧分组即移动"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-        }
-    }
-
-    private func hint(_ keys: String, _ title: String) -> some View {
-        HStack(spacing: 4) {
-            Text(keys)
-                .font(TechFont.mono(8.5, .semibold))
-                .foregroundStyle(Theme.secondary)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .fill(Theme.tagBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.6)
-                )
-            Text(title)
-                .font(.system(size: 9.5))
-                .foregroundStyle(Theme.secondary)
-        }
-        .fixedSize()
-    }
 }
 
 // MARK: - Rows
 
 private struct StartListRow: View {
+    struct Disclosure {
+        let isExpanded: Bool
+        let action: () -> Void
+    }
+
     let symbol: String
     let title: String
     var detail: String = ""
     var isSelected: Bool
-    var indentation: CGFloat = 0
+    var depth: Int = 0
     var accent: Color? = nil
-    /// Set to nil when the row cannot receive hosts (收藏 / 最近连接).
+    var isWorkspace = false
+    var disclosure: Disclosure? = nil
     var onDropHost: ((UUID) -> Void)? = nil
     let action: () -> Void
 
     @ViewState private var hovering = false
     @ViewState private var isDropTarget = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var iconTint: Color {
+        guard let accent else { return Theme.secondary }
+        return colorScheme == .dark ? Theme.quietIdentity(accent) : accent
+    }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol)
-                    .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? (accent ?? Theme.accent) : (accent ?? Theme.secondary))
-                    .frame(width: 14)
-                Text(title)
-                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                TechTag(text: detail, tint: isSelected ? Theme.accent : nil)
+        if let onDropHost {
+            row.onDrop(of: [UTType.text], isTargeted: $isDropTarget) { providers in
+                HostDropLoader.load(providers, into: onDropHost)
+                return true
             }
-            .padding(.horizontal, 7)
-            .frame(height: 24)
-            .background {
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? (accent ?? Theme.accent).opacity(0.11)
-                              : (hovering ? Color.primary.opacity(0.05) : Color.clear))
-                    Rectangle()
-                        .fill(isSelected ? (accent ?? Theme.accent) : Color.clear)
-                        .frame(width: 2, height: 12)
-                        .padding(.leading, 2)
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(isDropTarget ? Theme.accent.opacity(0.55) : Color.clear,
-                                  lineWidth: 1)
-            )
-            .padding(.leading, indentation)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .onDrop(of: [UTType.text], isTargeted: $isDropTarget) { providers in
-            guard let onDropHost else { return false }
-            HostDropLoader.load(providers) { onDropHost($0) }
-            return true
+        } else {
+            row
         }
     }
-}
 
-/// Muted, light/dark friendly tints. Kept away from the system blue on
-/// purpose: eighteen blue tiles read like a 2015 admin console.
-enum HostPalette {
-    private static let colors: [Color] = [
-        Color(red: 0.26, green: 0.47, blue: 0.48),
-        Color(red: 0.36, green: 0.41, blue: 0.53),
-        Color(red: 0.55, green: 0.45, blue: 0.32),
-        Color(red: 0.46, green: 0.37, blue: 0.51),
-        Color(red: 0.35, green: 0.46, blue: 0.34),
-        Color(red: 0.55, green: 0.36, blue: 0.33),
-        Color(red: 0.38, green: 0.44, blue: 0.49),
-        Color(red: 0.50, green: 0.42, blue: 0.40),
-    ]
+    private var row: some View {
+        HStack(spacing: 0) {
+            // Indent each level while leaving enough space for the name and
+            // host count even when imported groups are nested unusually deeply.
+            ForEach(0..<min(depth, 7), id: \.self) { _ in
+                Rectangle()
+                    .fill(Theme.separator)
+                    .frame(width: 1, height: 30)
+                    .frame(width: 13, alignment: .trailing)
+                    .accessibilityHidden(true)
+            }
 
-    static func tint(for id: UUID) -> Color {
-        // Stable across launches: hashValue is seeded per process.
-        let sum = id.uuidString.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return colors[sum % colors.count]
+            HStack(spacing: 0) {
+                if let disclosure {
+                    let label = disclosure.isExpanded ? L("收起") : L("展开")
+                    Button(action: disclosure.action) {
+                        Image(systemName: disclosure.isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 18, height: 30)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(label)
+                    .accessibilityLabel(label + " " + title)
+                } else if !isWorkspace {
+                    Color.clear
+                        .frame(width: 18)
+                        .accessibilityHidden(true)
+                }
+
+                Button(action: action) {
+                    HStack(spacing: isWorkspace ? 8 : 7) {
+                        Image(systemName: symbol)
+                            .font(.system(size: isWorkspace ? 13 : 11.5, weight: .regular))
+                            .foregroundStyle(iconTint)
+                            .frame(width: isWorkspace ? 23 : 15, height: isWorkspace ? 23 : nil)
+                            .background {
+                                if isWorkspace {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(iconTint.opacity(0.12))
+                                }
+                            }
+                            .accessibilityHidden(true)
+                        Text(title)
+                            .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if !detail.isEmpty {
+                            Text(detail)
+                                .font(TechFont.mono(10.5))
+                                .foregroundStyle(Theme.secondary)
+                                .fixedSize()
+                        }
+                    }
+                    .padding(.leading, isWorkspace ? 7 : 2)
+                    .padding(.trailing, 7)
+                    .frame(height: isWorkspace ? 35 : 30)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(title)
+                .accessibilityLabel(title)
+                .accessibilityValue(detail)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isSelected ? Theme.tagBackground : (hovering ? Theme.rowHover : .clear))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(isDropTarget ? Theme.accent.opacity(0.6)
+                                  : (isSelected ? Theme.separator : .clear), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onHover { hovering = $0 }
     }
 }
 
@@ -836,10 +793,17 @@ enum HostDropLoader {
 
 private struct StartHostCard: View {
     @EnvironmentObject private var app: AppState
+    @Environment(\.colorScheme) private var colorScheme
     let host: SSHHost
     var caption: String?
     @ViewState private var hovering = false
     @ViewState private var isDropTarget = false
+
+    private static let cornerRadius: CGFloat = 11
+    private static let titleInk = Theme.dynamic(light: 0x28313C, dark: 0xE7EBF1)
+    private static let tileBase = Theme.dynamic(light: 0xF9FAFC, dark: 0x22252C)
+    private static let iconWell = Theme.dynamic(light: 0xEFF2F6, dark: 0x2C3038)
+    private static let activeEdge = Theme.dynamic(light: 0xA7B1BF, dark: 0x525C69)
 
     private var isFavorite: Bool {
         host.tags.contains { $0 == "favorite" || $0 == "收藏" }
@@ -883,131 +847,166 @@ private struct StartHostCard: View {
         host.tags.filter { $0 != "favorite" && $0 != "收藏" }
     }
 
-    /// A host color, otherwise the closest group color. Hosts without either
-    /// keep a stable muted palette tint so the grid stays scannable.
-    private var resolvedTint: Color? {
+    private var identityColor: Color? {
         app.resolvedColorHex(for: host).flatMap(Color.init(hex:))
     }
 
-    private var customTint: Color {
-        resolvedTint ?? HostPalette.tint(for: host.id)
-    }
-
-    private var nameColor: Color {
-        resolvedTint ?? Color.primary
-    }
-
     private var cardContentBase: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 9) {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(LinearGradient(colors: [customTint.opacity(resolvedTint == nil
-                                                                        ? (hovering ? 0.26 : 0.18)
-                                                                        : (hovering ? 0.38 : 0.27)),
-                                                      customTint.opacity(resolvedTint == nil
-                                                                        ? (hovering ? 0.15 : 0.10)
-                                                                        : (hovering ? 0.22 : 0.15))],
-                                             startPoint: .top,
-                                             endPoint: .bottom))
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(customTint.opacity(resolvedTint == nil
-                                                         ? (hovering ? 0.55 : 0.35)
-                                                         : (hovering ? 0.75 : 0.55)), lineWidth: 0.8)
-                    // Generic server glyph until the host has been logged into at
-                    // least once; then the detected OS logo takes its place.
-                    HostPlatformIcon(platform: app.platform(for: host.id),
-                                     detail: app.platformInfo(for: host.id)?.detail,
-                                     size: 16,
-                                     fallbackColor: customTint)
-                        .frame(width: 30, height: 30)
-                    Rectangle()
-                        .fill(customTint.opacity(hovering ? 0.9 : 0.5))
-                        .frame(width: 4, height: 1)
-                        .padding(.top, 3)
-                        .padding(.trailing, 4)
-                }
-                .frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 9) {
+                platformTile
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
                         Text(host.name)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .tracking(0.1)
-                            .foregroundStyle(nameColor)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Self.titleInk)
                             .lineLimit(1)
                         if isFavorite {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 7.5))
-                                .foregroundStyle(Theme.warning)
+                                .font(.system(size: 9))
+                                .foregroundStyle(Theme.quietIdentity(Theme.warning))
+                                .accessibilityLabel(L("收藏"))
                         }
                     }
                     Text(host.displayAddress)
-                        .font(TechFont.mono(10, .medium))
+                        .font(TechFont.mono(11))
                         .foregroundStyle(Theme.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                // Reserve the action width even when hidden: inserting the
-                // buttons into the stack on hover shortened the name field and
-                // made long host names visibly truncate under the pointer.
-                HStack(spacing: 4) {
-                    TechIconButton(systemName: "play.fill",
-                                   help: L("连接"),
-                                   tint: Theme.accent) {
-                        app.openTab(for: host)
-                    }
-                    TechIconButton(systemName: "arrow.up.arrow.down",
-                                   help: L("新建 SFTP 标签"),
-                                   tint: Theme.secondary) {
-                        app.openSFTPTab(for: host)
-                    }
-                }
-                .frame(width: 48, alignment: .trailing)
-                .opacity(hovering ? 1 : 0)
-                .allowsHitTesting(hovering)
-                .animation(.easeOut(duration: 0.1), value: hovering)
             }
 
-            // The chip row is always laid out, even when a host has no caption,
-            // jump host, proxy or tags. Without the reserved height a card
-            // without chips was ~16pt shorter than its neighbours, so the grid
-            // looked ragged.
-            HStack(spacing: 4) {
-                if let caption, !caption.isEmpty {
-                    chip(caption)
-                }
-                if let jumpCount {
-                    chip(L("跳板 ×") + String(jumpCount), systemName: "arrow.triangle.branch")
-                }
-                if let proxyChip {
-                    chip(proxyChip, systemName: "network")
-                }
-                ForEach(visibleTags.prefix(2), id: \.self) { tag in
-                    chip(tag, systemName: "tag")
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(height: Self.chipRowHeight, alignment: .leading)
-            HStack(spacing: 6) {
+            metadata
+                .padding(.trailing, showsActions ? 71 : 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 24)
+                .overlay(alignment: .trailing) { cardActions }
+
+            Rectangle()
+                .fill(Theme.separator.opacity(0.8))
+                .frame(height: 1)
+
+            HStack(spacing: 5) {
                 Text(lastUsedText)
-                    .font(TechFont.mono(8.5))
-                    .foregroundStyle(Theme.secondary.opacity(0.82))
+                    .lineLimit(1)
                 Spacer(minLength: 0)
                 if host.useCount > 0 {
                     Text(host.useCount == 1
                          ? L("用过 1 次")
                          : L("用过 ") + String(host.useCount) + L(" 次"))
-                        .font(TechFont.mono(8.5))
-                        .foregroundStyle(Theme.secondary.opacity(0.82))
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
+            .font(.system(size: 10.5))
+            .foregroundStyle(Theme.secondary)
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, minHeight: Self.cardMinHeight, alignment: .topLeading)
-        .techCard(cornerRadius: 9,
-                  hovered: hovering || isDropTarget,
-                  selected: isSelected || isDropTarget,
-                  accent: isDropTarget ? Color.primary : customTint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                .fill(LinearGradient(colors: [Theme.cardBackground, Self.tileBase],
+                                     startPoint: .top, endPoint: .bottom))
+                .silverHoverSheen(hovered: hovering, cornerRadius: Self.cornerRadius)
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                .strokeBorder(isSelected || isDropTarget ? Self.activeEdge
+                              : hovering ? Theme.hairline : Theme.cardStroke,
+                              lineWidth: isDropTarget ? 1.6 : 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: Theme.shadow.opacity(0.45), radius: 2, y: 1)
+    }
+
+    private var platformTile: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let identity = identityColor
+        let tint = identity ?? .clear
+        let strength = colorScheme == .dark ? 0.16 : 0.24
+        let outline = identity.map { Theme.quietIdentity($0).opacity(0.28) } ?? Theme.separator
+
+        return HostPlatformIcon(platform: app.platform(for: host.id),
+                                detail: app.platformInfo(for: host.id)?.detail,
+                                size: 22,
+                                fallbackColor: Theme.secondary,
+                                subdued: true)
+            .frame(width: 41, height: 41)
+            .background {
+                shape.fill(Self.iconWell)
+                    .overlay {
+                        shape.fill(LinearGradient(colors: [tint.opacity(strength * 0.55), tint.opacity(strength)],
+                                                  startPoint: .topLeading, endPoint: .bottomTrailing))
+                    }
+            }
+            .overlay {
+                shape.strokeBorder(outline, lineWidth: 0.75)
+                    .allowsHitTesting(false)
+            }
+    }
+
+    private var metadata: some View {
+        HStack(spacing: 5) {
+            if let caption, !caption.isEmpty {
+                chip(caption, systemName: "folder")
+            }
+            if let jumpCount {
+                chip(L("跳板 ×") + String(jumpCount), systemName: "arrow.triangle.branch", isRoute: true)
+            }
+            if let proxyChip {
+                chip(proxyChip, systemName: "network", isRoute: true)
+            }
+            ForEach(visibleTags.prefix(2), id: \.self) { tag in
+                chip(tag, systemName: "tag")
+            }
+        }
+    }
+
+    private enum CardAction: Hashable {
+        case connect, sftp, edit
+    }
+
+    @FocusState private var focusedAction: CardAction?
+
+    private var showsActions: Bool { hovering || isSelected || focusedAction != nil }
+
+    private var cardActions: some View {
+        HStack(spacing: 0) {
+            cardAction(.connect, systemName: "play", title: L("连接")) {
+                app.openTab(for: host)
+            }
+            cardAction(.sftp, systemName: "arrow.up.arrow.down", title: L("新建 SFTP 标签")) {
+                app.openSFTPTab(for: host)
+            }
+            cardAction(.edit, systemName: "pencil", title: L("编辑主机")) {
+                app.editingHost = host
+            }
+        }
+        .padding(1)
+        .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(Theme.hairline.opacity(0.7), lineWidth: 0.8)
+                .allowsHitTesting(false)
+        }
+        .opacity(showsActions ? 1 : 0)
+        .allowsHitTesting(showsActions)
+    }
+
+    private func cardAction(_ kind: CardAction, systemName: String, title: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 21, height: 21)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TechButtonStyle(kind: .ghost))
+        .focused($focusedAction, equals: kind)
+        .help(title)
+        .accessibilityLabel(title)
     }
 
     var body: some View {
@@ -1034,12 +1033,6 @@ private struct StartHostCard: View {
         }
     }
 
-    /// Reserved height of the chip/metadata row and the smallest height a card
-    /// is allowed to take, both in points. Equal values keep every card in a
-    /// grid row identical no matter what metadata the host carries.
-    private static let chipRowHeight: CGFloat = 16
-    private static let cardMinHeight: CGFloat = 96
-
     private func handleHostDrop(_ providers: [NSItemProvider]) -> Bool {
         HostDropLoader.load(providers) { dragged in
             app.moveHost(dragged, onto: host.id, in: host.groupID)
@@ -1047,8 +1040,21 @@ private struct StartHostCard: View {
         return true
     }
 
-    private func chip(_ text: String, systemName: String? = nil) -> some View {
-        TechTag(text: text, systemName: systemName, maxCharacters: 26)
+    private func chip(_ text: String, systemName: String, isRoute: Bool = false) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemName)
+                .font(.system(size: 9.5))
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.system(size: 10.5))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(isRoute ? Color.primary : Theme.secondary)
+        .padding(.horizontal, isRoute ? 4 : 0)
+        .padding(.vertical, isRoute ? 2 : 0)
+        .background(isRoute ? Theme.tagBackground : .clear, in: RoundedRectangle(cornerRadius: 4))
+        .help(text)
     }
 }
 

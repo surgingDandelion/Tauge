@@ -15,19 +15,6 @@ private func dragTrace(_ message: @autoclosure () -> String) {
     FileHandle.standardError.write(Data(("[drag] " + message() + "\n").utf8))
 }
 
-/// Rows a drag starting on `entry` carries.
-///
-/// Dragging a row that is part of the selection moves the whole selection, which
-/// is what makes multi-select drag work at all. Dragging a row outside the
-/// selection carries only that row: silently transferring unselected files would
-/// be worse than the single-item drag it replaces.
-func dragEntries(grabbed entry: FileEntry, in entries: [FileEntry], selected: Set<String>) -> [FileEntry] {
-    guard selected.contains(entry.path) else { return [entry] }
-    let picked = entries.filter { selected.contains($0.path) }
-    guard picked.count > 1, picked.contains(where: { $0.path == entry.path }) else { return [entry] }
-    return picked
-}
-
 enum RemoteFileDrag {
     /// Private type so an in-app drop knows *which* remote pane the path came
     /// from (two panes can show the same absolute path on different hosts).
@@ -117,7 +104,7 @@ enum RemoteFileDrag {
 /// multi-row drag, the rest of the selection as a private payload the remote
 /// panes read to upload everything in one gesture.
 enum LocalFileDrag {
-    static let payloadType = UTType(exportedAs: LocalDragPayload.typeIdentifier)
+    static let payloadType = UTType(exportedAs: LocalDragPayload.typeIdentifier, conformingTo: .data)
 
     static func itemProvider(entries: [FileEntry], grabbed: FileEntry) -> NSItemProvider {
         dragTrace("local drag started for " + String(entries.count) + " item(s), grabbed " + grabbed.path)

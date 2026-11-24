@@ -11,9 +11,11 @@ enum TerminalTabSwitchCheck {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
         Task { @MainActor in
-            let failure = await check()
-            print(failure.map { "FAIL terminal tab switch: \($0)" } ?? "ok terminal tab switch")
-            exit(failure == nil ? 0 : 1)
+            let tabFailure = await check()
+            print(tabFailure.map { "FAIL terminal tab switch: \($0)" } ?? "ok terminal tab switch")
+            let sftpFailure = await checkSFTPToggle()
+            print(sftpFailure.map { "FAIL terminal SFTP toggle: \($0)" } ?? "ok terminal SFTP toggle")
+            exit(tabFailure == nil && sftpFailure == nil ? 0 : 1)
         }
         app.run()
         exit(1)
@@ -71,6 +73,59 @@ enum TerminalTabSwitchCheck {
         return nil
     }
 
+    private static func checkSFTPToggle() async -> String? {
+        let fixture = Fixture()
+        let bridge = fixture.bridge
+        let terminal = bridge.prepare(settings: fixture.settings, columns: 100, rows: 30)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1240, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        defer {
+            window.contentView = nil
+            bridge.close()
+        }
+        window.contentView = NSHostingView(rootView: SplitPane(fixture: fixture))
+        guard await settle(window, until: { terminal.window === window && terminal.terminalDimensions.cols > 100 }),
+              let host = terminal.superview as? TerminalViewHost else {
+            return "full-height terminal did not mount"
+        }
+
+        let fullGrid = terminal.terminalDimensions
+        let before = "prompt before SFTP %"
+        let during = "output while SFTP is open"
+        bridge.feed(Data((before + "\r\n\u{1b}[?2004h").utf8))
+
+        fixture.showsSFTP = true
+        guard await settle(window, until: {
+            terminal.window === window && terminal.terminalDimensions.rows < fullGrid.rows
+                && terminal.terminalDimensions.rows > 0 && !terminal.visibleRect.isEmpty
+        }) else { return "terminal did not stay visible at split height" }
+        let splitHost = terminal.superview
+        guard terminal.terminalDimensions.cols == fullGrid.cols,
+              visibleText(in: terminal) == [before] else { return "opening SFTP changed the terminal width or prompt" }
+        bridge.feed(Data((during + "\r\n").utf8))
+
+        fixture.showsSFTP = false
+        let restored = await settle(window, until: {
+            terminal.window === window && terminal.terminalDimensions == fullGrid && !terminal.visibleRect.isEmpty
+        })
+        guard restored, splitHost === host, terminal.superview === host else {
+            return "terminal host changed or lost layout after toggling SFTP "
+                + "(split reused original: \(splitHost === host), full height restored: \(restored), "
+                + "original host in window: \(host.window === window), original host subviews: \(host.subviews.count))"
+        }
+        guard visibleText(in: terminal) == [before, during],
+              terminal.terminalInputStateSnapshot()?.bracketedPasteMode == true else {
+            return "closing SFTP lost visible terminal output or input mode"
+        }
+        return nil
+    }
+
+    private static func visibleText(in terminal: TaugeTerminalView) -> [String] {
+        terminal.visibleRowsText(0..<terminal.terminalDimensions.rows)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     private static func settle(_ window: NSWindow, until condition: () -> Bool) async -> Bool {
         for _ in 0..<100 {
             window.contentView?.layoutSubtreeIfNeeded()
@@ -85,10 +140,24 @@ enum TerminalTabSwitchCheck {
         let bridge = TerminalBridge()
         let settings = AppSettings()
         @Published var isSelected = true
+        @Published var showsSFTP = false
+        @Published var splitFraction = 0.5
         var resizeCount = 0
 
         init() {
             bridge.onResize = { [weak self] _, _ in self?.resizeCount += 1 }
+        }
+    }
+
+    private struct SplitPane: View {
+        @ObservedObject var fixture: Fixture
+
+        var body: some View {
+            TerminalSFTPLayout(showsSFTP: fixture.showsSFTP,
+                               fraction: $fixture.splitFraction,
+                               onFractionCommitted: { _ in },
+                               terminal: { Pane(fixture: fixture) },
+                               browser: { Color.clear })
         }
     }
 

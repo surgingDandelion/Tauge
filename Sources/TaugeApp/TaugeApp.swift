@@ -18,6 +18,9 @@ enum TaugeMain {
         if CommandLine.arguments.contains("--verify-terminal-tab-switch") {
             TerminalTabSwitchCheck.run()
         }
+        if CommandLine.arguments.contains("--verify-quick-open") {
+            QuickOpenSelfTest.run()
+        }
         // Scriptable update probe: asks GitHub for the latest release without
         // starting AppKit. Used by packaging checks and by anyone verifying
         // that a build can reach the update feed.
@@ -56,13 +59,15 @@ struct TaugeApp: App {
             ContentView()
                 .environmentObject(app)
                 .frame(minWidth: 960, minHeight: 600)
+                .ignoresSafeArea(.container, edges: .top)
         }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1100, height: 720)
         .commands { TaugeCommands(app: app) }
 
         Settings {
             SettingsView()
                 .environmentObject(app)
-                .frame(width: 640, height: 520)
         }
     }
 }
@@ -118,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let app = AppState.shared
             if flags == .command, event.charactersIgnoringModifiers == "w" {
+                if app.showingCatalogSearch, !app.hasPresentedSheet {
+                    app.dismissCatalogSearch()
+                    return nil
+                }
                 guard let tab = app.selectedTab else { return event }
                 app.closeTab(tab)
                 return nil
@@ -130,7 +139,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
         FocusSelfTest.runIfRequested()
-        QuickOpenSelfTest.runIfRequested()
         // GitHub-tag updater: check once shortly after launch, at most daily.
         UpdateController.shared.scheduleAutomaticCheck()
     }
@@ -182,8 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        let window = NSApp.windows.first { $0.styleMask.contains(.titled) && $0.canBecomeMain }
-        window?.makeKeyAndOrderFront(nil)
+        guard let window = mainWindow ?? NSApp.windows.first(where: {
+            $0.styleMask.contains(.titled) && $0.canBecomeMain
+        }) else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
     }
 
     @objc private func openWindowFromMenuBar() {
@@ -242,9 +253,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Clicking the Dock icon (or opening the .app again) must raise the
         // window instead of doing nothing.
-        NSApp.activate(ignoringOtherApps: true)
         if !flag {
-            sender.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            showMainWindow()
+        } else {
+            sender.activate(ignoringOtherApps: true)
         }
         return true
     }
@@ -260,8 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// The app icon's squircle with the script "T" knocked out, rendered at 18pt and
-/// marked as a template image so macOS tints it for the current menu bar.
+/// The angular tau from the app icon, rendered at 18pt as a template image
+/// so macOS tints it for the current menu bar.
 ///
 /// The PNGs are looked up without `Bundle.module`: that accessor traps (SIGTRAP in
 /// `NSBundle.module`) when the SwiftPM resource bundle is not shipped inside the
@@ -387,6 +399,8 @@ struct TaugeCommands: Commands {
         CommandMenu(L("导航")) {
             Button(L("快速打开…")) { app.showQuickOpen() }
                 .keyboardShortcut("k", modifiers: .command)
+            Button(L("全局搜索")) { app.showCatalogSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             Button(L("传输中心")) { app.showingTransferCenter = true }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
             Divider()
@@ -401,8 +415,9 @@ struct TaugeCommands: Commands {
             .keyboardShortcut("b", modifiers: [.command, .option])
             .disabled(!app.isWorkspaceSelected || app.boardSessions.isEmpty)
             Divider()
-            Button(app.settings.sidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏")) { app.toggleSidebar() }
+            Button(app.settings.startPageSidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏")) { app.toggleSidebar() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
+                .disabled(!app.isStartPageSelected)
             Divider()
             Button(L("全部分组展开/折叠")) {
                 app.searchText = ""

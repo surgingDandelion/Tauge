@@ -119,12 +119,13 @@ The updater consumes the release directly. These rules apply to arm64 releases:
 - Release notes become the "What's New" text in the update window. The workflow
   now fills them from the matching `CHANGELOG.md` section.
 
-For v1.2.9 only, the workflow adds `Tauge-1.2.9-arm64.zip` so v1.2.8 clients
-can update. It copies `Tauge-1.2.9.zip` byte for byte and lists both filenames
-with the same SHA-256 digest in `SHA256SUMS.txt`.
+Each release also includes `Tauge-<version>-arm64.zip` for v1.2.8 clients,
+which look for that filename in the latest release. The workflow copies
+`Tauge-<version>.zip` byte for byte and lists both filenames with the same
+SHA-256 digest in `SHA256SUMS.txt`.
 
-Verify the updater from an Apple silicon Mac running an earlier version. For
-v1.2.9, exercise the canonical ZIP from v1.2.7 and the alias from v1.2.8:
+Verify the updater from an Apple silicon Mac running an earlier version.
+Exercise the canonical ZIP from v1.2.7 and the alias from v1.2.8.
 
 ```bash
 /Applications/Tauge.app/Contents/MacOS/Tauge --check-updates

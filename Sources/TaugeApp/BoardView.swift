@@ -9,118 +9,95 @@ struct BoardWorkspaceView: View {
     @EnvironmentObject private var app: AppState
 
     var body: some View {
-        VStack(spacing: 0) {
-            BoardHeader()
-            Divider().opacity(0.6)
-            content
-        }
-        .background(Theme.windowBackground)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        // The host list is always visible: it is the only place that shows which
-        // machines live in the workspace, and it is where a host can be edited.
-        HStack(spacing: 0) {
-            BoardSessionList()
-            Divider().opacity(0.6)
-            if let board = app.currentBoard, board.isGrid, let tree = board.tree {
-                BoardSplitView(node: tree, path: [])
-            } else if let session = app.focusedBoardSession {
-                BoardPaneView(session: session)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if let board = app.currentBoard, board.isGrid {
+                if let tree = board.tree {
+                    BoardSplitView(node: tree, path: [])
+                } else if let session = app.focusedBoardSession {
+                    BoardPaneView(session: session)
+                } else {
+                    BoardEmptyView()
+                }
             } else {
-                BoardEmptyView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 0) {
+                    BoardSessionList()
+                    if let session = app.focusedBoardSession {
+                        BoardPaneView(session: session, showsHeader: false)
+                            .id(session.id)
+                    } else {
+                        BoardEmptyView()
+                    }
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.windowBackground)
     }
 }
 
-// MARK: - Header
+// MARK: - Session strip tools
 
-private struct BoardHeader: View {
+struct BoardStripTools: View {
     @EnvironmentObject private var app: AppState
 
     private var board: BoardDefinition? { app.currentBoard }
 
     var body: some View {
-        HStack(spacing: 10) {
-            boardMenu
-
+        HStack(spacing: 3) {
             BoardLayoutToggle(isGrid: board?.isGrid ?? false) { grid in
                 app.setBoardLayout(grid)
             }
 
-            Divider().frame(height: 16)
-
-            splitMenu
-            addHostsMenu
+            if board?.isGrid == false, let session = app.focusedBoardSession {
+                SftpToggleButton(tab: session, persistsBoard: true)
+                StripButton(systemName: "pencil", help: L("编辑主机…"), isEnabled: app.host(id: session.hostID) != nil) {
+                    app.editingHost = app.host(id: session.hostID)
+                }
+                StripButton(systemName: "plug", help: L("连接")) {
+                    app.connectBoardSession(session)
+                }
+            }
 
             broadcastControl
-
-            Spacer(minLength: 8)
-
-            if let board {
+            if board != nil {
                 saveControl
-                Text(L("%d 个窗格", board.panes.count))
-                    .font(.system(size: 11))
-                    .foregroundColor(Theme.secondary)
             }
 
-            iconButton("bolt.horizontal.circle", help: L("连接全部窗格")) {
+            StripButton(systemName: "bolt.horizontal.circle", help: L("连接全部窗格"), isEnabled: !app.boardSessions.isEmpty) {
                 app.connectAllBoardSessions()
             }
-            iconButton("square.grid.2x2", help: L("自动网格排列")) {
-                app.autoGridBoard()
+            StripMenu(systemName: "ellipsis", help: L("更多")) {
+                addHostsMenu
+                splitMenu
+                Button(L("自动网格排列")) { app.autoGridBoard() }
+                Divider()
+                boardMenuItems
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .background(Theme.panelBackground.opacity(0.55))
-        // Hover hints hang under the header; keep them above the panes.
-        .zIndex(1)
     }
 
-    private var boardMenu: some View {
-        Menu {
-            Button(L("新建工作区…")) { app.promptCreateBoard() }
-            if let board {
-                Button(L("编辑工作区…")) {
-                    app.editingBoard = board
-                }
-                Button(L("重命名工作区…")) {
-                    if let name = Prompt.text(title: L("重命名工作区"), message: L("输入新的工作区名称。"), defaultValue: board.name) {
-                        app.renameBoard(board.id, name: name)
-                    }
-                }
-                Button(L("删除工作区…"), role: .destructive) {
-                    guard app.boards.count > 1 else {
-                        app.presentMessage(L("无法删除"), L("至少保留一个工作区。"))
-                        return
-                    }
-                    if Prompt.confirm(title: L("删除「%@」？", board.name),
-                                      message: L("工作区里的终端会断开，主机配置不受影响。"),
-                                      destructiveTitle: L("删除")) {
-                        app.deleteBoard(board.id)
-                    }
+    @ViewBuilder
+    private var boardMenuItems: some View {
+        Button(L("新建工作区…")) { app.promptCreateBoard() }
+        if let board {
+            Button(L("编辑工作区…")) { app.editingBoard = board }
+            Button(L("重命名工作区…")) {
+                if let name = Prompt.text(title: L("重命名工作区"), message: L("输入新的工作区名称。"), defaultValue: board.name) {
+                    app.renameBoard(board.id, name: name)
                 }
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "rectangle.split.3x3")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(hex: board?.colorHex) ?? Theme.secondary)
-                Text(board?.name ?? L("工作区"))
-                    .font(.system(size: 12, weight: .semibold))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(Theme.secondary)
+            Button(L("删除工作区…"), role: .destructive) {
+                guard app.boards.count > 1 else {
+                    app.presentMessage(L("无法删除"), L("至少保留一个工作区。"))
+                    return
+                }
+                if Prompt.confirm(title: L("删除「%@」？", board.name),
+                                  message: L("工作区里的终端会断开，主机配置不受影响。"),
+                                  destructiveTitle: L("删除")) {
+                    app.deleteBoard(board.id)
+                }
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
     }
 
     private var splitMenu: some View {
@@ -166,7 +143,7 @@ private struct BoardHeader: View {
         .fixedSize()
     }
 
-    /// Command broadcast lives in the header instead of a settings pane: it is a
+    /// Keep the broadcast state visible next to the active workspace: it is a
     /// per-moment decision ("type this on all four boxes"), and the pill stays
     /// lit while it is on so a shared prompt can never be entered by accident.
     private var broadcastControl: some View {
@@ -233,18 +210,6 @@ private struct BoardHeader: View {
         .disabled(!app.boardDirty)
         .shortcutTip(app.boardDirty ? L("保存工作区") : L("工作区已保存"), keys: app.boardDirty ? ["⌘S"] : [])
     }
-
-    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12))
-                .foregroundColor(Theme.secondary)
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
 }
 
 private struct BoardLayoutToggle: View {
@@ -252,30 +217,34 @@ private struct BoardLayoutToggle: View {
     let onChange: (Bool) -> Void
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 1) {
             segment("list.bullet.rectangle", active: !isGrid, help: L("单窗格")) { onChange(false) }
             segment("square.split.2x1", active: isGrid, help: L("分屏")) { onChange(true) }
         }
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Theme.secondary.opacity(0.12))
+                .fill(Theme.secondary.opacity(0.08))
         )
     }
 
     private func segment(_ symbol: String, active: Bool, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(active ? Theme.windowBackground : Theme.secondary)
-                .frame(width: 26, height: 18)
+            Label(help, systemImage: symbol)
+                .font(.system(size: 10, weight: active ? .semibold : .medium))
+                .foregroundStyle(active ? Color.primary : Theme.secondary)
+                .padding(.horizontal, 6)
+                .frame(height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(active ? Theme.accent : Color.clear)
+                        .fill(active ? Theme.cardTop : Color.clear)
                 )
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(active ? Theme.separator : Color.clear, lineWidth: 0.5))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .help(help)
     }
 }
@@ -328,45 +297,31 @@ private struct BoardSessionList: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text(L("终端"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Text("\(app.boardSessions.count)")
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Theme.secondary.opacity(0.15)))
+                    .font(TechFont.mono(10, .medium))
                     .foregroundColor(Theme.secondary)
                 Spacer()
-                Menu {
+                StripMenu(systemName: "plus", help: L("添加主机到工作区")) {
                     BoardAddHostMenuItems()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .semibold))
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 18)
-                .help(L("添加主机到工作区"))
             }
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.separator.opacity(0.7)).frame(height: 0.5)
-            }
+            .padding(.leading, 15)
+            .padding(.trailing, 9)
+            .frame(height: 38)
 
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: 3) {
                     ForEach(app.boardSessions) { session in
                         BoardSessionRow(session: session)
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
         }
         .frame(width: 208)
-        .background(Theme.sidebarBackground)
-        // A hairline instead of a deep fill: the list is a rail next to the
-        // terminal, not a second window.
+        .background(Theme.windowBackground)
         .overlay(alignment: .trailing) {
             Rectangle().fill(Theme.separator).frame(width: 1)
         }
@@ -381,21 +336,30 @@ private struct BoardSessionRow: View {
     private var isFocused: Bool { app.currentBoard?.focusedPaneID == session.id }
 
     var body: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(session.host.name)
-                    .font(.system(size: 11, weight: isFocused ? .semibold : .regular))
+        let host = app.host(id: session.hostID) ?? session.host
+        let tint = Color(hex: app.resolvedColorHex(for: host)) ?? Theme.secondary
+        return HStack(spacing: 7) {
+            HostPlatformIcon(platform: app.platform(for: host.id),
+                             detail: app.platformInfo(for: host.id)?.detail,
+                             size: 14, fallbackColor: tint)
+                .frame(width: 26, height: 26)
+                .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(host.name)
+                    .font(.system(size: 12, weight: isFocused ? .semibold : .regular))
                     .lineLimit(1)
-                Text(session.host.displayAddress)
-                    .font(.system(size: 9.5))
+                Text(host.displayAddress)
+                    .font(TechFont.mono(10))
                     .foregroundColor(Theme.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if hovering {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 5, height: 5)
+                .accessibilityLabel(session.connectionState.label)
+                .help(session.connectionState.label)
+            if hovering || isFocused {
                 Button {
                     app.closeBoardPane(session.id)
                 } label: {
@@ -409,18 +373,18 @@ private struct BoardSessionRow: View {
                 .help(L("关闭窗格"))
             }
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .frame(minHeight: 43)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isFocused ? Theme.cardBackground : (hovering ? Theme.rowHover : Color.clear))
+                .fill(isFocused || hovering ? Theme.rowHover : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isFocused ? Theme.accent.opacity(0.40) : Color.clear, lineWidth: 1)
+                .strokeBorder(isFocused ? Theme.separator : Color.clear, lineWidth: 1)
         )
-        .shadow(color: isFocused ? Theme.shadow : Color.clear, radius: 2, y: 0.5)
         .contentShape(Rectangle())
+        .accessibilityAddTraits(isFocused ? .isSelected : [])
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
         }
@@ -599,6 +563,7 @@ private struct BoardSplitContainer: View {
 private struct BoardPaneView: View {
     @EnvironmentObject private var app: AppState
     @ObservedObject var session: TerminalTab
+    var showsHeader = true
 
     @ViewState private var hovering = false
     @ViewState private var dropZone: BoardDropZone?
@@ -608,22 +573,25 @@ private struct BoardPaneView: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                header
-                Divider().opacity(0.35)
+                if showsHeader {
+                    header
+                    Divider().opacity(0.35)
+                }
                 content
             }
             .background(Color(nsColor: TerminalPalette.background))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: showsHeader ? 7 : 0, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(isFocused ? Theme.accent.opacity(0.70) : Theme.cardStroke,
-                                  lineWidth: isFocused ? 1.4 : 1)
+                RoundedRectangle(cornerRadius: showsHeader ? 7 : 0, style: .continuous)
+                    .strokeBorder(isFocused ? Theme.accent.opacity(0.7) : Theme.cardStroke,
+                                  lineWidth: showsHeader ? (isFocused ? 1.4 : 1) : 0)
+                    .allowsHitTesting(false)
             )
-            .shadow(color: Theme.shadow,
+            .shadow(color: showsHeader ? Theme.shadow : Color.clear,
                     radius: isFocused ? 7 : 3,
                     y: isFocused ? 1.5 : 1)
             .overlay(dropPreview)
-            .padding(3)
+            .padding(showsHeader ? 3 : 0)
             .onDrop(of: [UTType.text],
                     delegate: BoardPaneDropDelegate(paneID: session.id,
                                                     size: proxy.size,
@@ -651,10 +619,10 @@ private struct BoardPaneView: View {
                 .frame(width: 6, height: 6)
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(session.host.name)
+                Text(host.name)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
-                Text(session.host.displayAddress)
+                Text(host.displayAddress)
                     .font(.system(size: 9))
                     .foregroundColor(Theme.secondary)
                     .lineLimit(1)
@@ -686,12 +654,12 @@ private struct BoardPaneView: View {
         .padding(.horizontal, 8)
         .frame(height: 30)
         .background {
-            headerBackground.overlay(tint?.opacity(isFocused ? 0.26 : 0.18) ?? Color.clear)
+            headerBackground.overlay(tint?.opacity(isFocused ? 0.13 : 0.07) ?? Color.clear)
         }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(tint?.opacity(0.6) ?? Theme.separator)
-                .frame(height: tint == nil ? 0.5 : 1)
+                .fill(tint?.opacity(0.32) ?? Theme.separator)
+                .frame(height: 0.5)
         }
         .contentShape(Rectangle())
         .onHover { inside in
@@ -705,6 +673,18 @@ private struct BoardPaneView: View {
         }
         .onDrag {
             NSItemProvider(object: session.id.uuidString as NSString)
+        }
+        .contextMenu {
+            Button(L("连接")) { app.connectBoardSession(session) }
+            Button(L("编辑主机…")) { app.editingHost = app.host(id: session.hostID) }
+                .disabled(app.host(id: session.hostID) == nil)
+            Button(session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
+                app.focusBoardPane(session.id)
+                app.toggleSFTP(session)
+                app.scheduleBoardPersist()
+            }
+            Divider()
+            Button(L("关闭窗格")) { app.closeBoardPane(session.id) }
         }
         .help(L("拖动标题栏可移动窗格，双击最大化"))
     }

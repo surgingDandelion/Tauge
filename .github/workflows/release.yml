@@ -105,14 +105,14 @@ jobs:
           TAUGE_NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: ./scripts/package-release.sh
 
-      # v1.2.8 is the only released updater that requires the old suffixed name.
-      - name: Include the v1.2.8 update alias
-        if: github.ref_name == 'v1.2.9'
+      # The v1.2.8 updater looks for the suffixed ZIP on the latest release.
+      - name: Include the update alias for v1.2.8 clients
         working-directory: dist/release
         run: |
           set -euo pipefail
-          cp Tauge-1.2.9.zip Tauge-1.2.9-arm64.zip
-          shasum -a 256 Tauge-1.2.9-arm64.zip >> SHA256SUMS.txt
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp "Tauge-$VERSION.zip" "Tauge-$VERSION-arm64.zip"
+          shasum -a 256 "Tauge-$VERSION-arm64.zip" >> SHA256SUMS.txt
 
       - name: Summarise artifacts
         run: |

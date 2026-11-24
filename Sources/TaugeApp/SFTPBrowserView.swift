@@ -202,6 +202,14 @@ private func dragPreviewRow(for entry: FileEntry, count: Int) -> some View {
     .clipShape(RoundedRectangle(cornerRadius: 6))
 }
 
+private func confirmDeletion(of entries: [FileEntry]) -> Bool {
+    guard let first = entries.first else { return false }
+    let title = entries.count == 1
+        ? L("删除「%@」？", first.name)
+        : L("删除选中的 %lld 项？", entries.count)
+    return Prompt.confirm(title: title, message: L("这些项目将被永久删除。"))
+}
+
 // MARK: - Local pane
 
 struct LocalBrowserPane: View {
@@ -242,15 +250,13 @@ struct LocalBrowserPane: View {
                             // otherwise SwiftUI keeps the row in a tap sequence
                             // and no drag session ever begins.
                             .onDrag({
-                                LocalFileDrag.itemProvider(entries: dragEntries(grabbed: entry,
-                                                                                in: model.sortedEntries,
-                                                                                selected: model.selection),
-                                                           grabbed: entry)
+                                let entries = FileSelection.actionEntries(
+                                    for: entry, in: model.sortedEntries, selection: model.selection)
+                                return LocalFileDrag.itemProvider(entries: entries, grabbed: entry)
                             }, preview: {
-                                dragPreviewRow(for: entry,
-                                               count: dragEntries(grabbed: entry,
-                                                                  in: model.sortedEntries,
-                                                                  selected: model.selection).count)
+                                let entries = FileSelection.actionEntries(
+                                    for: entry, in: model.sortedEntries, selection: model.selection)
+                                dragPreviewRow(for: entry, count: entries.count)
                             })
                             .onTapGesture { handleTap(entry) }
                             .contextMenu { menu(for: entry) }
@@ -441,8 +447,10 @@ struct LocalBrowserPane: View {
             app.setLocalPermissions(entry, in: tab, mode: mode)
         }
         Button(L("删除"), role: .destructive) {
-            if Prompt.confirm(title: L("删除 ") + entry.name + "？", message: L("本地文件将被移到废纸篓。")) {
-                app.deleteLocal([entry], in: tab)
+            let entries = FileSelection.actionEntries(
+                for: entry, in: model.sortedEntries, selection: model.selection)
+            if confirmDeletion(of: entries) {
+                app.deleteLocal(entries, in: tab)
             }
         }
         Divider()
@@ -707,18 +715,17 @@ struct RemoteBrowserPane: View {
                             // otherwise SwiftUI keeps the row in a tap sequence
                             // and no drag session ever begins.
                             .onDrag({
-                                RemoteFileDrag.itemProvider(entries: dragEntries(grabbed: entry,
-                                                                                 in: model.sortedEntries,
-                                                                                 selected: model.selection),
-                                                            grabbed: entry,
-                                                            client: model.client,
-                                                            hostID: model.hostID,
-                                                            paneID: model.id)
+                                let entries = FileSelection.actionEntries(
+                                    for: entry, in: model.sortedEntries, selection: model.selection)
+                                return RemoteFileDrag.itemProvider(entries: entries,
+                                                                   grabbed: entry,
+                                                                   client: model.client,
+                                                                   hostID: model.hostID,
+                                                                   paneID: model.id)
                             }, preview: {
-                                dragPreviewRow(for: entry,
-                                               count: dragEntries(grabbed: entry,
-                                                                  in: model.sortedEntries,
-                                                                  selected: model.selection).count)
+                                let entries = FileSelection.actionEntries(
+                                    for: entry, in: model.sortedEntries, selection: model.selection)
+                                dragPreviewRow(for: entry, count: entries.count)
                             })
                             .onTapGesture { handleTap(entry) }
                             .contextMenu { menu(for: entry) }
@@ -811,8 +818,10 @@ struct RemoteBrowserPane: View {
             app.setRemotePermissions(entry, in: tab, mode: mode, pane: model)
         }
         Button(L("删除"), role: .destructive) {
-            if Prompt.confirm(title: L("删除 ") + entry.name + "？", message: L("远端文件将被永久删除。")) {
-                app.deleteRemote([entry], in: tab, pane: model)
+            let entries = FileSelection.actionEntries(
+                for: entry, in: model.sortedEntries, selection: model.selection)
+            if confirmDeletion(of: entries) {
+                app.deleteRemote(entries, in: tab, pane: model)
             }
         }
         Divider()

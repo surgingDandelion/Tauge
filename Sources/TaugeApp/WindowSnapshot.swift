@@ -84,10 +84,14 @@ enum WindowSnapshot {
         return dir.appendingPathComponent(stem + suffix).appendingPathExtension(ext).path
     }
 
-    /// Writes the largest titled window's content view to `path`.
+    /// Captures the front window or the sheet it is currently presenting.
     @discardableResult
     static func capture(to path: String) -> Bool {
-        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 && $0.contentView != nil }),
+        let keyWindow = NSApp.keyWindow
+        let windows = NSApp.windows
+        let candidates = [keyWindow?.attachedSheet, keyWindow].compactMap { $0 }
+            + windows.compactMap(\.attachedSheet) + windows
+        guard let window = candidates.first(where: { $0.isVisible && $0.frame.width > 400 && $0.contentView != nil }),
               let view = window.contentView else {
             report("no window to capture")
             return false

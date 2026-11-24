@@ -65,6 +65,19 @@ public enum FileSelection {
         }
     }
 
+    /// An action on a selected row applies to the visible selection. An action
+    /// on any other row applies only to that row.
+    public static func actionEntries(for row: FileEntry,
+                                     in visibleEntries: [FileEntry],
+                                     selection: Set<String>) -> [FileEntry] {
+        guard selection.contains(row.path) else { return [row] }
+        let selectedRows = visibleEntries.filter { selection.contains($0.path) }
+        guard selectedRows.count > 1, selectedRows.contains(where: { $0.path == row.path }) else {
+            return [row]
+        }
+        return selectedRows
+    }
+
     private static func range(from anchor: String, to path: String, order: [String]) -> [String]? {
         if anchor == path { return [path] }
         guard let start = order.firstIndex(of: anchor),

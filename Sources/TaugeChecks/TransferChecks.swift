@@ -11,6 +11,23 @@ func makePayload(count: Int, seed: UInt8 = 7) -> Data {
     return Data(bytes)
 }
 
+private actor UploadConflictRecorder {
+    private let policies: [String: ConflictPolicy]
+    private(set) var paths: [String] = []
+
+    init(_ policies: [String: ConflictPolicy]) {
+        self.policies = policies
+    }
+
+    func resolve(_ path: String) throws -> ConflictPolicy {
+        paths.append(path)
+        guard let policy = policies[path] else {
+            throw CheckError.message("Unexpected upload conflict at " + path)
+        }
+        return policy
+    }
+}
+
 @MainActor
 func waitForTerminal(_ engine: TransferEngine, id: UUID, seconds: TimeInterval) async -> TransferProgress? {
     let deadline = Date().addingTimeInterval(seconds)
@@ -224,6 +241,70 @@ func runTransferChecks() async {
         expectEqual(server.fileData("/remote/tree/sub/one.txt"), Data("one".utf8), "nested file uploaded")
         expectEqual(server.filePermissions("/remote/tree/run.sh"), 0o755, "nested executable keeps its mode")
         expectEqual(server.filePermissions("/remote/tree/sub"), 0o755, "created directories use 0755")
+    }
+
+    await runAsync("transfer.upload resolves each existing file independently") {
+        let tree = root.appendingPathComponent("conflicts", isDirectory: true)
+        let nested = tree.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let replacement = Data("complete replacement".utf8)
+        let preserved = Data("keep existing".utf8)
+        let newData = Data("new content".utf8)
+        let replacingFile = nested.appendingPathComponent("replace.txt")
+        try replacement.write(to: replacingFile)
+        try Data("do not copy".utf8).write(to: tree.appendingPathComponent("skip.txt"))
+        try newData.write(to: nested.appendingPathComponent("new.txt"))
+
+        let target = "/remote/conflicts"
+        let replacingPath = target + "/nested/replace.txt"
+        let skippingPath = target + "/skip.txt"
+        server.seedFile(replacingPath, data: Data("old".utf8))
+        server.seedFile(skippingPath, data: preserved)
+        let choices = UploadConflictRecorder([replacingPath: .overwrite, skippingPath: .skip])
+        let item = TransferItem(direction: .upload,
+                                sourcePath: tree.path,
+                                destinationPath: target,
+                                recursive: true)
+        let id = await engine.enqueue(item, remote: client) { path in
+            try await choices.resolve(path)
+        }
+        let result = await waitForTerminal(engine, id: id, seconds: 20)
+        expectEqual(result?.state, .completed, "mixed upload completes (error: " + (result?.errorMessage ?? "none") + ")")
+        expectEqual(result?.skippedFiles, 1, "only the skipped file is counted")
+        expectEqual(await choices.paths.sorted(), [replacingPath, skippingPath].sorted(), "ask once for each conflicting file")
+        expectEqual(server.fileData(replacingPath), replacement, "overwrite replaces the old file from the first byte")
+        expectEqual(server.fileData(skippingPath), preserved, "skip preserves the second file")
+        expectEqual(server.fileData(target + "/nested/new.txt"), newData, "new file uploads without a conflict")
+
+        let nextChoices = UploadConflictRecorder([replacingPath: .skip])
+        try Data("a later upload".utf8).write(to: replacingFile)
+        let nextItem = TransferItem(direction: .upload,
+                                    sourcePath: replacingFile.path,
+                                    destinationPath: replacingPath)
+        let nextID = await engine.enqueue(nextItem, remote: client) { path in
+            try await nextChoices.resolve(path)
+        }
+        let nextResult = await waitForTerminal(engine, id: nextID, seconds: 20)
+        expectEqual(nextResult?.state, .completed, "subsequent upload completes")
+        expectEqual(await nextChoices.paths, [replacingPath], "a new upload asks again for the same file")
+        expectEqual(server.fileData(replacingPath), replacement, "the new decision preserves the previous upload")
+    }
+
+    await runAsync("transfer.upload resolves a file created between stat and open") {
+        let target = "/remote/concurrent-create.bin"
+        let otherUpload = Data("another upload".utf8)
+        server.seedFileBeforeOpen(target, data: otherUpload)
+        let choices = UploadConflictRecorder([target: .skip])
+        let item = TransferItem(direction: .upload,
+                                sourcePath: sourcePath,
+                                destinationPath: target)
+        let id = await engine.enqueue(item, remote: client) { path in
+            try await choices.resolve(path)
+        }
+        let result = await waitForTerminal(engine, id: id, seconds: 20)
+        expectEqual(result?.state, .completed, "upload resolves the newly created file (error: " + (result?.errorMessage ?? "none") + ")")
+        expectEqual(await choices.paths, [target], "a collision at open also asks how to proceed")
+        expectEqual(server.fileData(target), otherUpload, "skip preserves the file created by the other upload")
     }
 
     await runAsync("transfer.skip conflict leaves the local file untouched") {

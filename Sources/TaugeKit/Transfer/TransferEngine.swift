@@ -16,6 +16,9 @@ public enum ConflictPolicy: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Resolves an upload collision at the destination path that actually exists.
+public typealias UploadConflictResolver = @Sendable (String) async throws -> ConflictPolicy
+
 public enum TransferError: Error, LocalizedError, Equatable {
     case sourceMissing(String)
     case cancelled
@@ -157,6 +160,8 @@ public actor TransferEngine {
         /// recently enqueued client to the scheduler makes a queued transfer
         /// jump to another SFTP pane when several panes share one engine.
         var remote: SFTPClient
+        var resolveUploadConflict: UploadConflictResolver?
+        var interactiveUploads: [String: InteractiveUpload] = [:]
         var progress: TransferProgress
         var task: Task<Void, Never>?
         var pauseRequested = false
@@ -180,6 +185,22 @@ public actor TransferEngine {
     private enum ConflictDecision {
         case proceed(path: String)
         case skip
+    }
+
+    private enum InteractiveUpload {
+        case partial(path: String, bytesWritten: Int64)
+        case completed
+        case skipped
+    }
+
+    private struct UploadTarget {
+        var path: String
+        var flags: SFTPOpenFlags
+        var offset: Int64 = 0
+    }
+
+    private enum UploadOpenError: Error {
+        case destinationAppeared
     }
 
     private let configuration: Configuration
@@ -212,7 +233,9 @@ public actor TransferEngine {
     // MARK: - Public API
 
     @discardableResult
-    public func enqueue(_ item: TransferItem, remote: SFTPClient) -> UUID {
+    public func enqueue(_ item: TransferItem,
+                        remote: SFTPClient,
+                        resolveUploadConflict: UploadConflictResolver? = nil) -> UUID {
         let progress = TransferProgress(id: item.id,
                                         hostID: item.hostID,
                                         direction: item.direction,
@@ -229,7 +252,10 @@ public actor TransferEngine {
                                         attempt: 0,
                                         skippedFiles: 0,
                                         updatedAt: Date())
-        items[item.id] = Managed(item: item, remote: remote, progress: progress)
+        items[item.id] = Managed(item: item,
+                                 remote: remote,
+                                 resolveUploadConflict: resolveUploadConflict,
+                                 progress: progress)
         order.append(item.id)
         emit(item.id)
         pump()
@@ -237,16 +263,26 @@ public actor TransferEngine {
     }
 
     public func cancel(_ id: UUID) {
-        guard var managed = items[id] else { return }
+        markCancelled(id)
+        pump()
+    }
+
+    public func cancel(_ ids: [UUID]) {
+        for id in ids where items[id]?.progress.state.isTerminal == false {
+            markCancelled(id)
+        }
+        pump()
+    }
+
+    private func markCancelled(_ id: UUID) {
+        guard var managed = items[id], managed.progress.state != .completed, managed.progress.state != .cancelled else { return }
         managed.cancelRequested = true
         managed.task?.cancel()
-        managed.task = nil
         managed.progress.state = .cancelled
         managed.progress.bytesPerSecond = 0
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
-        pump()
     }
 
     public func pause(_ id: UUID) {
@@ -260,7 +296,6 @@ public actor TransferEngine {
         }
         managed.pauseRequested = true
         managed.task?.cancel()
-        managed.task = nil
         managed.progress.state = .paused
         managed.progress.bytesPerSecond = 0
         managed.progress.updatedAt = Date()
@@ -307,9 +342,7 @@ public actor TransferEngine {
     }
 
     public func cancelAll() {
-        for id in order where !(items[id]?.progress.state.isTerminal ?? true) {
-            cancel(id)
-        }
+        cancel(order)
     }
 
     public func remove(_ id: UUID) {
@@ -378,30 +411,36 @@ public actor TransferEngine {
         managed.cancelRequested = false
         let item = managed.item
         let remote = managed.remote
+        let resolveUploadConflict = managed.resolveUploadConflict
         items[id] = managed
         emit(id)
 
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.run(item: item, remote: remote)
+            await self.run(item: item, remote: remote, resolveUploadConflict: resolveUploadConflict)
         }
         managed.task = task
         items[id] = managed
     }
 
-    private func run(item: TransferItem, remote: SFTPClient) async {
+    private func run(item: TransferItem,
+                     remote: SFTPClient,
+                     resolveUploadConflict: UploadConflictResolver?) async {
         do {
             switch item.direction {
             case .download:
                 try await runDownload(item: item, remote: remote)
             case .upload:
-                try await runUpload(item: item, remote: remote)
+                try await runUpload(item: item, remote: remote, resolveConflict: resolveUploadConflict)
             }
+            try checkCancellation(item.id)
             finishSuccess(item.id)
-        } catch is CancellationError {
-            handleInterruption(item.id)
         } catch {
-            await handleFailure(item.id, error: error, remote: remote)
+            if Task.isCancelled || error is CancellationError {
+                handleInterruption(item.id)
+            } else {
+                await handleFailure(item.id, error: error, remote: remote)
+            }
         }
     }
 
@@ -423,11 +462,9 @@ public actor TransferEngine {
     private func handleInterruption(_ id: UUID) {
         guard var managed = items[id] else { return }
         managed.task = nil
-        if managed.cancelRequested {
-            managed.progress.state = .cancelled
-        } else if managed.pauseRequested {
-            managed.progress.state = .paused
-        } else {
+        // Resume/retry may already have put the item back into the queue. Wait
+        // for the previous attempt to unwind before starting its replacement.
+        if managed.progress.state == .running {
             managed.progress.state = .cancelled
         }
         managed.progress.bytesPerSecond = 0
@@ -465,6 +502,7 @@ public actor TransferEngine {
         managed.progress.updatedAt = Date()
         items[id] = managed
         emit(id)
+        pump()
     }
 
     private func mutate(_ id: UUID, _ body: (inout TransferProgress) -> Void) {
@@ -630,19 +668,20 @@ public actor TransferEngine {
 
     private func uniqueLocalPath(for path: String) -> String {
         if !local.exists(path) { return path }
-        let nsPath = path as NSString
-        let directory = nsPath.deletingLastPathComponent
-        let ext = nsPath.pathExtension
-        let baseName = nsPath.deletingPathExtension as NSString
         var index = 1
         while true {
-            let name = ext.isEmpty
-                ? baseName.lastPathComponent + " (" + String(index) + ")"
-                : baseName.lastPathComponent + " (" + String(index) + ")." + ext
-            let candidate = POSIXPath.join(directory, name)
+            let candidate = numberedPath(path, index: index)
             if !local.exists(candidate) { return candidate }
             index += 1
         }
+    }
+
+    private func numberedPath(_ path: String, index: Int) -> String {
+        let nsPath = path as NSString
+        let stem = (nsPath.deletingPathExtension as NSString).lastPathComponent
+        let numbered = stem + " (" + String(index) + ")"
+        let name = nsPath.pathExtension.isEmpty ? numbered : numbered + "." + nsPath.pathExtension
+        return POSIXPath.join(nsPath.deletingLastPathComponent, name)
     }
 
     private func downloadFile(itemID: UUID,
@@ -723,13 +762,16 @@ public actor TransferEngine {
 
     // MARK: - Upload
 
-    private func runUpload(item: TransferItem, remote: SFTPClient) async throws {
+    private func runUpload(item: TransferItem,
+                           remote: SFTPClient,
+                           resolveConflict: UploadConflictResolver?) async throws {
         let plan = try uploadPlan(item: item)
         mutate(item.id) { progress in
             progress.bytesTotal = plan.totalBytes
             progress.filesTotal = plan.files.count
             progress.filesCompleted = 0
             progress.skippedFiles = 0
+            if resolveConflict != nil { progress.bytesCompleted = 0 }
         }
 
         var ensured: Set<String> = []
@@ -737,35 +779,118 @@ public actor TransferEngine {
             try checkCancellation(item.id)
             let localPath = plan.isDirectory ? POSIXPath.join(item.sourcePath, file.relativePath) : item.sourcePath
             let remotePath = plan.isDirectory ? POSIXPath.join(item.destinationPath, file.relativePath) : item.destinationPath
-            if plan.isDirectory {
-                try await ensureRemoteDirectory(remote: remote,
-                                                path: POSIXPath.parent(remotePath),
-                                                ensured: &ensured)
-            }
-            mutate(item.id) { $0.currentFile = file.relativePath }
-
-            let decision = await resolveRemoteConflict(remote: remote,
-                                                       path: remotePath,
-                                                       sourceSize: file.size,
-                                                       sourceModified: file.modified,
-                                                       policy: effectivePolicy(for: item))
-            switch decision {
-            case .skip:
+            switch items[item.id]?.interactiveUploads[file.relativePath] {
+            case .completed:
+                mutate(item.id) { progress in
+                    progress.filesCompleted = index + 1
+                    progress.bytesCompleted += file.size
+                }
+                continue
+            case .skipped:
                 mutate(item.id) { progress in
                     progress.filesCompleted = index + 1
                     progress.skippedFiles += 1
                 }
                 continue
-            case .proceed(let finalPath):
-                try await uploadFile(itemID: item.id,
-                                     remote: remote,
-                                     localPath: localPath,
-                                     remotePath: finalPath,
-                                     size: file.size,
-                                     modified: file.modified,
-                                     permissions: file.permissions)
+            case .partial, nil:
+                break
             }
-            mutate(item.id) { $0.filesCompleted = index + 1 }
+            mutate(item.id) { $0.currentFile = file.relativePath }
+            if plan.isDirectory {
+                try await ensureRemoteDirectory(remote: remote,
+                                                path: POSIXPath.parent(remotePath),
+                                                ensured: &ensured)
+            }
+
+            let uploaded: Bool
+            if let resolveConflict {
+                uploaded = try await uploadInteractively(itemID: item.id,
+                                                         remote: remote,
+                                                         localPath: localPath,
+                                                         remotePath: remotePath,
+                                                         file: file,
+                                                         resolveConflict: resolveConflict)
+                items[item.id]?.interactiveUploads[file.relativePath] = uploaded ? .completed : .skipped
+            } else {
+                let decision = await resolveRemoteConflict(remote: remote,
+                                                           path: remotePath,
+                                                           sourceModified: file.modified,
+                                                           policy: effectivePolicy(for: item))
+                switch decision {
+                case .skip:
+                    uploaded = false
+                case .proceed(let finalPath):
+                    let target = await resumableUploadTarget(remote: remote, path: finalPath, size: file.size)
+                    try await uploadFile(itemID: item.id, remote: remote, localPath: localPath,
+                                         target: target, file: file)
+                    uploaded = true
+                }
+            }
+            mutate(item.id) { progress in
+                progress.filesCompleted = index + 1
+                if !uploaded { progress.skippedFiles += 1 }
+            }
+        }
+    }
+
+    private func uploadInteractively(itemID: UUID,
+                                     remote: SFTPClient,
+                                     localPath: String,
+                                     remotePath: String,
+                                     file: PlannedFile,
+                                     resolveConflict: UploadConflictResolver) async throws -> Bool {
+        let previousUpload = items[itemID]?.interactiveUploads[file.relativePath]
+        var candidate = remotePath
+        if case .partial(let path, _) = previousUpload { candidate = path }
+        var keepBoth = candidate != remotePath
+        var suffix = 1
+        while true {
+            try checkCancellation(itemID)
+            let existing = try await remoteAttributes(remote: remote, path: candidate)
+            let target: UploadTarget
+            if let existing {
+                if case .partial(let path, let written) = previousUpload, path == candidate, existing.isRegularFile {
+                    let remoteSize = Int64(clamping: existing.size ?? 0)
+                    let offset = remoteSize <= file.size ? min(written, remoteSize, file.size) : 0
+                    target = UploadTarget(path: candidate, flags: offset > 0 ? [.write] : [.write, .truncate], offset: offset)
+                } else {
+                    if !keepBoth {
+                        try checkCancellation(itemID)
+                        let policy = try await resolveConflict(candidate)
+                        try checkCancellation(itemID)
+                        if policy == .skip || (policy == .onlyIfNewer && remoteIsNewer(existing, than: file.modified)) {
+                            return false
+                        }
+                        keepBoth = policy == .rename
+                    }
+                    if keepBoth {
+                        candidate = numberedPath(remotePath, index: suffix)
+                        suffix += 1
+                        continue
+                    }
+                    target = UploadTarget(path: candidate, flags: .writeTruncateCreate)
+                }
+            } else {
+                target = UploadTarget(path: candidate, flags: [.write, .create, .exclusive])
+            }
+
+            do {
+                try await uploadFile(itemID: itemID, remote: remote, localPath: localPath,
+                                     target: target, file: file, trackResume: true)
+                return true
+            } catch UploadOpenError.destinationAppeared {
+                // A concurrent creator can win after LSTAT. Inspect the path
+                // that won before deciding how to continue.
+                continue
+            }
+        }
+    }
+
+    private func remoteAttributes(remote: SFTPClient, path: String) async throws -> SFTPFileAttributes? {
+        do {
+            return try await remote.stat(path, followSymlink: false)
+        } catch let error as SFTPError where error.isNoSuchFile {
+            return nil
         }
     }
 
@@ -794,7 +919,6 @@ public actor TransferEngine {
 
     private func resolveRemoteConflict(remote: SFTPClient,
                                        path: String,
-                                       sourceSize: Int64,
                                        sourceModified: Date?,
                                        policy: ConflictPolicy) async -> ConflictDecision {
         guard let existing = try? await remote.stat(path) else { return .proceed(path: path) }
@@ -804,80 +928,84 @@ public actor TransferEngine {
         case .skip:
             return .skip
         case .onlyIfNewer:
-            if let remoteDate = existing.modifyTime.map({ Date(timeIntervalSince1970: TimeInterval($0)) }),
-               let sourceDate = sourceModified,
-               remoteDate >= sourceDate {
-                return .skip
-            }
+            if remoteIsNewer(existing, than: sourceModified) { return .skip }
             return .proceed(path: path)
         case .rename:
-            var candidate = path
             var index = 1
-            let nsPath = path as NSString
-            let directory = nsPath.deletingLastPathComponent
-            let ext = nsPath.pathExtension
-            let baseName = nsPath.deletingPathExtension as NSString
             while true {
-                if (try? await remote.stat(candidate)) == nil { break }
-                let name = ext.isEmpty
-                    ? baseName.lastPathComponent + " (" + String(index) + ")"
-                    : baseName.lastPathComponent + " (" + String(index) + ")." + ext
-                candidate = POSIXPath.join(directory, name)
+                let candidate = numberedPath(path, index: index)
+                if (try? await remote.stat(candidate)) == nil { return .proceed(path: candidate) }
                 index += 1
             }
-            return .proceed(path: candidate)
         }
+    }
+
+    private func remoteIsNewer(_ existing: SFTPFileAttributes, than sourceModified: Date?) -> Bool {
+        guard let modifyTime = existing.modifyTime, let sourceModified else { return false }
+        return Date(timeIntervalSince1970: TimeInterval(modifyTime)) >= sourceModified
+    }
+
+    private func resumableUploadTarget(remote: SFTPClient, path: String, size: Int64) async -> UploadTarget {
+        if let existing = try? await remote.stat(path), existing.isRegularFile,
+           let remoteSize = existing.size.map({ Int64(clamping: $0) }), remoteSize > 0, remoteSize < size {
+            return UploadTarget(path: path, flags: [.write], offset: remoteSize)
+        }
+        return UploadTarget(path: path, flags: .writeTruncateCreate)
     }
 
     private func uploadFile(itemID: UUID,
                             remote: SFTPClient,
                             localPath: String,
-                            remotePath: String,
-                            size: Int64,
-                            modified: Date?,
-                            permissions: UInt16?) async throws {
+                            target: UploadTarget,
+                            file: PlannedFile,
+                            trackResume: Bool = false) async throws {
         let data: Data
         do {
             data = try local.readData(at: localPath)
         } catch {
             throw TransferError.failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
-
-        var offset: Int64 = 0
-        if let existing = try? await remote.stat(remotePath), existing.isRegularFile {
-            if let remoteSize = existing.size.map({ Int64($0) }), remoteSize < size {
-                offset = remoteSize
-            }
+        guard Int64(data.count) == file.size else {
+            throw TransferError.failed("Source size changed during upload: " + localPath)
         }
 
-        let flags: SFTPOpenFlags = offset > 0 ? [.write] : SFTPOpenFlags.writeTruncateCreate
         // The server filters the OPEN mode through its umask, so this is only a
         // best-effort hint; the exact mode is applied with SETSTAT after close.
-        let openAttributes = permissions.map { SFTPFileAttributes(permissions: UInt32($0)) } ?? SFTPFileAttributes()
+        let openAttributes = file.permissions.map { SFTPFileAttributes(permissions: UInt32($0)) } ?? SFTPFileAttributes()
         let handle: Data
+        try checkCancellation(itemID)
         do {
-            handle = try await remote.open(remotePath, flags: flags, attributes: openAttributes)
+            handle = try await remote.open(target.path, flags: target.flags, attributes: openAttributes)
         } catch let error as SFTPError {
+            if case .status = error, target.flags.contains(.exclusive),
+               try await remoteAttributes(remote: remote, path: target.path) != nil {
+                throw UploadOpenError.destinationAppeared
+            }
             throw TransferError.failed(error.localizedDescription)
         }
 
+        let offset = target.offset
+        if trackResume {
+            items[itemID]?.interactiveUploads[file.relativePath] = .partial(path: target.path, bytesWritten: offset)
+            if offset > 0 { mutate(itemID) { $0.bytesCompleted += offset } }
+        }
+        var pending: [(offset: Int64, size: Int, task: Task<Void, Error>)] = []
         do {
+            try checkCancellation(itemID)
             var nextOffset = offset
-            var pending: [(offset: Int64, size: Int, task: Task<Void, Error>)] = []
             let window = activeConfiguration.uploadWindow
             let chunkSize = Int(activeConfiguration.chunkSize)
             let started = Date()
-            let bytesAtStart = offset
 
-            while nextOffset < size || !pending.isEmpty {
+            while nextOffset < file.size || !pending.isEmpty {
                 try checkCancellation(itemID)
-                while pending.count < window, nextOffset < size {
+                while pending.count < window, nextOffset < file.size {
                     let start = Int(nextOffset)
                     let end = min(data.count, start + chunkSize)
-                    guard start < end else { break }
                     let chunk = data.subdata(in: start..<end)
                     let writeOffset = nextOffset
                     let task = Task<Void, Error> {
+                        try Task.checkCancellation()
                         try await remote.write(handle: handle, offset: UInt64(writeOffset), data: chunk)
                     }
                     pending.append((writeOffset, chunk.count, task))
@@ -888,27 +1016,34 @@ public actor TransferEngine {
                 try await entry.task.value
                 let elapsed = Date().timeIntervalSince(started)
                 let speed = elapsed > 0.3 ? Double(nextOffset - offset) / elapsed : 0
-                _ = bytesAtStart
+                if trackResume {
+                    // Responses can arrive out of order. Only retain the
+                    // contiguous prefix whose writes were acknowledged.
+                    items[itemID]?.interactiveUploads[file.relativePath] = .partial(
+                        path: target.path, bytesWritten: entry.offset + Int64(entry.size))
+                }
                 mutate(itemID) { progress in
                     progress.bytesCompleted += Int64(entry.size)
                     progress.bytesPerSecond = speed
                 }
             }
         } catch {
+            for entry in pending { entry.task.cancel() }
+            for entry in pending { _ = try? await entry.task.value }
             try? await remote.close(handle)
             throw error
         }
         try? await remote.close(handle)
 
         var attributes = SFTPFileAttributes()
-        if let permissions { attributes.permissions = UInt32(permissions) }
-        if let modified {
+        if let permissions = file.permissions { attributes.permissions = UInt32(permissions) }
+        if let modified = file.modified {
             let seconds = UInt32(clamping: Int(modified.timeIntervalSince1970))
             attributes.accessTime = seconds
             attributes.modifyTime = seconds
         }
         if !attributes.isEmpty {
-            try? await remote.setAttributes(remotePath, attributes: attributes)
+            try? await remote.setAttributes(target.path, attributes: attributes)
         }
     }
 }

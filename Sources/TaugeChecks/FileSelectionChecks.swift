@@ -60,4 +60,20 @@ func runFileSelectionChecks() {
         expectEqual(FileSelection.Mode(command: false, shift: true), .extend, "shift click extends")
         expectEqual(FileSelection.Mode(command: true, shift: true), .extendAdding, "command shift adds")
     }
+
+    let folder = FileEntry(path: "/folder", name: "folder", kind: .directory)
+    let file = FileEntry(path: "/file", name: "file", kind: .file)
+    let other = FileEntry(path: "/other", name: "other", kind: .file)
+    let visibleEntries = [folder, file, other]
+    let selection: Set<String> = [file.path, folder.path, "/.hidden", "/missing"]
+
+    run("fileSelection row action includes all visible selected rows in display order") {
+        let entries = FileSelection.actionEntries(for: file, in: visibleEntries, selection: selection)
+        expectEqual(entries, [folder, file], "the batch includes selected files and folders only")
+    }
+
+    run("fileSelection row action on an unselected row targets only that row") {
+        let entries = FileSelection.actionEntries(for: other, in: visibleEntries, selection: selection)
+        expectEqual(entries, [other], "a right-click outside the selection does not act on it")
+    }
 }

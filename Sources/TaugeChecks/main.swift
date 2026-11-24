@@ -396,6 +396,7 @@ await runTermiusVaultChecks()
 // MARK: - System ssh compatibility transport
 
 runSystemSSHChecks()
+await runRemoteCommandServiceChecks()
 
 // MARK: - Terminal cell widths and pty window changes
 

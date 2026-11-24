@@ -24,9 +24,23 @@ struct HostKeyPrompt: Identifiable {
 
 struct PendingConflict: Identifiable {
     let id = UUID()
-    var title: String
-    var message: String
-    var fileCount: Int
+    let title: String
+    let message: String?
+    let destinationPath: String?
+}
+
+@MainActor
+final class TransferConflictBatch {
+    fileprivate var policy: ConflictPolicy?
+    fileprivate(set) var isCancelled = false
+    var onCancel: (() -> Void)?
+}
+
+private struct TransferConflictRequest {
+    let prompt: PendingConflict
+    let batch: TransferConflictBatch
+    let timeoutSeconds: Double
+    let continuation: CheckedContinuation<ConflictPolicy?, Never>
 }
 
 struct CommandConfirmationPrompt: Identifiable {
@@ -106,6 +120,10 @@ final class AppState: ObservableObject {
     /// Group views include every descendant by default. The start page can
     /// still narrow the view to the selected group itself when needed.
     @Published var startPageShowsDescendants = true
+    @Published var startPageQuery = ""
+    @Published var startPageCollapsedGroups: Set<UUID> = []
+    @Published var showingCatalogSearch = false
+    @Published var catalogSearchQuery = ""
     /// Workspace tabs. A workspace (formerly called "board") is a set of terminal
     /// panes laid out as nested splits; it lives in the same tab strip as single
     /// connections, so both are first-class tabs.
@@ -153,7 +171,7 @@ final class AppState: ObservableObject {
     // Async prompts.
     @Published var passwordPrompt: PasswordPrompt?
     @Published var hostKeyPrompt: HostKeyPrompt?
-    @Published var pendingConflict: PendingConflict?
+    @Published private(set) var pendingConflict: PendingConflict?
     @Published var commandConfirmationPrompt: CommandConfirmationPrompt?
     @Published var editor: EditorContext?
 
@@ -162,11 +180,16 @@ final class AppState: ObservableObject {
 
     var passwordContinuation: CheckedContinuation<String?, Never>?
     var hostKeyContinuation: CheckedContinuation<HostKeyDecision, Never>?
-    var conflictContinuation: CheckedContinuation<ConflictPolicy?, Never>?
     var commandConfirmationContinuation: CheckedContinuation<Bool, Never>?
-    /// Conflict dialogs are global to the app window. Keep later drops queued
-    /// instead of replacing the continuation that the first transfer awaits.
-    var conflictWaiters: [CheckedContinuation<Void, Never>] = []
+    private var conflictQueue: [TransferConflictRequest] = []
+    private var activeConflict: TransferConflictRequest?
+    private var conflictTimeout: Task<Void, Never>?
+    private var presentedConflictID: UUID?
+
+    var conflictSheetIsClosing: Bool {
+        presentedConflictID != nil && pendingConflict == nil
+    }
+
     private var workspaceSaveTask: Task<Void, Never>?
 
     private init() {
@@ -339,25 +362,34 @@ final class AppState: ObservableObject {
     var sidebarTree: [SidebarGroupNode] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         let matches = query.isEmpty ? hosts : hosts.filter { matchesSearch($0, query: query) }
-        return buildTree(parentID: nil, hosts: matches)
+        return buildTree(parentID: nil, hosts: matches, pruningEmptyGroups: !query.isEmpty)
+    }
+
+    var catalogTree: [SidebarGroupNode] {
+        buildTree(parentID: nil, hosts: hosts, pruningEmptyGroups: false)
+    }
+
+    var catalogUngroupedHosts: [SSHHost] {
+        let groupIDs = Set(groups.map(\.id))
+        // An imported host may refer to a group that no longer exists.
+        return hosts.filter { $0.groupID.map(groupIDs.contains) != true }
     }
 
     var ungroupedHosts: [SSHHost] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        let groupIDs = Set(groups.map(\.id))
-        // An imported host may refer to a group that no longer exists.
-        let list = hosts.filter { $0.groupID.map(groupIDs.contains) != true }
+        let list = catalogUngroupedHosts
         guard !query.isEmpty else { return list }
         return list.filter { matchesSearch($0, query: query) }
     }
 
-    private func buildTree(parentID: UUID?, hosts source: [SSHHost]) -> [SidebarGroupNode] {
+    private func buildTree(parentID: UUID?, hosts source: [SSHHost],
+                           pruningEmptyGroups: Bool) -> [SidebarGroupNode] {
         groups.filter { $0.parentID == parentID }
             .sorted { $0.sortIndex == $1.sortIndex ? $0.name < $1.name : $0.sortIndex < $1.sortIndex }
             .compactMap { group -> SidebarGroupNode? in
-                let children = buildTree(parentID: group.id, hosts: source)
+                let children = buildTree(parentID: group.id, hosts: source, pruningEmptyGroups: pruningEmptyGroups)
                 let owned = source.filter { $0.groupID == group.id }.sorted { $0.sortIndex < $1.sortIndex }
-                if !searchText.isEmpty && owned.isEmpty && children.isEmpty { return nil }
+                if pruningEmptyGroups && owned.isEmpty && children.isEmpty { return nil }
                 return SidebarGroupNode(group: group, children: children, hosts: owned)
             }
     }
@@ -424,7 +456,7 @@ final class AppState: ObservableObject {
     /// tab. The start page is a permanent chip on the left of the strip, so the
     /// strip needs a selection state for it just like real tabs.
     var isStartPageSelected: Bool {
-        selectedTabID == nil && !isWorkspaceSelected
+        !showingCatalogSearch && selectedTabID == nil && !isWorkspaceSelected
     }
 
     var openBoards: [BoardDefinition] {
@@ -864,27 +896,41 @@ final class AppState: ObservableObject {
     /// True while one of our own sheets owns the window. The quick-open panel is
     /// an overlay, so raising it behind a sheet would be invisible: ⌘K waits.
     var hasPresentedSheet: Bool {
-        passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil || commandConfirmationPrompt != nil
+        passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil || conflictSheetIsClosing
+            || commandConfirmationPrompt != nil
             || editor != nil || editingHost != nil || editingGroup != nil || editingBoard != nil || editingProxy != nil
             || showingKeyImporter || showingSettings || showingTransferCenter
-            || showingBoardCreate || boardNamePrompt != nil || showingNewSFTPTab
+            || showingBoardCreate || boardNamePrompt != nil || showingNewSFTPTab || termiusImport != nil
     }
 
     /// ⌘K. Opens the quick-open panel, or closes it when it is already up.
     func showQuickOpen() {
-        guard !hasPresentedSheet else { return }
+        guard !hasPresentedSheet, alert == nil else { return }
         showingCommandPalette.toggle()
         if showingCommandPalette {
             NSApp.activate(ignoringOtherApps: true)
+        } else {
+            scheduleTerminalFocus(0.05)
         }
+    }
+
+    /// Full catalog search temporarily takes the content area without changing
+    /// which terminal or workspace will resume when the search closes.
+    func showCatalogSearch(initialQuery: String? = nil) {
+        guard !hasPresentedSheet, alert == nil else { return }
+        if let initialQuery { catalogSearchQuery = initialQuery }
+        showingCommandPalette = false
+        showingCatalogSearch = true
+    }
+
+    func dismissCatalogSearch() {
+        showingCatalogSearch = false
+        scheduleTerminalFocus()
     }
 
     /// True while one of our own dialogs/sheets owns the keyboard.
     private var hasPresentedDialog: Bool {
-        passwordPrompt != nil || hostKeyPrompt != nil || pendingConflict != nil || commandConfirmationPrompt != nil
-            || editor != nil || editingHost != nil || editingGroup != nil || editingBoard != nil || editingProxy != nil
-            || showingKeyImporter || showingSettings || showingTransferCenter
-            || showingCommandPalette || showingBoardCreate || boardNamePrompt != nil
+        hasPresentedSheet || alert != nil || showingCommandPalette || showingCatalogSearch
     }
 
     /// Hands the keyboard back to the terminal. SwiftTerm's view never becomes
@@ -989,11 +1035,10 @@ final class AppState: ObservableObject {
         tab.local.showHidden = settings.showHiddenFiles
         tab.remote.showHidden = settings.showHiddenFiles
         tabs.append(tab)
-        selectedTabID = tab.id
         selectedSidebarHostID = host.id
-        connect(tab: tab)
-        persistWorkspace()
-        scheduleTerminalFocus(0.2)
+        // Use the normal selection path: the workspace takes precedence in
+        // WorkspaceView until its selected ID is cleared and persisted.
+        selectTab(tab)
     }
 
     func openTabs(for hosts: [SSHHost]) {
@@ -1015,11 +1060,8 @@ final class AppState: ObservableObject {
         tab.remote.showHidden = settings.showHiddenFiles
         tab.pendingPaneHostIDs = extraHostIDs
         tabs.append(tab)
-        selectedTabID = tab.id
-        selectedBoardID = nil
         selectedSidebarHostID = host.id
-        connect(tab: tab)
-        persistWorkspace()
+        selectTab(tab)
     }
 
     /// Opens an SFTP tab for the current sidebar selection, if any.
@@ -1064,6 +1106,7 @@ final class AppState: ObservableObject {
     }
 
     func selectTab(_ tab: TerminalTab) {
+        showingCatalogSearch = false
         selectedTabID = tab.id
         selectedBoardID = nil
         persistSelectedBoard()
@@ -1093,6 +1136,7 @@ final class AppState: ObservableObject {
     /// every workspace. This is the only way back to the start page once tabs
     /// exist, so it is on ⌘⇧H.
     func showStartPage() {
+        showingCatalogSearch = false
         selectedTabID = nil
         selectedBoardID = nil
         persistSelectedBoard()
@@ -1148,12 +1192,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Shows or hides the host sidebar. Pure UI state, saved on its own so it
-    /// does not re-run appearance or transfer configuration.
+    /// Shows or hides the collection rail on the start page. Sessions and
+    /// workspaces have their own layouts.
     func toggleSidebar(_ visible: Bool? = nil) {
-        let next = visible ?? !settings.sidebarVisible
-        guard next != settings.sidebarVisible else { return }
-        settings.sidebarVisible = next
+        let next = visible ?? !settings.startPageSidebarVisible
+        guard next != settings.startPageSidebarVisible else { return }
+        settings.startPageSidebarVisible = next
         do {
             try store.save(settings: settings)
         } catch {
@@ -1435,12 +1479,108 @@ final class AppState: ObservableObject {
         continuation?.resume(returning: decision)
     }
 
-    func resolveConflict(_ policy: ConflictPolicy?, applyToAll: Bool) {
+    func askConflictPolicy(for path: String, in batch: TransferConflictBatch) async -> ConflictPolicy? {
+        await enqueueConflict(PendingConflict(title: L("目标位置已存在同名文件"),
+                                              message: nil,
+                                              destinationPath: path),
+                              batch: batch, timeoutSeconds: 60)
+    }
+
+    func askConflictPolicy(fileCount: Int, timeoutSeconds: Double = 60) async -> ConflictPolicy? {
+        await enqueueConflict(PendingConflict(title: L("目标位置已存在同名文件"),
+                                              message: L("共有 ") + String(fileCount) + L(" 个项目需要传输，请选择冲突处理方式。"),
+                                              destinationPath: nil),
+                              batch: TransferConflictBatch(), timeoutSeconds: timeoutSeconds)
+    }
+
+    private func enqueueConflict(_ prompt: PendingConflict, batch: TransferConflictBatch,
+                                 timeoutSeconds: Double) async -> ConflictPolicy? {
+        guard !Task.isCancelled, !batch.isCancelled else { return nil }
+        if let policy = batch.policy { return policy }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                conflictQueue.append(TransferConflictRequest(prompt: prompt, batch: batch,
+                                                             timeoutSeconds: timeoutSeconds,
+                                                             continuation: continuation))
+                showNextConflict()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelConflictRequest(prompt.id) }
+        }
+    }
+
+    private func showNextConflict() {
+        guard activeConflict == nil, presentedConflictID == nil, !conflictQueue.isEmpty else { return }
+        let request = conflictQueue.removeFirst()
+        let id = request.prompt.id
+        let timeoutSeconds = request.timeoutSeconds
+        activeConflict = request
+        pendingConflict = request.prompt
+        conflictTimeout = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(timeoutSeconds))
+            } catch {
+                return
+            }
+            guard let self, self.activeConflict?.prompt.id == id else { return }
+            self.resolveConflict(id: id, policy: nil, applyToAll: false)
+            self.presentMessage(L("冲突处理已超时"),
+                                L("没有收到冲突处理方式，传输已取消。"),
+                                suggestion: L("重新拖拽或点击上传即可再次触发。"))
+        }
+    }
+
+    func conflictSheetDidAppear(id: UUID) -> Bool {
+        guard activeConflict?.prompt.id == id else { return false }
+        presentedConflictID = id
+        return true
+    }
+
+    func conflictSheetDidDismiss(id: UUID) {
+        guard presentedConflictID == id else { return }
+        presentedConflictID = nil
+        if activeConflict?.prompt.id == id {
+            resolveConflict(id: id, policy: nil, applyToAll: false)
+        } else {
+            showNextConflict()
+        }
+    }
+
+    func resolveConflict(id: UUID, policy: ConflictPolicy?, applyToAll: Bool) {
+        guard let request = activeConflict, request.prompt.id == id else { return }
+        if policy == nil {
+            request.batch.isCancelled = true
+            let onCancel = request.batch.onCancel
+            request.batch.onCancel = nil
+            onCancel?()
+        }
+        if applyToAll { request.batch.policy = policy }
+
+        if policy == nil || applyToAll {
+            let waiting = conflictQueue.filter { $0.batch === request.batch }
+            conflictQueue.removeAll { $0.batch === request.batch }
+            for other in waiting { other.continuation.resume(returning: policy) }
+        }
+        finishConflict(request, policy: policy)
+    }
+
+    private func cancelConflictRequest(_ id: UUID) {
+        if let request = activeConflict, request.prompt.id == id {
+            finishConflict(request, policy: nil)
+        } else if let index = conflictQueue.firstIndex(where: { $0.prompt.id == id }) {
+            conflictQueue.remove(at: index).continuation.resume(returning: nil)
+        }
+    }
+
+    private func finishConflict(_ request: TransferConflictRequest, policy: ConflictPolicy?) {
+        conflictTimeout?.cancel()
+        conflictTimeout = nil
+        activeConflict = nil
         pendingConflict = nil
-        if applyToAll { transferConflictPolicy = policy }
-        let continuation = conflictContinuation
-        conflictContinuation = nil
-        continuation?.resume(returning: policy)
+        request.continuation.resume(returning: policy)
+        // The sheet owns its dismissal animation. Wait for onDismiss before publishing
+        // the next prompt, as setting another item during dismissal can lose it.
+        showNextConflict()
     }
 
     func confirmHighRiskCommand(_ command: String,
@@ -1491,7 +1631,9 @@ final class AppState: ObservableObject {
         // every machine, which doubled the list for a destination that already
         // has its own keyboard route: ⌘↩ on the host row, or ⇧⌘T for the host
         // picker. Keeping the list to one row per host also keeps ↑↓ short.
+        var indexedHosts = Set<UUID>()
         func appendHost(_ host: SSHHost, groupTitle: String, depth: Int) {
+            guard indexedHosts.insert(host.id).inserted else { return }
             let keywords = quickOpenKeywords(for: host, groupPath: groupTitle)
             let weight = quickOpenWeight(for: host)
             items.append(CommandPaletteItem(id: "host-" + host.id.uuidString,
@@ -1520,11 +1662,15 @@ final class AppState: ObservableObject {
             }
         }
 
-        for node in sidebarTree {
+        for node in catalogTree {
             walk(node, path: "", depth: 0)
         }
-        for host in ungroupedHosts {
+        for host in catalogUngroupedHosts {
             appendHost(host, groupTitle: L("未分组"), depth: 0)
+        }
+        // Imported data can contain groups whose parent was removed.
+        for host in hosts where !indexedHosts.contains(host.id) {
+            appendHost(host, groupTitle: groupPath(for: host.groupID), depth: 0)
         }
 
         let actions: [(String, String, () -> Void)] = [

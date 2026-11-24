@@ -613,9 +613,10 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var navigationMode: String = "tabs"
     /// Last folder the local SFTP pane was browsing, so it reopens there.
     public var lastLocalDirectory: String?
-    /// Whether the host sidebar is visible. The start page already lists every
-    /// host, so the sidebar can be hidden to give the terminal the full width.
+    /// Legacy preference saved by versions with a window-wide host sidebar.
     public var sidebarVisible: Bool = false
+    /// Visibility of the host and workspace collection on the start page.
+    public var startPageSidebarVisible: Bool = true
     /// Command broadcast: keystrokes typed in one workspace pane are replayed
     /// into every other connected pane. Off by default — a shared prompt is
     /// powerful and easy to fire by accident, so it is strictly opt-in.
@@ -662,6 +663,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         navigationMode = (try? c.decode(String.self, forKey: .navigationMode)) ?? navigationMode
         lastLocalDirectory = (try? c.decodeIfPresent(String.self, forKey: .lastLocalDirectory)) ?? lastLocalDirectory
         sidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)) ?? sidebarVisible
+        startPageSidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .startPageSidebarVisible)) ?? startPageSidebarVisible
         broadcastInput = (try? c.decodeIfPresent(Bool.self, forKey: .broadcastInput)) ?? broadcastInput
         automaticallyChecksForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .automaticallyChecksForUpdates)) ?? automaticallyChecksForUpdates
         mcpEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .mcpEnabled)) ?? mcpEnabled

@@ -14,10 +14,11 @@ struct RelayRequest {
     var entries: [FileEntry]
 }
 
-struct RelayFile {
+private struct RelayFile {
     var sourcePath: String
     var destinationPath: String
     var size: Int64
+    var modified: Date?
 }
 
 extension AppState {
@@ -37,16 +38,21 @@ extension AppState {
                                    sourcePaneID: source.id,
                                    targetPaneID: target.id,
                                    entries: entries)
+        let destination = target.path
+        let resolveConflict = relayConflictResolver()
         Task { @MainActor in
-            await self.performRelay(request, tab: tab, source: source, target: target)
+            _ = await self.performRelay(request, tab: tab, source: source, target: target,
+                                        destination: destination, resolveConflict: resolveConflict)
         }
     }
 
     private func performRelay(_ request: RelayRequest,
                               tab: TerminalTab,
                               source: RemoteBrowserModel,
-                              target: RemoteBrowserModel) async {
-        guard !request.entries.isEmpty else { return }
+                              target: RemoteBrowserModel,
+                              destination: String,
+                              resolveConflict: @escaping UploadConflictResolver) async -> TransferState? {
+        guard !request.entries.isEmpty else { return nil }
         var sourceClient = source.client
         if sourceClient == nil {
             await openSFTP(tab: tab, pane: source)
@@ -56,7 +62,7 @@ extension AppState {
             presentMessage(L("无法传输"),
                            source.connectionError ?? L("源服务器的 SFTP 会话尚未建立。"),
                            suggestion: L("在源面板上点“重试”，连上之后再拖一次。"))
-            return
+            return nil
         }
         var targetClient = target.client
         if targetClient == nil {
@@ -67,12 +73,8 @@ extension AppState {
             presentMessage(L("无法传输"),
                            target.connectionError ?? L("目标服务器的 SFTP 会话尚未建立。"),
                            suggestion: L("在目标面板上点“重试”，连上之后再拖一次。"))
-            return
+            return nil
         }
-
-        guard let policy = await relayConflictPolicy(entries: request.entries,
-                                                     directory: target.path,
-                                                     client: targetClient) else { return }
 
         let progressID = UUID()
         let progress = TransferProgress(id: progressID,
@@ -82,7 +84,7 @@ extension AppState {
                                         hostID: target.hostID,
                                         direction: .download,
                                         sourcePath: source.hostName + ":" + source.path,
-                                        destinationPath: target.hostName + ":" + target.path,
+                                        destinationPath: target.hostName + ":" + destination,
                                         state: .running,
                                         filesTotal: request.entries.count,
                                         currentFile: request.entries.first?.name,
@@ -90,53 +92,44 @@ extension AppState {
         relayRequests[progressID] = request
         updateTransfer(progress)
 
+        let sameHost = sourceClient === targetClient || (source.hostID != nil && source.hostID == target.hostID)
         let relay = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.runRelay(progressID: progressID,
-                                source: source,
-                                target: target,
+                                destination: destination,
                                 sourceClient: sourceClient,
                                 targetClient: targetClient,
-                                policy: policy)
+                                sameHost: sameHost,
+                                resolveConflict: resolveConflict)
         }
         relayTasks[progressID] = relay
         await relay.value
+        return transfers.first(where: { $0.id == progressID })?.state
     }
 
-    private func relayConflictPolicy(entries: [FileEntry],
-                                     directory: String,
-                                     client: SFTPClient) async -> ConflictPolicy? {
-        if let override = transferConflictPolicy { return override }
-        if settings.conflictPolicy != "ask" {
-            return Self.conflictPolicy(fromSetting: settings.conflictPolicy)
+    private func relayConflictResolver() -> UploadConflictResolver {
+        if let policy = configuredTransferConflictPolicy {
+            return { _ in policy }
         }
-        var hasConflict = false
-        for entry in entries.prefix(20) {
-            if (try? await client.stat(POSIXPath.join(directory, entry.name))) != nil {
-                hasConflict = true
-                break
-            }
-        }
-        if !hasConflict { return .overwrite }
-        return await askConflictPolicy(fileCount: entries.count)
+        return makeTransferConflictResolver()
     }
 
     private func runRelay(progressID: UUID,
-                          source: RemoteBrowserModel,
-                          target: RemoteBrowserModel,
+                          destination: String,
                           sourceClient: SFTPClient,
                           targetClient: SFTPClient,
-                          policy: ConflictPolicy) async {
+                          sameHost: Bool,
+                          resolveConflict: UploadConflictResolver) async {
         guard var progress = transfers.first(where: { $0.id == progressID }) else { return }
         var files: [RelayFile] = []
         do {
             files = try await collectRelayFiles(entries: relayRequests[progressID]?.entries ?? [],
                                                 source: sourceClient,
                                                 target: targetClient,
-                                                destinationDirectory: target.path,
-                                                policy: policy)
+                                                destinationDirectory: destination,
+                                                resolveConflict: resolveConflict)
         } catch {
-            finishRelay(progressID: progressID, state: .failed, error: error)
+            finishRelay(progressID: progressID, after: error)
             return
         }
 
@@ -155,10 +148,11 @@ extension AppState {
             }
             progress.currentFile = (file.sourcePath as NSString).lastPathComponent
             do {
-                try await relayFile(file,
-                                    source: sourceClient,
-                                    target: targetClient,
-                                    onBytes: { chunk in
+                let copied = try await relayFile(file,
+                                                 source: sourceClient,
+                                                 target: targetClient,
+                                                 sameHost: sameHost,
+                                                 resolveConflict: resolveConflict) { chunk in
                     completedBytes += Int64(chunk)
                     let now = Date()
                     if now.timeIntervalSince(lastReport) > 0.12 {
@@ -169,18 +163,18 @@ extension AppState {
                         progress.updatedAt = now
                         self.updateTransfer(progress)
                     }
-                })
+                }
+                if !copied {
+                    progress.skippedFiles += 1
+                    progress.bytesTotal -= file.size
+                }
                 progress.bytesCompleted = completedBytes
                 progress.filesCompleted += 1
                 progress.bytesPerSecond = Double(completedBytes) / max(0.001, Date().timeIntervalSince(startedAt))
                 progress.updatedAt = Date()
                 updateTransfer(progress)
             } catch {
-                // A cancelled relay is not a failure: the user asked for it.
-                let cancelled = error is CancellationError || Task.isCancelled
-                finishRelay(progressID: progressID,
-                            state: cancelled ? .cancelled : .failed,
-                            error: cancelled ? nil : error)
+                finishRelay(progressID: progressID, after: error)
                 return
             }
         }
@@ -192,6 +186,12 @@ extension AppState {
         updateTransfer(progress)
         finishRelay(progressID: progressID, state: .completed, error: nil)
         traceTransfer("relay completed " + String(files.count) + " file(s)")
+    }
+
+    private func finishRelay(progressID: UUID, after error: Error) {
+        let cancelled = error is CancellationError || Task.isCancelled
+        finishRelay(progressID: progressID, state: cancelled ? .cancelled : .failed,
+                    error: cancelled ? nil : error)
     }
 
     private func finishRelay(progressID: UUID, state: TransferState, error: Error?) {
@@ -207,38 +207,92 @@ extension AppState {
     private func relayFile(_ file: RelayFile,
                            source: SFTPClient,
                            target: SFTPClient,
-                           onBytes: (Int) -> Void) async throws {
+                           sameHost: Bool,
+                           resolveConflict: UploadConflictResolver,
+                           onBytes: (Int) -> Void) async throws -> Bool {
         let readHandle = try await source.open(file.sourcePath, flags: [.read])
-        var wroteAny = false
         do {
-            let writeHandle = try await target.open(file.destinationPath, flags: .writeTruncateCreate)
-            var offset: UInt64 = 0
-            let chunk: UInt32 = 32768
-            while true {
-                if Task.isCancelled { throw CancellationError() }
-                let data = try await source.read(handle: readHandle, offset: offset, length: chunk)
-                if data.isEmpty { break }
-                try await target.write(handle: writeHandle, offset: offset, data: data)
-                wroteAny = true
-                offset += UInt64(data.count)
-                onBytes(data.count)
+            guard let output = try await openRelayDestination(file, target: target,
+                                                              sameHost: sameHost, resolveConflict: resolveConflict) else {
+                try await source.close(readHandle)
+                return false
             }
-            try await target.close(writeHandle)
+            var offset: UInt64 = 0
+            do {
+                let chunk: UInt32 = 32768
+                while true {
+                    try Task.checkCancellation()
+                    let data = try await source.read(handle: readHandle, offset: offset, length: chunk)
+                    if data.isEmpty { break }
+                    try await target.write(handle: output.handle, offset: offset, data: data)
+                    offset += UInt64(data.count)
+                    onBytes(data.count)
+                }
+                try await target.close(output.handle)
+            } catch {
+                try? await target.close(output.handle)
+                if offset > 0 { try? await target.removeFile(output.path) }
+                throw error
+            }
         } catch {
-            if wroteAny { try? await target.removeFile(file.destinationPath) }
             try? await source.close(readHandle)
             throw error
         }
         try await source.close(readHandle)
+        return true
     }
 
-    /// Drop of remote rows onto another remote pane: relays the whole drag, one
-    /// request per source pane, awaited in turn so two relays never race for the
-    /// single conflict continuation.
+    private func openRelayDestination(_ file: RelayFile,
+                                      target: SFTPClient,
+                                      sameHost: Bool,
+                                      resolveConflict: UploadConflictResolver) async throws -> (path: String, handle: Data)? {
+        let destination = file.destinationPath
+        while true {
+            try Task.checkCancellation()
+            if let existing = try await relayDestinationAttributes(destination, client: target) {
+                switch try await resolveConflict(destination) {
+                case .skip:
+                    return nil
+                case .rename:
+                    return try await openRenamedRelayFile(destination, target: target)
+                case .onlyIfNewer:
+                    if relayDestinationIsCurrent(existing, sourceModified: file.modified) { return nil }
+                case .overwrite:
+                    break
+                }
+                // Two panes on the same host can show the same file. Opening
+                // its destination with truncation would also empty the source.
+                if sameHost && POSIXPath.normalize(file.sourcePath) == POSIXPath.normalize(destination) { return nil }
+                try Task.checkCancellation()
+                let handle = try await target.open(destination, flags: .writeTruncateCreate)
+                return (destination, handle)
+            }
+            if let output = try await createRelayFile(destination, target: target) { return output }
+        }
+    }
+
+    /// Exclusive creation keeps a file that appears after the lookup intact.
+    /// SFTP v3 can report that collision with its generic failure status.
+    private func createRelayFile(_ path: String,
+                                 target: SFTPClient) async throws -> (path: String, handle: Data)? {
+        try Task.checkCancellation()
+        do {
+            let handle = try await target.open(path, flags: [.write, .create, .exclusive])
+            return (path, handle)
+        } catch let error as SFTPError {
+            guard try await relayDestinationAttributes(path, client: target) != nil else { throw error }
+            return nil
+        }
+    }
+
+    /// Drop of remote rows onto another remote pane: one relay per source pane
+    /// with one set of conflict choices for the whole drag.
     func copyDroppedPaths(_ items: [(path: String, hostID: UUID?, paneID: UUID?)],
                           in tab: TerminalTab,
                           to target: RemoteBrowserModel) {
         guard !items.isEmpty else { return }
+        let destination = target.path
+        let resolveConflict = relayConflictResolver()
         Task { @MainActor in
             let resolution = await self.resolveDroppedItems(items, in: tab)
             for batch in resolution.batches {
@@ -248,13 +302,16 @@ extension AppState {
                                         suggestion: L("拖到另一个远端面板，或直接拖到本地面板下载。"))
                     continue
                 }
-                await self.performRelay(RelayRequest(tabID: tab.id,
-                                                     sourcePaneID: batch.pane.id,
-                                                     targetPaneID: target.id,
-                                                     entries: batch.entries),
-                                        tab: tab,
-                                        source: batch.pane,
-                                        target: target)
+                let state = await self.performRelay(RelayRequest(tabID: tab.id,
+                                                                 sourcePaneID: batch.pane.id,
+                                                                 targetPaneID: target.id,
+                                                                 entries: batch.entries),
+                                                    tab: tab,
+                                                    source: batch.pane,
+                                                    target: target,
+                                                    destination: destination,
+                                                    resolveConflict: resolveConflict)
+                if state == .cancelled { return }
             }
             self.reportDroppedFailures(resolution.failures, title: L("无法传输"))
         }
@@ -266,93 +323,114 @@ extension AppState {
                                    source: SFTPClient,
                                    target: SFTPClient,
                                    destinationDirectory: String,
-                                   policy: ConflictPolicy) async throws -> [RelayFile] {
+                                   resolveConflict: UploadConflictResolver) async throws -> [RelayFile] {
         var files: [RelayFile] = []
         for entry in entries {
-            if let planned = try await planRelay(entry: entry,
-                                                 source: source,
-                                                 target: target,
-                                                 destinationDirectory: destinationDirectory,
-                                                 policy: policy,
-                                                 name: entry.name) {
-                files.append(contentsOf: planned)
-            }
+            files.append(contentsOf: try await planRelay(entry: entry,
+                                                         source: source,
+                                                         target: target,
+                                                         destinationDirectory: destinationDirectory,
+                                                         resolveConflict: resolveConflict))
         }
         return files
     }
 
-    /// Resolve one entry (recursively for directories) into the list of files to
-    /// copy. Returns nil when the entry is skipped entirely.
     private func planRelay(entry: FileEntry,
                            source: SFTPClient,
                            target: SFTPClient,
                            destinationDirectory: String,
-                           policy: ConflictPolicy,
-                           name: String) async throws -> [RelayFile]? {
-        var destinationName = name
-        let candidate = POSIXPath.join(destinationDirectory, destinationName)
-        let existing = try? await target.stat(candidate)
-
-        if let existing, !(existing.isDirectory && entry.kind == .directory) {
-            switch policy {
-            case .overwrite:
-                break
-            case .skip:
-                return nil
-            case .rename:
-                destinationName = await uniqueRemoteName(base: name, directory: destinationDirectory, client: target)
-            case .onlyIfNewer:
-                let sourceTime = entry.modified
-                let destTime = existing.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-                if let sourceTime, let destTime, sourceTime <= destTime { return nil }
-            }
-        } else if entry.kind == .directory, existing == nil {
-            do {
-                try await target.createDirectory(candidate)
-            } catch {
-                // Already there is fine; anything else is a real failure.
-                if (try? await target.stat(candidate)) == nil { throw error }
-            }
+                           resolveConflict: UploadConflictResolver) async throws -> [RelayFile] {
+        try Task.checkCancellation()
+        let destination = POSIXPath.join(destinationDirectory, entry.name)
+        guard entry.kind == .directory else {
+            return [RelayFile(sourcePath: entry.path, destinationPath: destination,
+                              size: entry.size, modified: entry.modified)]
         }
-
-        let destinationPath = POSIXPath.join(destinationDirectory, destinationName)
-        if entry.kind == .directory {
-            let children = try await source.listDirectory(entry.path)
-            var files: [RelayFile] = []
-            for child in children where child.filename != "." && child.filename != ".." {
-                let attributes = child.attributes
-                let kind: FileEntry.Kind = attributes.isDirectory ? .directory
-                    : (attributes.isSymlink ? .symlink : .file)
-                let childEntry = FileEntry(path: POSIXPath.join(entry.path, child.filename),
-                                           name: child.filename,
-                                           kind: kind,
-                                           size: Int64(attributes.size ?? 0),
-                                           modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
-                if let planned = try await planRelay(entry: childEntry,
-                                                     source: source,
-                                                     target: target,
-                                                     destinationDirectory: destinationPath,
-                                                     policy: policy,
-                                                     name: child.filename) {
-                    files.append(contentsOf: planned)
-                }
-            }
-            return files
+        guard let path = try await prepareRelayDirectory(destination, sourceModified: entry.modified,
+                                                         target: target, resolveConflict: resolveConflict) else { return [] }
+        let children = try await source.listDirectory(entry.path)
+        var files: [RelayFile] = []
+        for child in children where child.filename != "." && child.filename != ".." {
+            let attributes = child.attributes
+            let kind: FileEntry.Kind = attributes.isDirectory ? .directory
+                : (attributes.isSymlink ? .symlink : .file)
+            let childEntry = FileEntry(path: POSIXPath.join(entry.path, child.filename),
+                                       name: child.filename,
+                                       kind: kind,
+                                       size: Int64(attributes.size ?? 0),
+                                       modified: attributes.modifyTime.map { Date(timeIntervalSince1970: TimeInterval($0)) })
+            files.append(contentsOf: try await planRelay(entry: childEntry,
+                                                         source: source,
+                                                         target: target,
+                                                         destinationDirectory: path,
+                                                         resolveConflict: resolveConflict))
         }
-        return [RelayFile(sourcePath: entry.path, destinationPath: destinationPath, size: entry.size)]
+        return files
     }
 
-    private func uniqueRemoteName(base: String, directory: String, client: SFTPClient) async -> String {
-        var counter = 1
-        var candidate = base
-        let ext = (base as NSString).pathExtension
-        let stem = ext.isEmpty ? base : (base as NSString).deletingPathExtension
-        while (try? await client.stat(POSIXPath.join(directory, candidate))) != nil {
-            candidate = ext.isEmpty ? stem + " (" + String(counter) + ")"
-                : stem + " (" + String(counter) + ")." + ext
-            counter += 1
-            if counter > 999 { break }
+    private func prepareRelayDirectory(_ path: String, sourceModified: Date?,
+                                       target: SFTPClient, resolveConflict: UploadConflictResolver) async throws -> String? {
+        while true {
+            try Task.checkCancellation()
+            if let existing = try await relayDestinationAttributes(path, client: target) {
+                if existing.isDirectory { return path }
+                switch try await resolveConflict(path) {
+                case .skip:
+                    return nil
+                case .rename:
+                    for index in 1...999 {
+                        let candidate = renamedRelayPath(path, index: index)
+                        if try await createRelayDirectory(candidate, target: target) { return candidate }
+                    }
+                    throw TransferError.failed("No available name for " + path)
+                case .onlyIfNewer:
+                    if relayDestinationIsCurrent(existing, sourceModified: sourceModified) { return nil }
+                case .overwrite:
+                    break
+                }
+                throw TransferError.failed("Destination is not a directory: " + path)
+            }
+            if try await createRelayDirectory(path, target: target) { return path }
         }
-        return candidate
+    }
+
+    private func createRelayDirectory(_ path: String, target: SFTPClient) async throws -> Bool {
+        try Task.checkCancellation()
+        do {
+            try await target.createDirectory(path)
+            return true
+        } catch let error as SFTPError {
+            guard try await relayDestinationAttributes(path, client: target) != nil else { throw error }
+            return false
+        }
+    }
+
+    private func openRenamedRelayFile(_ path: String, target: SFTPClient) async throws -> (path: String, handle: Data) {
+        for index in 1...999 {
+            if let output = try await createRelayFile(renamedRelayPath(path, index: index), target: target) {
+                return output
+            }
+        }
+        throw TransferError.failed("No available name for " + path)
+    }
+
+    private func renamedRelayPath(_ path: String, index: Int) -> String {
+        let filename = (path as NSString).lastPathComponent as NSString
+        let ext = filename.pathExtension
+        let suffix = ext.isEmpty ? "" : "." + ext
+        return POSIXPath.join(POSIXPath.parent(path), filename.deletingPathExtension + " (\(index))" + suffix)
+    }
+
+    private func relayDestinationAttributes(_ path: String, client: SFTPClient) async throws -> SFTPFileAttributes? {
+        do {
+            return try await client.stat(path, followSymlink: false)
+        } catch let error as SFTPError where error.isNoSuchFile {
+            return nil
+        }
+    }
+
+    private func relayDestinationIsCurrent(_ attributes: SFTPFileAttributes, sourceModified: Date?) -> Bool {
+        guard let sourceModified, let modified = attributes.modifyTime else { return false }
+        return Date(timeIntervalSince1970: TimeInterval(modified)) >= sourceModified
     }
 }

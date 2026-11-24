@@ -12,14 +12,53 @@ enum TechFont {
 
 extension Theme {
     /// Cards get a very slight top-to-bottom falloff instead of a flat fill.
-    static let cardTop = dynamic(light: 0xFFFFFF, dark: 0x2A2C34)
-    static let cardBottom = dynamic(light: 0xFAFAFD, dark: 0x222329)
+    static let cardTop = dynamic(light: 0xFFFFFF, dark: 0x292C30)
+    static let cardBottom = dynamic(light: 0xFAFBFC, dark: 0x22252A)
     /// A touch stronger than `cardStroke`; used where a card needs an edge.
-    static let hairline = dynamic(light: 0xD5D5DE, dark: 0x3B3D47)
-    static let tagBackground = dynamic(light: 0xF1F1F6, dark: 0x2B2D35)
-    static let insetHighlight = dynamic(light: 0xFFFFFF, dark: 0x3A3C46)
-    static let techPressed = dynamic(light: 0xE7E7EE, dark: 0x1C1D23)
-    static let gridLine = dynamic(light: 0xE8E8EF, dark: 0x2A2B33)
+    static let hairline = dynamic(light: 0xD5DAE1, dark: 0x3B3F45)
+    static let tagBackground = dynamic(light: 0xF1F3F6, dark: 0x2B2E33)
+    static let insetHighlight = dynamic(light: 0xFFFFFF, dark: 0x383C41)
+    static let techPressed = dynamic(light: 0xE7EBF0, dark: 0x1C1E22)
+    static let gridLine = dynamic(light: 0xE8EBEF, dark: 0x2A2D31)
+}
+
+/// A single reflection that crosses the surface as the pointer enters.
+/// It resets offscreen on exit, so a stationary pointer produces no shimmer.
+private struct SilverHoverSheen: ViewModifier {
+    let hovered: Bool
+    let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if !reduceMotion {
+                GeometryReader { proxy in
+                    let size = proxy.size
+                    let bandWidth = max(26, size.width * 0.46)
+                    let reach = bandWidth / 2 + size.height * 0.17
+                    let silver = Theme.dynamic(light: 0x9EADBE, dark: 0xC4D0DE)
+                    let strength = colorScheme == .dark ? 0.072 : 0.14
+
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: silver.opacity(strength * 0.45), location: 0.34),
+                        .init(color: silver.opacity(strength), location: 0.54),
+                        .init(color: .clear, location: 1)
+                    ], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: bandWidth, height: size.height * 1.55)
+                    .rotationEffect(.degrees(12))
+                    .position(x: hovered ? size.width + reach : -reach, y: size.height / 2)
+                    .opacity(hovered ? 1 : 0)
+                    .animation(hovered ? .timingCurve(0.28, 0.08, 0.36, 1, duration: 0.82) : nil,
+                               value: hovered)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
+    }
 }
 
 /// The shared card surface: gradient fill, one-pixel inner highlight and a
@@ -101,6 +140,10 @@ struct TechDotGrid: View {
 }
 
 extension View {
+    func silverHoverSheen(hovered: Bool, cornerRadius: CGFloat) -> some View {
+        modifier(SilverHoverSheen(hovered: hovered, cornerRadius: cornerRadius))
+    }
+
     func techCard(cornerRadius: CGFloat = 8,
                   hovered: Bool = false,
                   selected: Bool = false,

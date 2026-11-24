@@ -4,9 +4,7 @@ import TaugeKit
 
 /// Sheet for creating or editing one host.
 ///
-/// The sheet only shows what changes how a connection behaves (address, user,
-/// auth, proxy, jump chain). Rarer knobs live
-/// behind "高级", which is collapsed by default.
+/// Connection settings are divided into sections around a live host summary.
 struct HostEditorView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var host: SSHHost
@@ -17,8 +15,38 @@ struct HostEditorView: View {
     @ViewState private var validationMessage: String?
     @ViewState private var jumpQuery = ""
     @ViewState private var editorSheet: HostEditorSheet?
-    @ViewState private var showsAdvanced = false
+    @ViewState private var selectedSection: EditorSection = .connection
+    @ViewState private var tagsText: String
+    @ViewState private var portText: String
+    @FocusState private var focusedField: EditorField?
     private let originallySavesPassword: Bool
+
+    private enum EditorField: Hashable {
+        case name, user, address, port, identityPath, jumpQuery
+        case terminalType, startDirectory, uploadDirectory, startupCommand, tags, notes
+    }
+
+    private enum EditorSection: String, CaseIterable {
+        case connection, authentication, route, advanced
+
+        var title: String {
+            switch self {
+            case .connection: return L("连接")
+            case .authentication: return L("认证")
+            case .route: return L("代理与跳板")
+            case .advanced: return L("高级")
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .connection: return "powerplug"
+            case .authentication: return "key"
+            case .route: return "arrow.triangle.branch"
+            case .advanced: return "slider.horizontal.3"
+            }
+        }
+    }
 
     private enum HostEditorSheet: Identifiable {
         case proxy(ProxyConfig)
@@ -34,6 +62,8 @@ struct HostEditorView: View {
 
     init(host: SSHHost) {
         _host = ViewState(wrappedValue: host)
+        _tagsText = ViewState(initialValue: host.tags.filter { !Self.isFavoriteTag($0) }.joined(separator: ", "))
+        _portText = ViewState(initialValue: String(host.port))
         originallySavesPassword = host.savesPassword
     }
 
@@ -43,45 +73,33 @@ struct HostEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(host.name.isEmpty ? L("新建主机") : host.name)
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(L("取消")) { app.editingHost = nil }
-                    .keyboardShortcut(.cancelAction)
-                Button(L("保存")) { save() }
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            Divider()
-            if let credentialError {
-                Text(credentialError)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.danger)
-                    .padding(12)
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    connectionSection
-                    authSection
-                    proxySection
-                    jumpSection
-                    advancedSection
-                    if let validationMessage {
-                        Text(validationMessage)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.danger)
-                    }
+            header
+            Theme.separator.frame(height: 1)
+            VStack(alignment: .leading, spacing: 15) {
+                sectionPicker
+                if let message = validationMessage ?? credentialError {
+                    Label(message, systemImage: "exclamationmark.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("host-editor-validation")
                 }
-                .padding(16)
+                HStack(alignment: .top, spacing: 18) {
+                    ScrollView {
+                        selectedForm
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 12)
+                            .padding(.trailing, 4)
+                    }
+                    .id(selectedSection)
+                    connectionSummary
+                        .frame(width: 194)
+                }
             }
+            .padding(20)
         }
-        // The sheet paints its own canvas: the window background is not part of
-        // the content view, so without this the form floats on whatever the
-        // window shows through and thin secondary labels lose their contrast.
         .background(Theme.windowBackground)
-        .frame(width: 620, height: 620)
+        .frame(width: 810, height: 570)
         .onAppear { loadCredentials() }
         .sheet(item: $editorSheet) { sheet in
             switch sheet {
@@ -89,7 +107,7 @@ struct HostEditorView: View {
                 ProxyEditorView(
                     proxy: draft,
                     onSave: { proxy in
-                        host.proxyPolicy = .use(proxy.id)
+                        proxySelection.wrappedValue = proxy.id.uuidString
                         editorSheet = nil
                     },
                     onCancel: { editorSheet = nil }
@@ -109,145 +127,259 @@ struct HostEditorView: View {
         }
     }
 
+    @ViewBuilder
+    private var selectedForm: some View {
+        switch selectedSection {
+        case .connection: connectionSection
+        case .authentication: authSection
+        case .route: routingSection
+        case .advanced: advancedSection
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 5) {
+                Label(host.name.isEmpty ? L("主机") : host.name, systemImage: "server.rack")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                Text(app.host(id: host.id) == nil ? L("新建主机") : L("编辑主机"))
+                    .font(.system(size: 26, weight: .semibold))
+                    .tracking(-0.5)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 12)
+            Button(L("取消")) { app.editingHost = nil }
+                .buttonStyle(EditorButtonStyle())
+                .keyboardShortcut(.cancelAction)
+            Button {
+                save()
+            } label: {
+                Label(L("保存"), systemImage: "checkmark")
+            }
+            .buttonStyle(EditorButtonStyle(prominent: true))
+            .keyboardShortcut(.defaultAction)
+        }
+        .controlSize(.regular)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(Theme.titleBarGradient)
+    }
+
+    private var sectionPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(EditorSection.allCases, id: \.self) { item in
+                Button {
+                    selectedSection = item
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.secondary)
+                            .accessibilityHidden(true)
+                        Text(item.title)
+                            .font(.system(size: 12, weight: selectedSection == item ? .semibold : .regular))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(selectedSection == item ? Color.primary : Theme.secondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 29)
+                    .background(selectedSection == item ? Theme.cardBackground : .clear,
+                                in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(selectedSection == item ? Theme.separator : .clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedSection == item ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Theme.tabRailBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.separator, lineWidth: 1))
+    }
+
+    private var connectionSummary: some View {
+        let resolved = HostColor.resolve(host: host, groups: app.groups)
+        let tint = resolved.flatMap { Color(hex: $0.hex) } ?? Theme.secondary
+        let platform = app.platformInfo(for: host.id)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(L("连接概览"))
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+            HStack(spacing: 8) {
+                HostPlatformIcon(platform: platform?.platform, detail: platform?.detail, size: 18, fallbackColor: tint)
+                    .frame(width: 36, height: 36)
+                    .background(tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(tint.opacity(0.24), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(host.name.isEmpty ? L("新主机") : host.name)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(host.displayAddress)
+                        .font(TechFont.mono(10.5))
+                        .foregroundStyle(Theme.secondary)
+                        .truncationMode(.middle)
+                }
+                .lineLimit(1)
+            }
+            summaryRow(L("操作系统"), platform?.platform.displayName ?? L("登录后自动识别操作系统"))
+            summaryRow(L("分组"), app.groupPath(for: host.groupID))
+            summaryRow(L("配色来源"), colorSource(resolved))
+            summaryRow(L("连接方式"), routeSummary)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.panelBackground, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.separator, lineWidth: 1))
+    }
+
+    private func summaryRow(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Theme.separator.frame(height: 1)
+            Text(label).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            Text(value).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func colorSource(_ resolved: HostColor.Resolution?) -> String {
+        switch resolved?.source {
+        case .host: return L("主机自定义")
+        case .group(_, let name): return L("继承「%@」", name)
+        case nil: return L("默认配色")
+        }
+    }
+
+    private var routeSummary: String {
+        if case .use = host.proxyPolicy { return app.proxyName(for: host.proxyPolicy) }
+        if case .hosts = host.jumpPolicy { return app.jumpDescription(for: host.jumpPolicy) }
+        if host.proxyPolicy == .inherit || host.jumpPolicy == .inherit { return L("继承分组设置") }
+        return L("直连")
+    }
+
     // MARK: - Sections
 
     private var connectionSection: some View {
-        section(L("连接")) {
-            labeled(L("名称")) {
-                TextField(L("例如 生产环境 Web"), text: $host.name)
-                    .textFieldStyle(.roundedBorder)
+        section(L("连接信息")) {
+            fieldPair {
+                textField(L("名称"), L("例如 生产环境 Web"), text: $host.name, focus: .name)
+                textField(L("用户名"), "root", text: $host.username, focus: .user)
             }
-            labeled(L("地址")) {
-                HStack(spacing: 6) {
-                    TextField(L("example.com 或 10.0.0.1"), text: $host.hostname)
-                        .textFieldStyle(.roundedBorder)
-                    Text(L("端口"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.secondary)
-                    TextField("22", value: $host.port, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 62)
-                }
+            fieldPair {
+                textField(L("地址"), L("example.com 或 10.0.0.1"), text: $host.hostname,
+                          focus: .address, monospaced: true)
+                textField(L("端口"), "22", text: $portText, focus: .port, monospaced: true)
             }
-            labeled(L("用户名")) {
-                TextField("root", text: $host.username)
-                    .textFieldStyle(.roundedBorder)
-            }
-            labeled(L("分组")) {
-                HStack(spacing: 6) {
-                    Picker("", selection: $host.groupID) {
-                        Text(L("未分组")).tag(UUID?.none)
-                        ForEach(app.groups) { group in
-                            Text(app.groupPath(for: group.id)).tag(Optional(group.id))
-                        }
-                    }
-                    .labelsHidden()
+
+            let groups: [(UUID?, String)] = [(nil, L("未分组"))]
+                + app.groups.map { (Optional($0.id), app.groupPath(for: $0.id)) }
+            field(L("分组")) {
+                HStack(spacing: 8) {
+                    choice(L("分组"), selection: $host.groupID, options: groups)
                     Button(L("编辑分组…")) { editSelectedGroup() }
-                        .font(.system(size: 11))
+                        .buttonStyle(EditorButtonStyle())
+                        .fixedSize()
                         .disabled(host.groupID == nil)
                 }
             }
+
+            Theme.separator.frame(height: 1)
             ColorChoicePicker(colorHex: $host.colorHex, inheritedHex: inheritedColorHex)
+                .padding(.vertical, 3)
         }
     }
 
     private var authSection: some View {
         section(L("认证")) {
-            labeled(L("方式")) {
-                Picker("", selection: $host.authMethod) {
-                    ForEach(AuthMethod.allCases, id: \.self) { method in
-                        Text(method.displayName).tag(method)
-                    }
-                }
-                .labelsHidden()
+            field(L("方式")) {
+                choice(L("方式"), selection: $host.authMethod,
+                       options: AuthMethod.allCases.map { ($0, $0.displayName) })
             }
+
             switch host.authMethod {
             case .password, .keyboardInteractive:
-                labeled(L("密码")) {
-                    RevealableCredentialField(title: L("密码"), text: $password.text)
-                        .id(host.authMethod)
-                }
-                labeled("") {
-                    Toggle(L("保存密码到凭据库"), isOn: $host.savesPassword)
-                        .font(.system(size: 11))
-                }
+                credentialField(L("密码"), prompt: L("密码"), text: $password.text)
+                    .id(host.authMethod)
+                Toggle(L("保存密码到凭据库"), isOn: $host.savesPassword)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
             case .privateKey:
-                labeled(L("私钥")) {
-                    Picker("", selection: keySelection) {
-                        Text(L("磁盘上的私钥文件")).tag(UUID?.none)
-                        ForEach(app.keys) { key in
-                            Text(key.name).tag(Optional(key.id))
-                        }
-                    }
-                    .labelsHidden()
+                let keys: [(UUID?, String)] = [(nil, L("磁盘上的私钥文件"))]
+                    + app.keys.map { (Optional($0.id), $0.name) }
+                field(L("私钥")) {
+                    choice(L("私钥"), selection: keySelection, options: keys)
                 }
                 if host.keyID == nil {
-                    labeled(L("路径")) {
-                        HStack(spacing: 6) {
-                            TextField("~/.ssh/id_rsa", text: identityPath)
-                                .textFieldStyle(.roundedBorder)
+                    field(L("路径")) {
+                        HStack(spacing: 8) {
+                            textControl(L("路径"), "~/.ssh/id_ed25519", text: identityPath,
+                                        focus: .identityPath, monospaced: true)
                             Button(L("选择…")) { chooseKeyFile() }
-                                .font(.system(size: 11))
+                                .buttonStyle(EditorButtonStyle())
+                                .fixedSize()
                         }
                     }
                 }
-                labeled(L("口令")) {
-                    RevealableCredentialField(title: L("私钥口令（可选）"), text: $passphrase.text,
-                                              isPassphrase: true)
-                }
-                labeled("") {
-                    Toggle(L("保存口令到凭据库"), isOn: $host.savesPassword)
-                        .font(.system(size: 11))
-                }
+
+                credentialField(L("口令"), prompt: L("私钥口令（可选）"), text: $passphrase.text,
+                                isPassphrase: true)
+                Toggle(L("保存口令到凭据库"), isOn: $host.savesPassword)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
             case .agent:
-                Text(L("使用 ssh-agent 里的密钥；需要系统 ssh 连接方式，或在内置实现里可用且已加载的 agent 密钥。"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                fieldHint(L("使用 ssh-agent 里的密钥；需要系统 ssh 连接方式，或在内置实现里可用且已加载的 agent 密钥。"))
             }
         }
     }
 
-    private var proxySection: some View {
-        section(L("代理")) {
-            labeled(L("代理")) {
-                HStack(spacing: 6) {
-                    Picker("", selection: proxySelection) {
-                        Text(L("不使用代理")).tag("direct")
-                        Text(L("继承分组设置")).tag("inherit")
-                        ForEach(app.proxies) { proxy in
-                            Text(proxy.name + " · " + proxy.endpointDescription).tag(proxy.id.uuidString)
-                        }
-                    }
-                    .labelsHidden()
-                    Menu {
-                        Button(L("HTTP 代理…")) { beginNewProxy(.http) }
-                        Button(L("HTTPS 代理…")) { beginNewProxy(.https) }
-                        Button(L("SOCKS5 代理…")) { beginNewProxy(.socks5) }
-                        Button(L("SOCKS5（远端 DNS）…")) { beginNewProxy(.socks5h) }
-                    } label: {
-                        Label(L("新建"), systemImage: "plus")
-                            .font(.system(size: 11))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
-            }
-            if let selectedProxy {
-                ProxyTestView(proxy: selectedProxy,
-                              defaultTarget: host.hostname.isEmpty
-                                  ? "example.com:443"
-                                  : host.hostname + ":" + String(host.port))
-                    .padding(.leading, 72)
-            }
-            Text(L("代理只作用于连接的第一跳 TCP，优先级：主机 > 分组 > 全局。")
-                 + L("代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。")
-                 + L("连接失败时先点上面的「测试连通性」，它能把代理不可达和代理拒绝隧道分开。"))
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 72)
+    private var routingSection: some View {
+        section(L("代理与跳板")) {
+            proxyControls
+            Theme.separator.frame(height: 1)
+            jumpControls
         }
+    }
+
+    @ViewBuilder
+    private var proxyControls: some View {
+        let proxies = [("inherit", L("继承分组设置")), ("direct", L("不使用代理"))]
+            + app.proxies.map { ($0.id.uuidString, $0.name + " · " + $0.endpointDescription) }
+        field(L("代理")) {
+            HStack(spacing: 8) {
+                choice(L("代理"), selection: proxySelection, options: proxies)
+                Menu {
+                    Button(L("HTTP 代理…")) { beginNewProxy(.http) }
+                    Button(L("HTTPS 代理…")) { beginNewProxy(.https) }
+                    Button(L("SOCKS5 代理…")) { beginNewProxy(.socks5) }
+                    Button(L("SOCKS5（远端 DNS）…")) { beginNewProxy(.socks5h) }
+                } label: {
+                    Label(L("新建"), systemImage: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 9)
+                        .frame(height: 34)
+                        .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.separator, lineWidth: 1)
+                        }
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+        }
+        if let selectedProxy {
+            ProxyTestView(proxy: selectedProxy,
+                          defaultTarget: host.hostname.isEmpty
+                              ? "example.com:443"
+                              : host.hostname + ":" + String(parsedPort ?? host.port))
+        }
+        fieldHint(L("代理只作用于连接的第一跳 TCP，优先级：主机 > 分组 > 全局。")
+                  + L("代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。")
+                  + L("连接失败时先点上面的「测试连通性」，它能把代理不可达和代理拒绝隧道分开。"))
     }
 
     /// The concrete proxy the picker currently resolves to, if any.
@@ -256,143 +388,97 @@ struct HostEditorView: View {
         return app.proxies.first { $0.id == id }
     }
 
-    private var jumpSection: some View {
-        section(L("跳板机")) {
-            labeled(L("方式")) {
-                Picker("", selection: jumpSelection) {
-                    Text(L("直连")).tag("direct")
-                    Text(L("继承分组设置")).tag("inherit")
-                    Text(L("指定跳板机")).tag("custom")
-                }
-                .labelsHidden()
+    @ViewBuilder
+    private var jumpControls: some View {
+        field(L("跳板机")) {
+            choice(L("跳板机"), selection: jumpSelection,
+                   options: [("inherit", L("继承分组设置")), ("direct", L("直连")), ("custom", L("指定跳板机"))])
+        }
+        if host.jumpPolicy.isInherit {
+            fieldHint(inheritedJumpDescription)
+        }
+        if case .hosts(let ids) = host.jumpPolicy {
+            if ids.isEmpty {
+                fieldHint(L("按顺序经过 1–3 台主机；在下面输入名称或地址搜索，不会列出全部主机。"))
+            } else {
+                jumpChips(ids)
             }
-            if host.jumpPolicy.isInherit {
-                Text(inheritedJumpDescription)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 72)
-            }
-            if case .hosts(let ids) = host.jumpPolicy {
-                VStack(alignment: .leading, spacing: 8) {
-                    if ids.isEmpty {
-                        Text(L("按顺序经过 1–3 台主机；在下面输入名称或地址搜索，不会列出全部主机。"))
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        jumpChips(ids)
-                    }
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.secondary)
-                        TextField(L("搜索主机（名称或地址）"), text: $jumpQuery)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 11))
-                        if !jumpQuery.isEmpty {
-                            Button { jumpQuery = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 10))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Theme.secondary)
+            controlSurface(focused: focusedField == .jumpQuery) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.secondary)
+                        .accessibilityHidden(true)
+                    TextField(L("搜索主机（名称或地址）"), text: $jumpQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .focused($focusedField, equals: .jumpQuery)
+                    if !jumpQuery.isEmpty {
+                        Button { jumpQuery = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
                         }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.fieldBackground))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.separator))
-                    if !jumpQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                        jumpResults(ids)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.secondary)
+                        .accessibilityLabel(L("清空搜索"))
                     }
                 }
-                .padding(.leading, 72)
+            }
+            if !jumpQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                jumpResults(ids)
             }
         }
     }
 
     private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.12)) { showsAdvanced.toggle() }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: showsAdvanced ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(L("高级"))
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(L("连接方式、终端、保活"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.secondary)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
+        section(L("终端与主机信息")) {
+            let transports = [("auto", L("自动（推荐）"))]
+                + HostTransport.allCases.map { ($0.rawValue, $0.displayName) }
+            field(L("连接方式")) {
+                choice(L("连接方式"), selection: transportSelection, options: transports)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.secondary)
+            fieldHint(transportHint)
 
-            if showsAdvanced {
-                VStack(alignment: .leading, spacing: 8) {
-                    labeled(L("连接方式")) {
-                        Picker("", selection: transportSelection) {
-                            Text(L("自动（推荐）")).tag("auto")
-                            ForEach(HostTransport.allCases, id: \.self) { transport in
-                                Text(transport.displayName).tag(transport.rawValue)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    Text(transportHint)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 72)
-                    labeled(L("终端类型")) {
-                        TextField("xterm-256color", text: terminalTypeText)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    labeled(L("编码")) {
-                        Picker("", selection: encodingSelection) {
-                            Text(L("继承分组")).tag("inherit")
-                            ForEach(TextEncodingKind.allCases, id: \.self) { kind in
-                                Text(kind.displayName).tag(kind.rawValue)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    labeled(L("起始目录")) {
-                        TextField(L("（可选）"), text: stringBinding(\.startDirectory))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    labeled(L("启动命令")) {
-                        TextField(L("（可选）"), text: stringBinding(\.startupCommand))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    labeled(L("上传目录")) {
-                        TextField(L("（可选）"), text: stringBinding(\.defaultUploadDirectory))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    labeled(L("保活")) {
-                        Picker("", selection: keepaliveSelection) {
-                            Text(L("继承分组")).tag(0)
-                            Text(L("关闭")).tag(-1)
-                            Text(L("每 30 秒")).tag(30)
-                            Text(L("每 60 秒")).tag(60)
-                            Text(L("每 300 秒")).tag(300)
-                        }
-                        .labelsHidden()
-                    }
-                    labeled("") {
-                        Toggle(L("记录会话日志"), isOn: sessionLoggingBinding)
-                            .font(.system(size: 11))
-                    }
+            let encodings = [("inherit", L("继承分组"))]
+                + TextEncodingKind.allCases.map { ($0.rawValue, $0.displayName) }
+            fieldPair {
+                textField(L("终端类型"), "xterm-256color", text: terminalTypeText, focus: .terminalType, monospaced: true)
+                field(L("编码")) {
+                    choice(L("编码"), selection: encodingSelection, options: encodings)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.fieldBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.separator))
+            }
+            fieldPair {
+                textField(L("起始目录"), L("（可选）"), text: stringBinding(\.startDirectory), focus: .startDirectory)
+                textField(L("上传目录"), L("（可选）"), text: stringBinding(\.defaultUploadDirectory), focus: .uploadDirectory)
+            }
+            fieldPair {
+                textField(L("启动命令"), L("（可选）"), text: stringBinding(\.startupCommand), focus: .startupCommand)
+                field(L("保活")) {
+                    choice(L("保活"), selection: keepaliveSelection,
+                           options: [(0, L("继承分组")), (-1, L("关闭")), (30, L("每 30 秒")),
+                                     (60, L("每 60 秒")), (300, L("每 300 秒"))])
+                }
+            }
+            Toggle(L("记录会话日志"), isOn: sessionLoggingBinding)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 12))
+
+            Theme.separator.frame(height: 1)
+            textField(L("主机标签"), L("用逗号区分标签"), text: $tagsText, focus: .tags)
+            field(L("备注")) {
+                TextEditor(text: $host.notes)
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .focused($focusedField, equals: .notes)
+                    .padding(4)
+                    .frame(height: 76)
+                    .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .strokeBorder(controlBorder(focusedField == .notes), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                    .accessibilityLabel(L("备注"))
             }
         }
     }
@@ -660,19 +746,40 @@ struct HostEditorView: View {
         host.keyID = nil
     }
 
+    private var parsedPort: Int? {
+        Int(portText.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func showConnectionError(_ message: String, focus: EditorField) {
+        validationMessage = message
+        selectedSection = .connection
+        DispatchQueue.main.async { focusedField = focus }
+    }
+
     private func save() {
         let name = host.name.trimmingCharacters(in: .whitespaces)
         let address = host.hostname.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty || !address.isEmpty else {
-            validationMessage = L("请至少填写名称或地址")
+            showConnectionError(L("请至少填写名称或地址"), focus: .name)
             return
         }
-        if !address.isEmpty && host.port <= 0 {
-            validationMessage = L("端口需要是大于 0 的整数")
+        // A formatted TextField can leave the previous integer in its binding
+        // when the draft is invalid. Validate the visible draft before saving.
+        let port = parsedPort
+        if !address.isEmpty && port.map({ (1...65535).contains($0) }) != true {
+            showConnectionError(L("端口需为 1–65535 之间的整数。"), focus: .port)
             return
         }
+        validationMessage = nil
         host.name = name
         host.hostname = address
+        if let port { host.port = port }
+        var tags = host.tags.filter(Self.isFavoriteTag)
+        for segment in tagsText.split(whereSeparator: { $0 == "," || $0 == "，" }) {
+            let tag = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tag.isEmpty && !tags.contains(tag) { tags.append(tag) }
+        }
+        host.tags = tags
         // Imported or hand-edited hosts may carry both; keep the proxy.
         let route = RouteRules.normalized(proxy: host.proxyPolicy, jump: host.jumpPolicy)
         host.proxyPolicy = route.proxy
@@ -685,6 +792,7 @@ struct HostEditorView: View {
                                 remember: host.savesPassword, wasRemembered: originallySavesPassword)
         } catch {
             credentialError = L("无法保存本地凭据。请检查凭据库文件和目录是否可写。")
+            selectedSection = .authentication
             return
         }
         app.saveHost(host)
@@ -692,33 +800,153 @@ struct HostEditorView: View {
 
     // MARK: - Small helpers
 
+    private static func isFavoriteTag(_ tag: String) -> Bool {
+        tag == "favorite" || tag == "收藏"
+    }
+
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .accessibilityHidden(true)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func fieldPair<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) { content() }
+    }
+
     private func section<Content: View>(_ title: String,
                                         @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.secondary)
-            VStack(alignment: .leading, spacing: 8) { content() }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.cardStroke))
+                .font(.system(size: 14, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.windowBackground, in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(Theme.separator, lineWidth: 1)
+                .allowsHitTesting(false)
         }
     }
 
-    private func labeled<Content: View>(_ title: String,
-                                        @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            if title.isEmpty {
-                Spacer().frame(width: 64)
-            } else {
-                Text(title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.secondary)
-                    .frame(width: 64, alignment: .trailing)
+    private func fieldHint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(Theme.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func textField(_ title: String, _ prompt: String, text: Binding<String>,
+                           focus: EditorField, monospaced: Bool = false) -> some View {
+        field(title) {
+            textControl(title, prompt, text: text, focus: focus, monospaced: monospaced)
+        }
+    }
+
+    private func textControl(_ title: String, _ prompt: String, text: Binding<String>,
+                             focus: EditorField, monospaced: Bool) -> some View {
+        controlSurface(focused: focusedField == focus) {
+            TextField(title, text: text, prompt: Text(prompt))
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .font(monospaced ? TechFont.mono(12) : .system(size: 12.5))
+                .disableAutocorrection(monospaced)
+                .focused($focusedField, equals: focus)
+                .accessibilityLabel(title)
+        }
+    }
+
+    private func credentialField(_ title: String, prompt: String, text: Binding<String>,
+                                 isPassphrase: Bool = false) -> some View {
+        field(title) {
+            controlSurface {
+                RevealableCredentialField(title: prompt, text: text, isPassphrase: isPassphrase,
+                                          usesPlainEditorStyle: true)
+                    .font(.system(size: 12.5))
             }
-            content()
+        }
+    }
+
+    private func choice<Value: Hashable>(_ title: String, selection: Binding<Value>,
+                                         options: [(value: Value, label: String)]) -> some View {
+        let selected = options.first(where: { $0.value == selection.wrappedValue })?.label ?? ""
+        return Menu {
+            Picker(title, selection: selection) {
+                ForEach(options.indices, id: \.self) { index in
+                    Text(options[index].label).tag(options[index].value)
+                }
+            }
+            .labelsHidden()
+        } label: {
+            controlSurface {
+                HStack(spacing: 8) {
+                    Text(selected)
+                        .font(.system(size: 12.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(.primary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func controlSurface<Content: View>(focused: Bool = false,
+                                               @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
+            .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(controlBorder(focused), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+    }
+
+    private func controlBorder(_ focused: Bool) -> Color {
+        focused ? Theme.accent.opacity(0.65) : Theme.cardStroke
+    }
+
+    private struct EditorButtonStyle: ButtonStyle {
+        var prominent = false
+
+        @Environment(\.isEnabled) private var isEnabled
+
+        func makeBody(configuration: Configuration) -> some View {
+            let fill = prominent ? Theme.dynamic(light: 0x253044, dark: 0xDCE5F5) : Theme.fieldBackground
+            return configuration.label
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(prominent
+                                 ? Theme.dynamic(light: 0xFFFFFF, dark: 0x1B2638)
+                                 : .primary)
+                .padding(.horizontal, 11)
+                .frame(height: 34)
+                .background(fill, in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(prominent ? .clear : Theme.cardStroke, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+                .contentShape(Rectangle())
+                .opacity(!isEnabled ? 0.45 : configuration.isPressed ? 0.8 : 1)
         }
     }
 }

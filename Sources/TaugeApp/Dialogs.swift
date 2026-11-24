@@ -176,17 +176,25 @@ struct ConflictPromptView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(conflict.title).font(.system(size: 14, weight: .semibold))
-            Text(conflict.message).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-            Toggle(L("应用于全部冲突"), isOn: $applyToAll)
-                .font(.system(size: 11))
+            if let message = conflict.message {
+                Text(message).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            }
+            if let path = conflict.destinationPath {
+                Text(path)
+                    .font(.system(size: 11, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                Toggle(L("应用于本次传输的全部冲突"), isOn: $applyToAll)
+                    .font(.system(size: 11))
+            }
             HStack(spacing: 8) {
                 ForEach(ConflictPolicy.allCases, id: \.self) { policy in
                     Button(policy.displayName) {
-                        app.resolveConflict(policy, applyToAll: applyToAll)
+                        app.resolveConflict(id: conflict.id, policy: policy, applyToAll: applyToAll)
                     }
                 }
                 Spacer()
-                Button(L("取消")) { app.resolveConflict(nil, applyToAll: false) }
+                Button(L("取消")) { app.resolveConflict(id: conflict.id, policy: nil, applyToAll: false) }
                     .keyboardShortcut(.cancelAction)
             }
         }

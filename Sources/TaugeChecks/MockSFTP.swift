@@ -23,6 +23,7 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var nodes: [String: Node] = [:]
+    private var filesAppearingBeforeOpen: [String: Data] = [:]
     private var outbound = Data()
     private var isClosed = false
     private var handles: [Data: Handle] = [:]
@@ -73,6 +74,10 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
         let normalized = POSIXPath.normalize(path)
         ensureParents(of: normalized)
         nodes[normalized] = Node(isDirectory: true, data: Data(), permissions: 0o040755, modifyTime: 1_700_000_000)
+    }
+
+    func seedFileBeforeOpen(_ path: String, data: Data) {
+        lock.withLock { filesAppearingBeforeOpen[POSIXPath.normalize(path)] = data }
     }
 
     private func ensureParents(of path: String) {
@@ -168,7 +173,13 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
             let path = POSIXPath.normalize((try? reader.string()) ?? "")
             let flags = SFTPOpenFlags(rawValue: (try? reader.uint32()) ?? SFTPOpenFlags.read.rawValue)
             let requested = (try? reader.attributes()) ?? SFTPFileAttributes()
+            if let data = filesAppearingBeforeOpen.removeValue(forKey: path), nodes[path] == nil {
+                nodes[path] = Node(isDirectory: false, data: data, permissions: 0o100644, modifyTime: 1_700_000_000)
+            }
             var node = nodes[path]
+            if node != nil, flags.contains([.create, .exclusive]) {
+                return [statusPacket(id, .failure)]
+            }
             if node == nil {
                 guard flags.contains(.create) else { return [statusPacket(id, .noSuchFile)] }
                 ensureParents(of: path)

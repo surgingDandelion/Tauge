@@ -6,23 +6,27 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button {
-                app.toggleSidebar()
-            } label: {
-                Image(systemName: app.settings.sidebarVisible ? "sidebar.left" : "sidebar.leading")
-                    .font(.system(size: 11))
-                    .foregroundColor(Theme.secondary)
-                    .frame(width: 16, height: 14)
-                    .contentShape(Rectangle())
+            if app.isStartPageSelected {
+                Button {
+                    app.toggleSidebar()
+                } label: {
+                    Image(systemName: app.settings.startPageSidebarVisible ? "sidebar.left" : "sidebar.leading")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.secondary)
+                        .frame(width: 16, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .shortcutTip(app.settings.startPageSidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏"),
+                             keys: ["⌃⌘S"], below: false)
+                Theme.separator.frame(width: 1, height: 10)
             }
-            .buttonStyle(.plain)
-            .shortcutTip(app.settings.sidebarVisible ? L("隐藏侧边栏") : L("显示侧边栏"), keys: ["⌃⌘S"], below: false)
 
-            Rectangle()
-                .fill(Theme.hairline.opacity(0.55))
-                .frame(width: 1, height: 10)
-
-            if app.isWorkspaceSelected {
+            if app.showingCatalogSearch {
+                Label(L("全局搜索"), systemImage: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.secondary)
+            } else if app.isWorkspaceSelected {
                 // A workspace is not tied to one tab, so showing the selected tab's route here
                 // would be misleading; summarise the workspace instead.
                 HStack(spacing: 6) {

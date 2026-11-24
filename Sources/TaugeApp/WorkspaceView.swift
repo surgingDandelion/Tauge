@@ -8,14 +8,12 @@ struct WorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The strip's hover hints hang below its edge, so it has to paint
-            // over the board header and panes that follow it.
+            // The strip's hover hints hang below its edge.
             TabStripView()
                 .zIndex(1)
-            Divider()
-            if app.isWorkspaceSelected {
+            if !app.showingCatalogSearch, app.isWorkspaceSelected {
                 BoardWorkspaceView()
-            } else if let tab = app.selectedTab {
+            } else if !app.showingCatalogSearch, let tab = app.selectedTab {
                 // The tab object owns showsSFTP/connectionState, so the tab content has to
                 // observe it directly: AppState only publishes the tab list, and mutating a
                 // tab in place would otherwise never re-render the workspace (the SFTP pane
@@ -25,7 +23,7 @@ struct WorkspaceView: View {
                 StartPageView()
             }
         }
-        .background(Theme.windowGradient)
+        .background(Theme.windowBackground)
     }
 }
 
@@ -48,7 +46,6 @@ struct TabWorkspaceView: View {
 struct TerminalSFTPStack: View {
     @ObservedObject var tab: TerminalTab
     @ViewState private var fraction: Double
-    @ViewState private var dragBase: Double = 0
 
     init(tab: TerminalTab) {
         self.tab = tab
@@ -56,38 +53,53 @@ struct TerminalSFTPStack: View {
     }
 
     var body: some View {
-        if tab.showsSFTP {
-            GeometryReader { proxy in
-                let usable = max(1, proxy.size.height - BoardSplitMetrics.gutter)
-                let share = clamped(fraction, usable: usable)
-                // The browser needs a floor: in a short board pane the split
-                // fraction alone can leave ~110pt, and the panel's own header
-                // row would be clipped away completely.
-                let bottomFloor = min(150, usable * 0.55)
-                let terminalHeight = min(usable * share, max(40, usable - bottomFloor))
-                VStack(spacing: 0) {
-                    TerminalPane(tab: tab)
-                        .frame(height: terminalHeight)
+        TerminalSFTPLayout(showsSFTP: tab.showsSFTP, fraction: $fraction,
+                           onFractionCommitted: { tab.sftpSplitFraction = $0 }) {
+            TerminalPane(tab: tab)
+        } browser: {
+            SFTPBrowserView(tab: tab)
+        }
+    }
+}
+
+struct TerminalSFTPLayout<TerminalContent: View, BrowserContent: View>: View {
+    let showsSFTP: Bool
+    @Binding var fraction: Double
+    let onFractionCommitted: (Double) -> Void
+    @ViewBuilder let terminal: () -> TerminalContent
+    @ViewBuilder let browser: () -> BrowserContent
+    @ViewState private var dragBase: Double = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let usable = max(1, proxy.size.height - BoardSplitMetrics.gutter)
+            let share = clamped(fraction, usable: usable)
+            // Keep the browser header visible in short workspace panes.
+            let bottomFloor = min(150, usable * 0.55)
+            let terminalHeight = min(usable * share, max(40, usable - bottomFloor))
+            VStack(spacing: 0) {
+                // Both sizes share one AppKit host for the live terminal.
+                terminal()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: showsSFTP ? terminalHeight : proxy.size.height)
+                if showsSFTP {
                     BoardSplitHandle(
                         axis: .vertical,
                         onBegin: { dragBase = fraction },
                         onMove: { delta in
                             fraction = clamped(dragBase + Double(delta) / Double(usable), usable: usable)
                         },
-                        onEnd: { _ in tab.sftpSplitFraction = fraction },
+                        onEnd: { _ in onFractionCommitted(fraction) },
                         onReset: {
                             fraction = 0.5
-                            tab.sftpSplitFraction = 0.5
+                            onFractionCommitted(0.5)
                         }
                     )
                     .frame(height: BoardSplitMetrics.gutter)
-                    SFTPBrowserView(tab: tab)
+                    browser()
                         .frame(maxHeight: .infinity)
                 }
             }
-        } else {
-            TerminalPane(tab: tab)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -101,118 +113,133 @@ struct TabStripView: View {
     @EnvironmentObject private var app: AppState
 
     var body: some View {
-        HStack(spacing: 0) {
-            // The start page lives at the left edge of the strip and never
-            // scrolls away with the tabs.
+        HStack(spacing: 7) {
             StartPageChipView()
-                .padding(.leading, 6)
-            Divider().frame(height: 18)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(app.tabs) { tab in
-                        TabChipView(tab: tab)
+                .fixedSize()
+            ScrollViewReader { scroll in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(app.tabs) { tab in
+                            TabChipView(tab: tab)
+                                .id(tab.id)
+                        }
+                        ForEach(app.openBoards) { board in
+                            BoardChipView(board: board)
+                                .id(board.id)
+                        }
                     }
-                    ForEach(app.openBoards) { board in
-                        BoardChipView(board: board)
-                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 1)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
+                .onChange(of: app.selectedTabID) { id in
+                    if let id { scroll.scrollTo(id) }
+                }
+                .onChange(of: app.selectedBoardID) { id in
+                    if let id { scroll.scrollTo(id) }
+                }
             }
-            Divider().frame(height: 18)
-            HStack(spacing: 2) {
-                StripMenu(systemName: "plus", help: L("新建标签：SFTP 标签可以在一个窗口里同时连多个服务器"), tip: L("新建标签"), keys: ["⌘T", "⇧⌘T"]) {
-                    Button(L("新建 SFTP 标签…（选择主机，可多选）")) { app.beginNewSFTPTab() }
-                    Button(L("新建 SFTP 标签（当前主机）")) { app.openSFTPTabForSelection() }
-                    Button(L("新建终端标签（当前主机）")) {
-                        if let id = app.selectedSidebarHostID, let host = app.host(id: id) {
-                            app.openTab(for: host)
-                        }
-                    }
-                    Divider()
-                    Menu(L("为指定主机新建 SFTP 标签")) {
-                        ForEach(app.hosts) { host in
-                            Button(host.name) { app.openSFTPTab(for: host) }
-                        }
-                    }
-                }
+            stripDivider
+            HStack(spacing: 3) {
+                newTabMenu
+                workspaceMenu
 
-                StripButton(systemName: "house", help: L("起始页：所有主机和工作区（⇧⌘H）"), tip: L("起始页"), keys: ["⇧⌘H"]) {
-                    app.showStartPage()
-                }
-
-                StripMenu(systemName: "rectangle.grid.2x2", title: L("工作区"), help: L("工作区：一块窗口里放多个分屏终端，和普通连接一样是顶部标签（⇧⌘B 新建）"), tip: L("工作区"), keys: ["⇧⌘B"]) {
-                    Button(L("新建工作区…")) { app.promptCreateBoard() }
-                    if !app.boards.isEmpty {
-                        Divider()
-                        ForEach(app.boards) { board in
-                            Button {
-                                app.openBoardTab(board.id)
-                            } label: {
-                                if app.openBoards.contains(where: { $0.id == board.id }) {
-                                    Label(board.name, systemImage: "checkmark")
-                                } else {
-                                    Text(board.name)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if let tab = app.selectedTab, !app.isWorkspaceSelected, tab.kind == .terminal {
-                    SftpToggleButton(tab: tab)
-                }
-
-                StripButton(systemName: "arrow.clockwise", help: L("重新连接"), tip: L("重新连接"), keys: ["⌘R"], isEnabled: app.selectedTab != nil) {
+                if !app.showingCatalogSearch {
                     if app.isWorkspaceSelected {
-                        app.connectAllBoardSessions()
+                        stripDivider
+                        BoardStripTools()
                     } else if let tab = app.selectedTab {
-                        app.reconnect(tab)
+                        stripDivider
+                        if tab.kind == .terminal {
+                            SftpToggleButton(tab: tab)
+                        }
+                        StripButton(systemName: "pencil", help: L("编辑主机…"), isEnabled: app.host(id: tab.hostID) != nil) {
+                            app.editingHost = app.host(id: tab.hostID)
+                        }
+                        StripButton(systemName: "arrow.clockwise", help: L("重新连接"), tip: L("重新连接"), keys: ["⌘R"]) {
+                            app.reconnect(tab)
+                        }
                     }
                 }
 
-                Rectangle().fill(Theme.separator.opacity(0.6)).frame(width: 1, height: 14).padding(.horizontal, 3)
-
-                StripButton(systemName: "arrow.up.arrow.down", title: L("传输"), help: L("传输中心（⇧⌘J）"), tip: L("传输中心"), keys: ["⇧⌘J"], badge: app.activeTransferCount) {
+                stripDivider
+                StripButton(systemName: "arrow.up.arrow.down", help: L("传输中心（⇧⌘J）"), tip: L("传输中心"), keys: ["⇧⌘J"], badge: app.activeTransferCount) {
                     app.showingTransferCenter = true
                 }
             }
-            .padding(.horizontal, 8)
+            .fixedSize()
         }
-        .frame(height: 44)
-        .background(Theme.headerBackground)
-        .overlay(alignment: .top) {
-            LinearGradient(colors: [Theme.insetHighlight.opacity(0.45), .clear],
-                           startPoint: .leading,
-                           endPoint: .trailing)
-                .frame(height: 0.8)
-        }
+        .padding(.horizontal, 10)
+        .frame(height: 42)
+        .background(Theme.tabRailBackground)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.separator.opacity(0.55)).frame(height: 0.5)
+            Rectangle()
+                .fill(Theme.separator)
+                .frame(height: 0.5)
         }
+    }
+
+    private var newTabMenu: some View {
+        StripMenu(systemName: "plus", help: L("新建标签：SFTP 标签可以在一个窗口里同时连多个服务器"), tip: L("新建标签"), keys: ["⌘T", "⇧⌘T"]) {
+            Button(L("新建 SFTP 标签…（选择主机，可多选）")) { app.beginNewSFTPTab() }
+            Button(L("新建 SFTP 标签（当前主机）")) { app.openSFTPTabForSelection() }
+            Button(L("新建终端标签（当前主机）")) {
+                if let id = app.selectedSidebarHostID, let host = app.host(id: id) {
+                    app.openTab(for: host)
+                }
+            }
+            Divider()
+            Menu(L("为指定主机新建 SFTP 标签")) {
+                ForEach(app.hosts) { host in
+                    Button(host.name) { app.openSFTPTab(for: host) }
+                }
+            }
+        }
+    }
+
+    private var workspaceMenu: some View {
+        StripMenu(systemName: "rectangle.grid.2x2", help: L("工作区：一块窗口里放多个分屏终端，和普通连接一样是顶部标签（⇧⌘B 新建）"), tip: L("工作区"), keys: ["⇧⌘B"]) {
+            Button(L("新建工作区…")) { app.promptCreateBoard() }
+            if !app.boards.isEmpty {
+                Divider()
+                ForEach(app.boards) { board in
+                    Button {
+                        app.openBoardTab(board.id)
+                    } label: {
+                        if app.openBoards.contains(where: { $0.id == board.id }) {
+                            Label(board.name, systemImage: "checkmark")
+                        } else {
+                            Text(board.name)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var stripDivider: some View {
+        Rectangle()
+            .fill(Theme.separator)
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 3)
     }
 }
 
-private struct SftpToggleButton: View {
+struct SftpToggleButton: View {
     @EnvironmentObject private var app: AppState
     @ObservedObject var tab: TerminalTab
+    var persistsBoard = false
 
     var body: some View {
-        Button {
+        let title = tab.showsSFTP ? L("隐藏 SFTP 面板") : L("显示 SFTP 面板")
+        StripButton(systemName: tab.showsSFTP ? "folder.fill" : "folder",
+                    help: title, tip: title, keys: persistsBoard ? [] : ["⇧⌘O"],
+                    isActive: tab.showsSFTP) {
             app.toggleSFTP(tab)
-        } label: {
-            Image(systemName: tab.showsSFTP ? "folder.fill" : "folder")
-                .font(.system(size: 12))
-                .foregroundStyle(tab.showsSFTP ? Theme.accent : Theme.secondary)
+            if persistsBoard { app.scheduleBoardPersist() }
         }
-        .buttonStyle(.plain)
-        .shortcutTip(tab.showsSFTP ? L("隐藏 SFTP 面板") : L("显示 SFTP 面板"), keys: ["⇧⌘O"])
     }
 }
 
-/// The permanent "start page" chip pinned to the left of the tab strip. It is
-/// not a tab (nothing to close, it never scrolls) but it shares the chip look so
-/// the strip still reads as one row of destinations.
 struct StartPageChipView: View {
     @EnvironmentObject private var app: AppState
     @ViewState private var hovering = false
@@ -220,41 +247,24 @@ struct StartPageChipView: View {
     private var isSelected: Bool { app.isStartPageSelected }
 
     var body: some View {
-        HStack(spacing: 6) {
-            TechAppLogo(size: 17)
-            Text(L("起始页"))
-                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                .tracking(0.1)
-                .lineLimit(1)
+        Button {
+            app.showStartPage()
+        } label: {
+            HStack(spacing: 6) {
+                TechAppLogo(size: 18)
+                Text(L("起始页"))
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .contentShape(Rectangle())
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 9)
-        .padding(.vertical, 6)
-        .background(chipBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(isSelected ? Theme.accent.opacity(0.38) : Color.clear, lineWidth: 0.7)
-        )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(isSelected ? Theme.accent.opacity(0.9) : Color.clear)
-                .frame(height: 1.5)
-                .padding(.horizontal, 7)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
-        .contentShape(Rectangle())
-        .frame(minHeight: 32)
-        .onTapGesture { app.showStartPage() }
-        .onHover { inside in
-            withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
-        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .modifier(TabRailChrome(selected: isSelected, hovering: hovering))
+        .onHover { hovering = $0 }
         .shortcutTip(L("起始页：所有主机和工作区"), keys: ["⇧⌘H", "⌘0"], align: .leading)
-    }
-
-    private var chipBackground: Color {
-        if isSelected { return Theme.cardTop }
-        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
     }
 }
 
@@ -264,71 +274,44 @@ struct TabChipView: View {
     @ViewState private var hovering = false
     @ViewState private var isDropTarget = false
 
-    private var isSelected: Bool { app.selectedTabID == tab.id }
+    private var isSelected: Bool { app.selectedTabID == tab.id && !app.showingCatalogSearch }
+    private var name: String { TerminalTab.label(for: tab.host) }
+    private var kind: String { tab.kind == .sftp ? "SFTP" : "SSH" }
 
     var body: some View {
-        HStack(spacing: 6) {
-            if tab.kind == .sftp {
-                Image(systemName: "folder")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(color)
-            } else {
-                TechStatusDot(color: color, size: 6)
-            }
-            // Derived straight from the host so the strip can never show a
-            // cached or remote-supplied title instead of the user's own name.
-            Text(TerminalTab.label(for: tab.host))
-                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                .tracking(0.1)
-                .lineLimit(1)
-                .frame(maxWidth: 160)
-            if hovering || isSelected {
-                Button {
-                    app.closeTab(tab)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(Theme.secondary)
-                        .frame(width: 14, height: 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(hovering ? Theme.secondary.opacity(0.14) : Color.clear)
-                        )
-                        .contentShape(Rectangle())
+        HStack(spacing: 1) {
+            Button {
+                app.selectTab(tab)
+            } label: {
+                HStack(spacing: 6) {
+                    TabRailGlyph(symbol: tab.kind == .sftp ? "folder" : "terminal",
+                                 tint: identityTint, status: connectionIndicator)
+                    Text(name)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                        .frame(maxWidth: 145, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .help(L("关闭标签（⌘W）"))
+                .padding(.leading, 7)
+                .frame(height: 30)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(name) · \(kind)"))
+            .accessibilityValue(Text(tab.connectionState.label))
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .help("\(name) · \(kind)")
+
+            TabRailClose(visible: hovering || isSelected, help: L("关闭标签（⌘W）")) {
+                app.closeTab(tab)
             }
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 7)
-        .padding(.vertical, 6)
-        .background(chipBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(isDropTarget ? Theme.accent
-                                           : (isSelected ? Theme.accent.opacity(0.38) : Color.clear),
-                              lineWidth: isDropTarget ? 1.2 : 0.7)
-        )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(selectedUnderlineColor)
-                .frame(height: 1.5)
-                .padding(.horizontal, 7)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
-        .contentShape(Rectangle())
-        .frame(minHeight: 32)
-        .onTapGesture { app.selectTab(tab) }
-        .onHover { inside in
-            withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
-        }
+        .padding(.trailing, 3)
+        .modifier(TabRailChrome(selected: isSelected, hovering: hovering, dropTarget: isDropTarget))
+        .onHover { hovering = $0 }
         .onDrag {
             NSItemProvider(object: tab.id.uuidString as NSString)
         }
-        // Dropping one tab on another splits both terminals into a workspace;
-        // the accent border is the whole affordance for that.
+        // Dropping one tab on another splits both terminals into a workspace.
         .onDrop(of: [UTType.text], isTargeted: $isDropTarget) { providers in
             app.handleTabDrop(providers: providers, onto: tab)
         }
@@ -341,91 +324,56 @@ struct TabChipView: View {
         }
     }
 
-    private var chipBackground: Color {
-        if isDropTarget { return Theme.accent.opacity(0.12) }
-        if isSelected { return Theme.cardTop }
-        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
+    private var identityTint: Color? {
+        let host = app.host(id: tab.hostID) ?? tab.host
+        return Color(hex: app.resolvedColorHex(for: host))
     }
 
-    private var color: Color {
-        if let custom = tab.host.colorHex.flatMap({ Color(hex: $0) }) {
-            return custom
-        }
+    private var connectionIndicator: Color? {
         switch tab.connectionState {
         case .connected: return Theme.success
         case .connecting: return Theme.warning
         case .failed, .disconnected: return Theme.danger
-        case .idle: return Theme.secondary.opacity(0.5)
+        case .idle: return nil
         }
-    }
-
-    private var selectedUnderlineColor: Color {
-        isSelected ? color.opacity(0.95) : Color.clear
     }
 }
 
-/// A workspace (multi-pane) tab. It sits in the same strip as single connections,
-/// so both are ordinary tabs.
 struct BoardChipView: View {
     @EnvironmentObject private var app: AppState
     let board: BoardDefinition
     @ViewState private var hovering = false
     @ViewState private var isDropTarget = false
 
-    private var isSelected: Bool { app.currentBoard?.id == board.id && app.selectedBoardID == board.id }
+    private var isSelected: Bool { app.isWorkspaceSelected && app.selectedBoardID == board.id && !app.showingCatalogSearch }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(accentColor)
-            Text(board.name)
-                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                .tracking(0.1)
-                .lineLimit(1)
-                .frame(maxWidth: 160)
-            if hovering || isSelected {
-                Button {
-                    app.closeBoardTab(board.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(Theme.secondary)
-                        .frame(width: 14, height: 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(hovering ? Theme.secondary.opacity(0.14) : Color.clear)
-                        )
-                        .contentShape(Rectangle())
+        HStack(spacing: 1) {
+            Button {
+                app.selectBoardTab(board.id)
+            } label: {
+                HStack(spacing: 6) {
+                    TabRailGlyph(symbol: "rectangle.grid.2x2", tint: Color(hex: board.colorHex))
+                    Text(board.name)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                        .frame(maxWidth: 145, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .help(L("关闭工作区标签（终端会断开，工作区配置保留）"))
+                .padding(.leading, 7)
+                .frame(height: 30)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .help(board.name)
+
+            TabRailClose(visible: hovering || isSelected, help: L("关闭工作区标签（终端会断开，工作区配置保留）")) {
+                app.closeBoardTab(board.id)
             }
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 7)
-        .padding(.vertical, 6)
-        .background(chipBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(isDropTarget ? Theme.accent
-                                           : (isSelected ? accentColor.opacity(0.7) : Color.clear),
-                              lineWidth: isDropTarget ? 1.2 : 0.7)
-        )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(isSelected ? accentColor.opacity(0.95) : Color.clear)
-                .frame(height: 1.5)
-                .padding(.horizontal, 7)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .shadow(color: isSelected ? Theme.shadow.opacity(0.8) : Color.clear, radius: 1.5, y: 0.5)
-        .contentShape(Rectangle())
-        .frame(minHeight: 32)
-        .onTapGesture { app.selectBoardTab(board.id) }
-        .onHover { inside in
-            withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
-        }
+        .padding(.trailing, 3)
+        .modifier(TabRailChrome(selected: isSelected, hovering: hovering, dropTarget: isDropTarget))
+        .onHover { hovering = $0 }
         // Dropping a terminal here adds it to this workspace as a pane.
         .onDrop(of: [UTType.text], isTargeted: $isDropTarget) { providers in
             app.handleTabDrop(providers: providers, ontoBoard: board.id)
@@ -436,15 +384,95 @@ struct BoardChipView: View {
             Button(L("关闭工作区标签")) { app.closeBoardTab(board.id) }
         }
     }
+}
 
-    private var chipBackground: Color {
-        if isDropTarget { return Theme.accent.opacity(0.12) }
-        if isSelected { return accentColor.opacity(0.16) }
-        return hovering ? Theme.secondary.opacity(0.09) : Color.clear
+private struct TabRailChrome: ViewModifier {
+    let selected: Bool
+    let hovering: Bool
+    var dropTarget = false
+
+    func body(content: Content) -> some View {
+        let cornerRadius: CGFloat = 7
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .foregroundStyle(selected ? Color.primary : Theme.secondary)
+            .background {
+                shape.fill(surface)
+                    .overlay { shape.strokeBorder(edge, lineWidth: 0.75) }
+                    .silverHoverSheen(hovered: hovering && !dropTarget, cornerRadius: cornerRadius)
+                    .shadow(color: selected ? Theme.shadow.opacity(0.65) : .clear, radius: 1.5, y: 0.75)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(shape)
     }
 
-    private var accentColor: Color {
-        Color(hex: board.colorHex) ?? Theme.secondary
+    private var surface: LinearGradient {
+        let colors: [Color]
+        if dropTarget {
+            colors = [Theme.accent.opacity(0.11), Theme.accent.opacity(0.07)]
+        } else if selected {
+            colors = [Theme.dynamic(light: 0xFCFDFF, dark: 0x303540),
+                      Theme.dynamic(light: 0xEDF1F5, dark: 0x272C35)]
+        } else if hovering {
+            colors = [Theme.dynamic(light: 0xF8FAFC, dark: 0x2C313B),
+                      Theme.dynamic(light: 0xEDF1F5, dark: 0x252A33)]
+        } else {
+            colors = [.clear, .clear]
+        }
+        return LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
+    }
+
+    private var edge: Color {
+        if dropTarget { return Theme.accent.opacity(0.62) }
+        return selected ? Theme.hairline.opacity(0.75) : .clear
+    }
+}
+
+private struct TabRailGlyph: View {
+    let symbol: String
+    let tint: Color?
+    var status: Color? = nil
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(tint.map { Theme.quietIdentity($0) } ?? Theme.secondary)
+            .frame(width: 20, height: 20)
+            .overlay(alignment: .bottomTrailing) {
+                if let status {
+                    Circle()
+                        .fill(status.opacity(0.85))
+                        .frame(width: 4, height: 4)
+                        .padding(.bottom, 2)
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private struct TabRailClose: View {
+    let visible: Bool
+    let help: String
+    let action: () -> Void
+    @ViewState private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 20, height: 21)
+                .background(hovering ? Theme.rowHover : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .accessibilityLabel(help)
+        .accessibilityHidden(!visible)
+        .help(help)
     }
 }
 
@@ -676,19 +704,19 @@ struct TerminalPane: View {
 }
 
 
-/// Shared 22pt control used by the tab strip, so the icon buttons and the two
-/// menus line up instead of each having its own intrinsic size.
+/// Shared control for the session strip's buttons and menus.
 private struct StripLabel: View {
     var systemName: String? = nil
     var title: String? = nil
     var badge: Int = 0
     var isEnabled: Bool = true
+    var isActive: Bool = false
     var hovering: Bool = false
 
     var body: some View {
         HStack(spacing: 4) {
             if let systemName {
-                Image(systemName: systemName).font(.system(size: 10, weight: .medium))
+                Image(systemName: systemName).font(.system(size: 11, weight: .medium))
             }
             if let title {
                 Text(title).font(.system(size: 10.5, weight: .medium))
@@ -706,24 +734,24 @@ private struct StripLabel: View {
             }
         }
         .foregroundStyle(isEnabled
-                         ? (hovering ? Theme.accent : Theme.secondary)
+                         ? (hovering || isActive ? Theme.accent : Theme.secondary)
                          : Theme.secondary.opacity(0.35))
-        .frame(height: 22)
+        .frame(minWidth: 14, minHeight: 25)
         .padding(.horizontal, 6)
         .background(
             RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                .fill(hovering && isEnabled ? Theme.rowHover : Color.clear)
+                .fill(isActive ? Theme.accent.opacity(0.08) : (hovering && isEnabled ? Theme.rowHover : Color.clear))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                .strokeBorder(hovering && isEnabled ? Theme.accent.opacity(0.28) : Color.clear,
+                .strokeBorder(isActive ? Theme.accent.opacity(0.24) : Color.clear,
                               lineWidth: 0.7)
         )
         .contentShape(Rectangle())
     }
 }
 
-private struct StripButton: View {
+struct StripButton: View {
     var systemName: String? = nil
     var title: String? = nil
     var help: String
@@ -732,6 +760,7 @@ private struct StripButton: View {
     var tip: String? = nil
     var keys: [String] = []
     var isEnabled: Bool = true
+    var isActive: Bool = false
     var badge: Int = 0
     var action: () -> Void
 
@@ -739,10 +768,11 @@ private struct StripButton: View {
 
     var body: some View {
         let button = Button(action: action) {
-            StripLabel(systemName: systemName, title: title, badge: badge, isEnabled: isEnabled, hovering: hovering)
+            StripLabel(systemName: systemName, title: title, badge: badge, isEnabled: isEnabled, isActive: isActive, hovering: hovering)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .accessibilityLabel(tip ?? help)
         .onHover { hovering = $0 }
 
         if let tip {
@@ -753,7 +783,7 @@ private struct StripButton: View {
     }
 }
 
-private struct StripMenu<Content: View>: View {
+struct StripMenu<Content: View>: View {
     var systemName: String? = nil
     var title: String? = nil
     var help: String
@@ -770,6 +800,7 @@ private struct StripMenu<Content: View>: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .accessibilityLabel(tip ?? help)
         .onHover { hovering = $0 }
 
         if let tip {

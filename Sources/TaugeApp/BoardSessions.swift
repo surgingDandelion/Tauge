@@ -112,6 +112,7 @@ extension AppState {
     /// Opens (or focuses) a workspace in the tab strip and dials its panes.
     func openBoardTab(_ id: UUID, connect: Bool = true) {
         guard let board = boards.first(where: { $0.id == id }) else { return }
+        showingCatalogSearch = false
         if !openBoardIDs.contains(id) {
             openBoardIDs.append(id)
             persistOpenBoardIDs()

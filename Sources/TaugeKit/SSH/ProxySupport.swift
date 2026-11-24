@@ -103,6 +103,16 @@ public enum TCPConnector {
                                proxy: ProxyEndpoint?,
                                group: EventLoopGroup,
                                timeout: TimeAmount = .seconds(20)) async throws -> Channel {
+        try await connect(targetHost: targetHost, targetPort: targetPort, proxy: proxy,
+                          group: group, timeout: timeout, inboundHandler: nil)
+    }
+
+    static func connect(targetHost: String,
+                        targetPort: Int,
+                        proxy: ProxyEndpoint?,
+                        group: EventLoopGroup,
+                        timeout: TimeAmount,
+                        inboundHandler: (any ChannelHandler & Sendable)?) async throws -> Channel {
         // Keep reads paused until the SSH pipeline is in place: a channel with an
         // empty pipeline silently discards inbound bytes, and a server sends its
         // KEXINIT immediately after accepting the connection. The caller resumes
@@ -110,6 +120,11 @@ public enum TCPConnector {
         let bootstrap = ClientBootstrap(group: group)
             .connectTimeout(timeout)
             .channelOption(ChannelOptions.autoRead, value: false)
+        if let inboundHandler {
+            _ = bootstrap.channelInitializer { channel in channel.pipeline.addHandler(inboundHandler) }
+        } else if proxy != nil {
+            _ = bootstrap.channelInitializer { channel in channel.pipeline.addHandler(PendingTunnelBytes()) }
+        }
         guard let proxy else {
             let direct = try await bootstrap.connect(host: targetHost, port: targetPort).get()
             return direct
@@ -127,9 +142,6 @@ public enum TCPConnector {
             throw ProxyConnectionError.unreachable(host: proxy.host, port: proxy.port, reason: reason)
         }
         do {
-            // The proxy handshake needs inbound data, but once it is done the next
-            // bytes on the wire already belong to the tunnelled SSH session.
-            try await startReading(channel)
             try await handshake(channel: channel,
                                 proxy: proxy,
                                 targetHost: targetHost,
@@ -146,7 +158,13 @@ public enum TCPConnector {
     /// Starts delivering inbound bytes to the pipeline. Every connect starts with
     /// reads paused so handlers can be installed without losing server greetings.
     public static func startReading(_ channel: Channel) async throws {
-        try await channel.setOption(ChannelOptions.autoRead, value: true).get()
+        try await channel.eventLoop.flatSubmit {
+            let pipeline = channel.pipeline.syncOperations
+            if let pending = try? pipeline.handler(type: PendingTunnelBytes.self) {
+                pipeline.removeHandler(pending, promise: nil)
+            }
+            return channel.setOption(ChannelOptions.autoRead, value: true)
+        }.get()
         // SSH child channels only re-arm reads when they are asked for one; a plain
         // socket ignores this call because autoRead already schedules reads.
         channel.read()
@@ -163,7 +181,7 @@ public enum TCPConnector {
                                   timeout: TimeAmount) async throws {
         let promise = channel.eventLoop.makePromise(of: Void.self)
         let latch = ProxyHandshakeLatch()
-        let handler: ChannelHandler
+        let handler: any ChannelHandler & Sendable
         switch proxy.type {
         case .http:
             handler = HTTPConnectHandler(targetHost: targetHost,
@@ -191,13 +209,41 @@ public enum TCPConnector {
             channel.close(mode: .all, promise: nil)
         }
         do {
-            try await channel.pipeline.addHandler(handler).get()
+            // Consume the proxy reply before any SSH data reaches the caller's
+            // handler, including a server greeting appended to the reply.
+            try await channel.pipeline.addHandler(handler, position: .first).get()
+            try await channel.setOption(ChannelOptions.autoRead, value: true).get()
             try await promise.futureResult.get()
             deadline.cancel()
         } catch {
             deadline.cancel()
+            if latch.fire() { promise.fail(error) }
             throw error
         }
+    }
+}
+
+/// Holds destination bytes received during the handoff from the proxy handshake
+/// to a caller that installs its protocol handler after connect returns.
+private final class PendingTunnelBytes: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
+    typealias InboundIn = ByteBuffer
+    private var pending = ByteBuffer()
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let incoming = unwrapInboundIn(data)
+        guard incoming.readableBytes <= 128 * 1024 - pending.readableBytes else {
+            context.close(promise: nil)
+            return
+        }
+        pending.writeImmutableBuffer(incoming)
+    }
+
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        if pending.readableBytes > 0 {
+            context.fireChannelRead(NIOAny(pending))
+            context.fireChannelReadComplete()
+        }
+        context.leavePipeline(removalToken: removalToken)
     }
 }
 
@@ -289,14 +335,14 @@ final class HTTPConnectHandler: ChannelInboundHandler, RemovableChannelHandler, 
         }
         finished = true
         let leftover = Data(buffer[terminator.upperBound...])
-        context.pipeline.syncOperations.removeHandler(self, promise: nil)
-        if latch.fire() {
-            promise.succeed(())
-        }
         if !leftover.isEmpty {
             var out = context.channel.allocator.buffer(capacity: leftover.count)
             out.writeBytes(leftover)
             context.fireChannelRead(NIOAny(out))
+        }
+        context.pipeline.syncOperations.removeHandler(self, promise: nil)
+        if latch.fire() {
+            promise.succeed(())
         }
     }
 
@@ -449,14 +495,14 @@ final class SOCKS5HandshakeHandler: ChannelInboundHandler, RemovableChannelHandl
                 stage = .done
                 let leftover = buffer
                 buffer = Data()
-                context.pipeline.syncOperations.removeHandler(self, promise: nil)
-                if latch.fire() {
-                    promise.succeed(())
-                }
                 if !leftover.isEmpty {
                     var out = context.channel.allocator.buffer(capacity: leftover.count)
                     out.writeBytes(leftover)
                     context.fireChannelRead(NIOAny(out))
+                }
+                context.pipeline.syncOperations.removeHandler(self, promise: nil)
+                if latch.fire() {
+                    promise.succeed(())
                 }
                 return
             case .done:

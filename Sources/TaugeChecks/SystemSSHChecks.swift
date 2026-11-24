@@ -234,6 +234,35 @@ func runSystemSSHChecks() {
         }
     }
 
+    run("system SSH jump credentials stay scoped to their own hop") {
+        let opts = options(.password("target fixture password"), jumps: [
+            SystemSSHJump(host: "first.invalid", port: 22, username: "fixture",
+                          credential: .key(text: "first fixture key", passphrase: "first fixture passphrase")),
+            SystemSSHJump(host: "second.invalid", port: 22, username: "fixture",
+                          credential: .key(text: "second fixture key", passphrase: "second fixture passphrase")),
+            SystemSSHJump(host: "third.invalid", port: 22, username: "fixture", credential: .agent),
+        ])
+        let workspace = try SystemSSHWorkspace(options: opts)
+        defer { workspace.cleanup() }
+
+        for (index, label) in [(1, "first"), (2, "second")] {
+            let key = workspace.directory.appendingPathComponent("jump\(index)-identity")
+            let askpass = workspace.directory.appendingPathComponent("jump\(index)-askpass")
+            let script = try String(contentsOf: workspace.directory.appendingPathComponent("jump\(index).sh"),
+                                    encoding: .utf8)
+            expectEqual(try String(contentsOf: key, encoding: .utf8), "\(label) fixture key\n",
+                        "hop \(index) retains its own identity")
+            expect(try String(contentsOf: askpass, encoding: .utf8).contains("\(label) fixture passphrase"),
+                   "hop \(index) retains its own askpass secret")
+            expect(script.contains("'-i' '\(key.path)'"), "hop \(index) uses its own identity")
+            expect(script.contains("export SSH_ASKPASS='\(askpass.path)'"), "hop \(index) selects its own askpass helper")
+        }
+
+        let agentScript = try String(contentsOf: workspace.directory.appendingPathComponent("jump3.sh"),
+                                     encoding: .utf8)
+        expect(agentScript.contains("unset SSH_ASKPASS SSH_ASKPASS_REQUIRE"), "agent hop clears any inherited askpass")
+    }
+
     run("socks proxy becomes a ProxyCommand") {
         let opts = options(.none,
                            proxy: ProxyEndpoint(type: .socks5, host: "127.0.0.1", port: 1080))
@@ -241,7 +270,7 @@ func runSystemSSHChecks() {
         let workspace = try SystemSSHWorkspace(options: opts)
         defer { workspace.cleanup() }
         let line = joined(opts, workspace, .terminal)
-        expect(line.contains("/usr/bin/nc -X 5 -x 127.0.0.1:1080 %h %p"), "socks5 proxy command")
+        expect(line.contains("/usr/bin/nc -X 5 -x '127.0.0.1:1080' %h %p"), "socks5 proxy command quotes its endpoint")
     }
 
     run("authenticated and https proxies are rejected up front") {

@@ -1,56 +1,65 @@
 
 import os
-from PIL import Image, ImageChops, ImageFilter
+import subprocess
+from PIL import Image, ImageChops, ImageFilter, ImageOps
 
 SRC = "tauge.png"
 OUT = "Resources"
 os.makedirs(OUT, exist_ok=True)
 
-im = Image.open(SRC).convert("RGB")
-W, H = im.size
-r, g, b = im.split()
-minc = ImageChops.darker(ImageChops.darker(r, g), b)
-# 1 = artwork (anything clearly darker than the white backdrop)
-white = minc.point(lambda v: 1 if v < 240 else 0).convert("L")
-data = white.tobytes()
-rows = []
-for y in range(H):
-    row = data[y * W:(y + 1) * W].translate(bytes([0, 1] + [0] * 254))
-    left = row.find(b"\x01")
-    right = row.rfind(b"\x01")
-    if left < 0:
-        rows.append(b"\x00" * W)
-    else:
-        rows.append(b"\x00" * left + b"\xff" * (right - left + 1) + b"\x00" * (W - right - 1))
-alpha = Image.frombytes("L", (W, H), b"".join(rows))
-# feather the hard edge slightly so downscaling stays clean
-alpha = alpha.filter(ImageFilter.GaussianBlur(1.2))
-alpha = alpha.point(lambda v: 0 if v < 40 else (255 if v > 215 else v))
+source = Image.open(SRC)
+has_alpha = "A" in source.getbands() or "transparency" in source.info
+art = source.convert("RGBA")
+if has_alpha:
+    # Remove faint background pixels and make the tile interior opaque.
+    # Keep intermediate values for the antialiased outline.
+    alpha = art.getchannel("A").point(lambda value: 0 if value <= 15 else (255 if value >= 247 else value))
+else:
+    width, height = source.size
+    r, g, b = source.convert("RGB").split()
+    minc = ImageChops.darker(ImageChops.darker(r, g), b)
+    # Legacy source artwork is flattened against a white backdrop.
+    data = minc.point(lambda value: 1 if value < 240 else 0).tobytes()
+    rows = []
+    for y in range(height):
+        row = data[y * width:(y + 1) * width]
+        left = row.find(b"\x01")
+        right = row.rfind(b"\x01")
+        if left < 0:
+            rows.append(b"\x00" * width)
+        else:
+            rows.append(b"\x00" * left + b"\xff" * (right - left + 1) + b"\x00" * (width - right - 1))
+    alpha = Image.frombytes("L", (width, height), b"".join(rows))
+    alpha = alpha.filter(ImageFilter.GaussianBlur(1.2))
+    alpha = alpha.point(lambda value: 0 if value < 40 else (255 if value > 215 else value))
 
-art = im.copy()
-art.putalpha(alpha)
 bbox = alpha.getbbox()
-art = art.crop(bbox)
-print("bbox", bbox, "art", art.size)
+if bbox is None:
+    raise SystemExit(f"{SRC} has no visible artwork")
+art.putalpha(alpha)
 
-# macOS icon grid: art occupies 824 of 1024 with 100pt margins
+# Keep the artwork centered on the 824-pixel macOS icon grid.
 canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-body = art.resize((824, 824), Image.LANCZOS)
-canvas.paste(body, (100, 100), body)
+body = ImageOps.contain(art.crop(bbox), (824, 824), Image.LANCZOS)
+canvas.alpha_composite(body, ((canvas.width - body.width) // 2, (canvas.height - body.height) // 2))
 canvas.save(os.path.join(OUT, "AppIcon-1024.png"))
 
-sizes = [16, 32, 64, 128, 256, 512, 1024]
 iconset = ".build/AppIcon.iconset"
 os.makedirs(iconset, exist_ok=True)
-for s in sizes:
-    img = canvas.resize((s, s), Image.LANCZOS)
-    img.save(os.path.join(iconset, "icon_%dx%d.png" % (s, s)))
-    if s <= 512:
-        img2 = canvas.resize((s * 2, s * 2), Image.LANCZOS)
-        img2.save(os.path.join(iconset, "icon_%dx%d@2x.png" % (s, s)))
-print("iconset ready")
+for size in (16, 32, 128, 256, 512):
+    canvas.resize((size, size), Image.LANCZOS).save(os.path.join(iconset, f"icon_{size}x{size}.png"))
+    canvas.resize((size * 2, size * 2), Image.LANCZOS).save(os.path.join(iconset, f"icon_{size}x{size}@2x.png"))
+subprocess.run(["iconutil", "-c", "icns", "-o", os.path.join(OUT, "AppIcon.icns"), iconset], check=True)
 
-# menu bar glyph: white T + blue prompt -> black template
+preview = Image.new("RGBA", (1024, 1024), (238, 238, 242, 255))
+preview.alpha_composite(canvas)
+preview.resize((760, 760), Image.LANCZOS).save(".build/icon-app-preview.png")
+print("app icons ready")
+
+if has_alpha:
+    raise SystemExit(0)
+
+# Preview the menu glyph for the legacy dark artwork only.
 lum = minc.point(lambda v: 255 if v >= 150 else 0)
 blue = ImageChops.subtract(b, r).point(lambda v: 255 if v >= 45 else 0)
 glyph = ImageChops.multiply(ImageChops.lighter(lum, blue), alpha)
@@ -73,10 +82,6 @@ for name, size in (("MenuIcon.png", 18), ("MenuIcon@2x.png", 36), ("MenuIcon@3x.
     print(name, size, (gw3, gh3))
 
 
-# review sheets
-prev = Image.new("RGBA", (1024 + 60, 1024), (238, 238, 242, 255))
-prev.paste(canvas, (30, 0), canvas)
-prev.resize((760, 566), Image.LANCZOS).save(".build/icon-app-preview.png")
 mi = Image.open(os.path.join(OUT, "MenuIcon@2x.png"))
 sheet = Image.new("RGBA", (420, 300), (20, 22, 28, 255))
 sheet.alpha_composite(mi, (24, 28))

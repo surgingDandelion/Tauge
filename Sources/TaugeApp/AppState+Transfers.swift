@@ -21,36 +21,51 @@ extension AppState {
             return
         }
         let destinationDirectory = destination ?? pane.path
-        guard let policy = await uploadConflictPolicy(entries: entries, directory: destinationDirectory, client: client) else { return }
-        for entry in entries {
-            let target = POSIXPath.join(destinationDirectory, entry.name)
+        let policy = configuredTransferConflictPolicy
+        let items = entries.map { entry in
             // Tag the transfer with the pane's own server: with several panes open
             // the tab's host is a different machine.
-            let item = TransferItem(hostID: pane.hostID,
-                                    direction: .upload,
-                                    sourcePath: entry.path,
-                                    destinationPath: target,
-                                    recursive: entry.kind == .directory,
-                                    conflictPolicy: policy)
-            _ = await environment.transferEngine.enqueue(item, remote: client)
+            TransferItem(hostID: pane.hostID,
+                         direction: .upload,
+                         sourcePath: entry.path,
+                         destinationPath: POSIXPath.join(destinationDirectory, entry.name),
+                         recursive: entry.kind == .directory,
+                         conflictPolicy: policy ?? .overwrite)
+        }
+        let engine = environment.transferEngine
+        let batch = policy == nil ? TransferConflictBatch() : nil
+        let resolveConflict = batch.map { makeTransferConflictResolver(in: $0) }
+        if let batch {
+            let ids = items.map(\.id)
+            batch.onCancel = { [weak engine] in
+                Task { await engine?.cancel(ids) }
+            }
+        }
+        for item in items {
+            guard batch?.isCancelled != true else { return }
+            await engine.enqueue(item, remote: client, resolveUploadConflict: resolveConflict)
+            if batch?.isCancelled == true {
+                await engine.cancel(item.id)
+                return
+            }
         }
     }
 
-    private func uploadConflictPolicy(entries: [FileEntry], directory: String, client: SFTPClient) async -> ConflictPolicy? {
-        if let override = transferConflictPolicy { return override }
-        if settings.conflictPolicy != "ask" {
-            return Self.conflictPolicy(fromSetting: settings.conflictPolicy)
-        }
-        // Only interrupt the user when something would actually be overwritten.
-        var hasConflict = false
-        for entry in entries.prefix(20) {
-            if (try? await client.stat(POSIXPath.join(directory, entry.name))) != nil {
-                hasConflict = true
-                break
+    var configuredTransferConflictPolicy: ConflictPolicy? {
+        transferConflictPolicy ?? ConflictPolicy(rawValue: settings.conflictPolicy)
+    }
+
+    func makeTransferConflictResolver() -> UploadConflictResolver {
+        makeTransferConflictResolver(in: TransferConflictBatch())
+    }
+
+    private func makeTransferConflictResolver(in batch: TransferConflictBatch) -> UploadConflictResolver {
+        { [weak self] path in
+            guard let policy = await self?.askConflictPolicy(for: path, in: batch) else {
+                throw CancellationError()
             }
+            return policy
         }
-        if !hasConflict { return .overwrite }
-        return await askConflictPolicy(fileCount: entries.count)
     }
 
     func download(entries: [FileEntry], from tab: TerminalTab, destination: String? = nil, pane: RemoteBrowserModel? = nil) {
@@ -86,10 +101,7 @@ extension AppState {
         return remotes.first(where: { $0.isReady }) ?? remotes.first
     }
 
-    /// One batch of dragged rows that share a source pane. A drag of several rows
-    /// becomes one transfer per pane, so a conflict question is asked once
-    /// instead of once per file (the prompt holds a single continuation, so two
-    /// concurrent asks would strand the first transfer).
+    /// Dragged rows that share one source pane and SFTP connection.
     struct DroppedBatch {
         var pane: RemoteBrowserModel
         var entries: [FileEntry]
@@ -206,9 +218,9 @@ extension AppState {
         }
         let directory = destination ?? tab.local.path
         var policy: ConflictPolicy
-        if let override = transferConflictPolicy {
-            policy = override
-        } else if settings.conflictPolicy == "ask" {
+        if let configured = configuredTransferConflictPolicy {
+            policy = configured
+        } else {
             let fm = FileManager.default
             let conflict = entries.contains { fm.fileExists(atPath: POSIXPath.join(directory, $0.name)) }
             if conflict {
@@ -217,8 +229,6 @@ extension AppState {
             } else {
                 policy = .overwrite
             }
-        } else {
-            policy = Self.conflictPolicy(fromSetting: settings.conflictPolicy)
         }
         for entry in entries {
             let target = POSIXPath.join(directory, entry.name)
@@ -251,55 +261,6 @@ extension AppState {
                 return
             }
             await self.performUpload(entries: entries, tab: tab, destination: destination, pane: target)
-        }
-    }
-
-    /// Asks the user how to resolve name collisions. Times out after a minute so
-    /// a prompt that never appears can never stall the transfer queue.
-    func askConflictPolicy(fileCount: Int, timeoutSeconds: Double = 60) async -> ConflictPolicy? {
-        if conflictContinuation != nil || pendingConflict != nil {
-            await withCheckedContinuation { continuation in
-                conflictWaiters.append(continuation)
-            }
-            // "Apply to all" on the previous prompt also answers this batch.
-            if let policy = transferConflictPolicy {
-                releaseNextConflictWaiter()
-                return policy
-            }
-        }
-        let timeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
-            guard self.conflictContinuation != nil else { return }
-            self.resolveConflict(nil, applyToAll: false)
-            self.presentMessage(L("冲突处理已超时"),
-                                L("没有收到冲突处理方式，传输已取消。"),
-                                suggestion: L("重新拖拽或点击上传即可再次触发。"))
-        }
-        defer {
-            timeout.cancel()
-            releaseNextConflictWaiter()
-        }
-        return await withCheckedContinuation { continuation in
-            self.conflictContinuation = continuation
-            self.pendingConflict = PendingConflict(title: L("目标位置已存在同名文件"),
-                                                   message: L("共有 ") + String(fileCount) + L(" 个项目需要传输，请选择冲突处理方式。"),
-                                                   fileCount: fileCount)
-        }
-    }
-
-    private func releaseNextConflictWaiter() {
-        guard !conflictWaiters.isEmpty else { return }
-        conflictWaiters.removeFirst().resume()
-    }
-
-    static func conflictPolicy(fromSetting value: String) -> ConflictPolicy {
-        switch value {
-        case "overwrite": return .overwrite
-        case "skip": return .skip
-        case "onlyIfNewer": return .onlyIfNewer
-        case "rename": return .rename
-        default: return .overwrite
         }
     }
 
@@ -357,6 +318,8 @@ extension AppState {
         let target = pane ?? tab.remote
         guard let client = target.client else { return }
         Task {
+            var removedPaths: Set<String> = []
+            var failures: [(entry: FileEntry, error: Error)] = []
             for entry in entries {
                 do {
                     if entry.kind == .directory {
@@ -364,12 +327,16 @@ extension AppState {
                     } else {
                         try await client.removeFile(entry.path)
                     }
+                    removedPaths.insert(entry.path)
                 } catch {
-                    await MainActor.run { self.present(error, title: L("删除 ") + entry.name + L(" 失败")) }
-                    break
+                    failures.append((entry, error))
                 }
             }
-            await target.refresh()
+            if target.client === client {
+                target.selection.subtract(removedPaths)
+                await target.refresh()
+            }
+            presentDeletionFailures(failures)
         }
     }
 
@@ -423,15 +390,31 @@ extension AppState {
     }
 
     func deleteLocal(_ entries: [FileEntry], in tab: TerminalTab) {
+        var removedPaths: Set<String> = []
+        var failures: [(entry: FileEntry, error: Error)] = []
         for entry in entries {
             do {
                 try environment.localFiles.remove(at: entry.path, recursive: entry.kind == .directory)
+                removedPaths.insert(entry.path)
             } catch {
-                present(error, title: L("删除 ") + entry.name + L(" 失败"))
-                break
+                failures.append((entry, error))
             }
         }
+        tab.local.selection.subtract(removedPaths)
         tab.local.reload()
+        presentDeletionFailures(failures)
+    }
+
+    private func presentDeletionFailures(_ failures: [(entry: FileEntry, error: Error)]) {
+        guard let first = failures.first else { return }
+        if failures.count == 1 {
+            present(first.error, title: L("删除「%@」失败", first.entry.name))
+        } else {
+            let details = failures.prefix(5).map { failure in
+                failure.entry.name + "\n" + failure.error.localizedDescription
+            }.joined(separator: "\n\n")
+            presentMessage(L("有 %lld 项删除失败", failures.count), details)
+        }
     }
 
     // MARK: - Built-in editor

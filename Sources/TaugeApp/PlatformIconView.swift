@@ -98,6 +98,8 @@ struct HostPlatformIcon: View {
     var detail: String? = nil
     var size: CGFloat = 12
     var fallbackColor: Color = Theme.secondary
+    var subdued = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -108,14 +110,18 @@ struct HostPlatformIcon: View {
                     .resizable()
                     .interpolation(.high)
                     .frame(width: size, height: size)
-                    .foregroundStyle(PlatformIcon.tint(for: platform))
+                    .foregroundStyle(glyphTint(PlatformIcon.tint(for: platform)))
             } else {
                 Image(systemName: "server.rack")
                     .font(.system(size: size * 0.92, weight: .medium))
-                    .foregroundStyle(fallbackColor)
+                    .foregroundStyle(glyphTint(fallbackColor))
             }
         }
         .help(helpText)
+    }
+
+    private func glyphTint(_ color: Color) -> Color {
+        subdued || colorScheme == .dark ? Theme.quietIdentity(color) : color
     }
 
     private var helpText: String {

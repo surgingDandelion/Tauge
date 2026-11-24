@@ -63,7 +63,7 @@ public enum RemoteCommandServiceError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .targetNotFound(let value): return "Target not found: " + value
-        case .unsupportedRoute: return "The selected target requires a proxy or jump host, which this local command adapter does not support yet."
+        case .unsupportedRoute: return "The requested SSH route is not supported."
         case .unsupportedAuthentication(let method): return "The selected target uses unsupported authentication: " + method.rawValue
         case .credentialUnavailable: return "The saved credential is unavailable. Unlock Tauge and save the credential first."
         case .privateKeyUnavailable: return "The configured private key is unavailable."
@@ -80,13 +80,22 @@ public final class RemoteCommandService: @unchecked Sendable {
     private let store: HostStore
     private let secrets: SecretStore
     private let eventLoopGroup: MultiThreadedEventLoopGroup
+    private let systemSSHExecutable: String
 
-    public init(store: HostStore,
-                secrets: SecretStore,
-                eventLoopGroup: MultiThreadedEventLoopGroup) {
+    public convenience init(store: HostStore,
+                            secrets: SecretStore,
+                            eventLoopGroup: MultiThreadedEventLoopGroup) {
+        self.init(store: store, secrets: secrets, eventLoopGroup: eventLoopGroup, systemSSHExecutable: "/usr/bin/ssh")
+    }
+
+    package init(store: HostStore,
+                 secrets: SecretStore,
+                 eventLoopGroup: MultiThreadedEventLoopGroup,
+                 systemSSHExecutable: String) {
         self.store = store
         self.secrets = secrets
         self.eventLoopGroup = eventLoopGroup
+        self.systemSSHExecutable = systemSSHExecutable
     }
 
     public func targets() throws -> [RemoteCommandTarget] {
@@ -98,40 +107,15 @@ public final class RemoteCommandService: @unchecked Sendable {
         }
     }
 
+    /// The optional validator applies to built-in SSH. System SSH verifies each
+    /// connection using OpenSSH's known-hosts files.
     public func execute(target: String,
                         command: String,
                         timeout: TimeAmount = .seconds(30),
                         hostKeyValidator: HostKeyValidator? = nil) async throws -> RemoteCommandResult {
-        let host = try resolveTarget(target)
-        let catalog = Catalog(groups: try store.groups(),
-                              hosts: try store.hosts(),
-                              proxies: try store.proxies(),
-                              keys: try store.privateKeys())
-        let config = try ConfigResolver(catalog: catalog).effective(for: host)
-        guard config.host.transport != .system else { throw RemoteCommandServiceError.unsupportedRoute }
-
-        let auth = try authentication(for: host)
-        let validator = hostKeyValidator ?? knownHostValidator()
-        let targetUsername = config.host.username.isEmpty ? NSUserName() : config.host.username
-        let jumps = try config.jumps.map { step in
-            SSHJumpEndpoint(host: step.host.hostname,
-                            port: step.host.port,
-                            username: step.host.username.isEmpty ? targetUsername : step.host.username,
-                            auth: try authentication(for: step.host),
-                            hostKeyValidator: validator)
-        }
-        let options = SSHConnectOptions(host: config.host.hostname,
-                                        port: config.host.port,
-                                        username: targetUsername,
-                                        auth: auth,
-                                        hostKeyValidator: validator,
-                                        proxy: try proxyEndpoint(for: config.proxy),
-                                        jumps: jumps,
-                                        keepaliveSeconds: config.keepaliveSeconds)
-        let client = SSHClient(eventLoopGroup: eventLoopGroup)
         let started = Date()
+        let (host, client) = try await connect(to: target, validator: hostKeyValidator ?? knownHostValidator())
         do {
-            try await client.connect(options)
             let output = try await client.runCommand(command, timeout: timeout)
             await client.shutdown()
             return RemoteCommandResult(targetID: host.id,
@@ -192,31 +176,47 @@ public final class RemoteCommandService: @unchecked Sendable {
     }
 
     private func openSFTP(target: String) async throws -> (host: SSHHost, client: SSHClient, sftp: SFTPClient) {
-        let host = try resolveTarget(target)
-        let catalog = Catalog(groups: try store.groups(), hosts: try store.hosts(),
+        let (host, client) = try await connect(to: target, validator: knownHostValidator())
+        do {
+            let sftp = try await client.openSFTP()
+            return (host, client, sftp)
+        } catch {
+            await client.shutdown()
+            throw error
+        }
+    }
+
+    private func connect(to target: String, validator: @escaping HostKeyValidator) async throws -> (SSHHost, SSHClient) {
+        let hosts = try store.hosts()
+        let host = try resolveTarget(target, in: hosts)
+        let catalog = Catalog(groups: try store.groups(), hosts: hosts,
                               proxies: try store.proxies(), keys: try store.privateKeys())
         let config = try ConfigResolver(catalog: catalog).effective(for: host)
-        guard config.host.transport != .system else { throw RemoteCommandServiceError.unsupportedRoute }
-        let auth = try authentication(for: host)
-        let validator = knownHostValidator()
+        let transport = config.host.transport ?? (config.jumps.contains { $0.host.transport == .system } ? .system : .builtin)
         let username = config.host.username.isEmpty ? NSUserName() : config.host.username
+        let keysByID = Dictionary(uniqueKeysWithValues: catalog.keys.map { ($0.id, $0) })
+        let (auth, systemCredential) = try authentication(for: host, transport: transport, keys: keysByID)
         let jumps = try config.jumps.map { step in
-            SSHJumpEndpoint(host: step.host.hostname,
-                            port: step.host.port,
-                            username: step.host.username.isEmpty ? username : step.host.username,
-                            auth: try authentication(for: step.host),
-                            hostKeyValidator: validator)
+            let (auth, systemCredential) = try authentication(for: step.host, transport: transport, keys: keysByID)
+            return SSHJumpEndpoint(host: step.host.hostname,
+                                   port: step.host.port,
+                                   username: step.host.username.isEmpty ? username : step.host.username,
+                                   auth: auth,
+                                   systemCredential: systemCredential,
+                                   hostKeyValidator: validator)
         }
-        let options = SSHConnectOptions(host: config.host.hostname, port: config.host.port,
+        var options = SSHConnectOptions(host: config.host.hostname, port: config.host.port,
                                         username: username, auth: auth,
                                         hostKeyValidator: validator,
                                         proxy: try proxyEndpoint(for: config.proxy), jumps: jumps,
-                                        keepaliveSeconds: config.keepaliveSeconds)
+                                        keepaliveSeconds: config.keepaliveSeconds,
+                                        transport: transport, systemCredential: systemCredential)
+        options.requiresKnownSystemHost = true
+        options.systemSSHExecutable = systemSSHExecutable
         let client = SSHClient(eventLoopGroup: eventLoopGroup)
         do {
             try await client.connect(options)
-            let sftp = try await client.openSFTP()
-            return (host, client, sftp)
+            return (host, client)
         } catch {
             await client.shutdown()
             throw error
@@ -283,8 +283,7 @@ public final class RemoteCommandService: @unchecked Sendable {
         }
     }
 
-    private func resolveTarget(_ value: String) throws -> SSHHost {
-        let hosts = try store.hosts()
+    private func resolveTarget(_ value: String, in hosts: [SSHHost]) throws -> SSHHost {
         if let id = UUID(uuidString: value), let host = hosts.first(where: { $0.id == id }) {
             return host
         }
@@ -294,32 +293,50 @@ public final class RemoteCommandService: @unchecked Sendable {
         throw RemoteCommandServiceError.targetNotFound(value)
     }
 
-    private func authentication(for host: SSHHost) throws -> SSHAuthMaterial {
+    private func authentication(for host: SSHHost,
+                                transport: HostTransport,
+                                keys: [UUID: PrivateKeyRecord]) throws -> (SSHAuthMaterial, SystemSSHCredential) {
         switch host.authMethod {
         case .password, .keyboardInteractive:
             guard host.savesPassword, let value = try secrets.secret(for: .hostPassword(host.id)), !value.isEmpty else {
                 throw RemoteCommandServiceError.credentialUnavailable
             }
-            return .password(value)
+            return transport == .system ? (.none, .password(value)) : (.password(value), .none)
         case .privateKey:
-            let data: Data
-            if let path = host.identityFilePath, !path.isEmpty {
-                guard let loaded = FileManager.default.contents(atPath: (path as NSString).expandingTildeInPath) else {
+            let data = try privateKeyData(for: host, keys: keys)
+            let passphrase = host.savesPassword ? (try? secrets.secret(for: .hostPassphrase(host.id))) : nil
+            if transport == .system {
+                guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
                     throw RemoteCommandServiceError.privateKeyUnavailable
                 }
-                data = loaded
-            } else if let keyID = host.keyID,
-                      let value = try secrets.secret(for: .privateKey(keyID)),
-                      let loaded = value.data(using: .utf8) {
-                data = loaded
-            } else {
+                return (.none, .key(text: text, passphrase: passphrase))
+            }
+            return (.privateKey(try SSHKeyParser.parse(data: data, passphrase: passphrase).key), .none)
+        case .agent:
+            guard transport == .system else { throw RemoteCommandServiceError.unsupportedAuthentication(.agent) }
+            return (.none, .agent)
+        }
+    }
+
+    private func privateKeyData(for host: SSHHost, keys: [UUID: PrivateKeyRecord]) throws -> Data {
+        let path: String?
+        if let explicit = host.identityFilePath, !explicit.isEmpty {
+            path = explicit
+        } else if let id = host.keyID, let ref = keys[id]?.storageRef, ref.hasPrefix("file:") {
+            path = String(ref.dropFirst(5))
+        } else {
+            path = nil
+        }
+        if let path {
+            guard let data = FileManager.default.contents(atPath: (path as NSString).expandingTildeInPath) else {
                 throw RemoteCommandServiceError.privateKeyUnavailable
             }
-            let passphrase = host.savesPassword ? (try? secrets.secret(for: .hostPassphrase(host.id))) : nil
-            return .privateKey(try SSHKeyParser.parse(data: data, passphrase: passphrase).key)
-        case .agent:
-            throw RemoteCommandServiceError.unsupportedAuthentication(.agent)
+            return data
         }
+        if let id = host.keyID, let text = try secrets.secret(for: .privateKey(id)) {
+            return Data(text.utf8)
+        }
+        throw RemoteCommandServiceError.privateKeyUnavailable
     }
 
     private func proxyEndpoint(for proxy: ProxyConfig?) throws -> ProxyEndpoint? {

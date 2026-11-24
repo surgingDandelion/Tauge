@@ -100,6 +100,8 @@ public struct SSHConnectOptions: Sendable {
     public var transport: HostTransport
     /// Credentials for the system ssh transport. Ignored by the built-in stack.
     public var systemCredential: SystemSSHCredential
+    var requiresKnownSystemHost = false
+    var systemSSHExecutable = "/usr/bin/ssh"
 
     public init(host: String,
                 port: Int,
@@ -155,6 +157,8 @@ public actor SSHClient {
     private var transportKind: HostTransport = .builtin
     private var systemWorkspace: SystemSSHWorkspace?
     private var systemOptions: SystemSSHOptions?
+    private var systemProxyRelay: SystemSSHProxyRelay?
+    private var systemConnectionAttempt: UUID?
     private var systemChildren: [SystemSSHChild] = []
     private let logger = Logger(label: "tauge.ssh")
     /// The running application-level keepalive loop, one per live connection.
@@ -600,6 +604,12 @@ public actor SSHClient {
     // MARK: - System ssh transport
 
     private func connectWithSystemSSH(_ options: SSHConnectOptions) async throws {
+        let attempt = UUID()
+        systemConnectionAttempt = attempt
+        state = .connecting
+        defer {
+            if systemConnectionAttempt == attempt { systemConnectionAttempt = nil }
+        }
         var systemOptions = SystemSSHOptions(
             host: options.host,
             port: options.port,
@@ -615,22 +625,49 @@ public actor SSHClient {
             connectTimeoutSeconds: Int(max(Double(options.connectTimeout.nanoseconds) / 1_000_000_000, 5)),
             keepaliveSeconds: options.keepaliveSeconds
         )
+        systemOptions.requiresKnownHost = options.requiresKnownSystemHost
         systemOptions.term = options.username.isEmpty ? "xterm-256color" : systemOptions.term
         let workspace: SystemSSHWorkspace
+        var proxyRelay: SystemSSHProxyRelay?
         do {
-            try SystemSSHCommandBuilder.validate(options: systemOptions)
-            workspace = try SystemSSHWorkspace(options: systemOptions)
+            if let proxy = systemOptions.proxy {
+                guard let group else {
+                    throw SSHConnectionError(stage: .proxy, detail: L("事件循环组已关闭"),
+                                             host: options.host, port: options.port)
+                }
+                // OpenSSH still authenticates to the original SSH host. Only
+                // its first TCP connection is carried through the local relay.
+                proxyRelay = try await SystemSSHProxyRelay.start(
+                    targetHost: systemOptions.jumps.first?.host ?? systemOptions.host,
+                    targetPort: systemOptions.jumps.first?.port ?? systemOptions.port,
+                    proxy: proxy, group: group, timeout: .seconds(Int64(systemOptions.connectTimeoutSeconds))
+                )
+            }
+            guard systemConnectionAttempt == attempt else { throw CancellationError() }
+            try Task.checkCancellation()
+            systemProxyRelay = proxyRelay
+            let proxyCommand = proxyRelay.map { "/usr/bin/nc -U " + SystemSSHWorkspace.shellQuoted($0.socketPath) }
+            workspace = try SystemSSHWorkspace(options: systemOptions,
+                                               sshExecutable: options.systemSSHExecutable,
+                                               entryProxyCommand: proxyCommand)
             let timeout = TimeInterval(systemOptions.connectTimeoutSeconds)
             // A one-shot `true` proves the local client can negotiate, trust and
             // authenticate; every later channel reuses the same argv.
             let probe = await Task.detached(priority: .userInitiated) {
                 SystemSSHRunner.run(options: systemOptions, workspace: workspace, command: "true", timeout: timeout)
             }.value
+            guard systemConnectionAttempt == attempt else { throw CancellationError() }
+            try Task.checkCancellation()
             guard probe.exitCode == 0, !probe.timedOut else {
+                if let error = proxyRelay?.connectionError { throw error }
                 throw SSHClient.systemSSHFailure(probe, host: options.host, port: options.port)
             }
         } catch {
+            proxyRelay?.close()
+            guard systemConnectionAttempt == attempt else { throw CancellationError() }
+            systemProxyRelay = nil
             state = .disconnected(String(describing: error))
+            if error is CancellationError { throw error }
             throw SSHClient.mapError(error,
                                      stage: options.proxy == nil ? .authentication : .proxy,
                                      host: options.host,
@@ -758,6 +795,9 @@ public actor SSHClient {
         systemWorkspace?.cleanup()
         systemWorkspace = nil
         systemOptions = nil
+        systemConnectionAttempt = nil
+        systemProxyRelay?.close()
+        systemProxyRelay = nil
         transportKind = .builtin
         rootChannel?.close(mode: .all, promise: nil)
         rootChannel = nil
