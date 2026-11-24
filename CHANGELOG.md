@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] — 2026-11-24
+
+### 更新
+
+- Apple 芯片 Mac 上的 Tauge 1.2.7 和 1.2.8 可以通过「Tauge → 检查更新… → 下载并安装」直接升级。
+- 正式更新包恢复为 `Tauge-1.2.9.zip`。本版本附带一份内容相同的旧名 ZIP，供 1.2.8 的更新器使用。
+- 新版仅支持 Apple 芯片和 macOS 13 Ventura 或更新版本。Intel Mac 请继续使用 v1.2.7，看到更新提示时请勿安装。
+
 ## [1.2.8] — 2026-11-23
 
 ### 平台支持

@@ -114,17 +114,17 @@ The updater consumes the release directly. These rules apply to arm64 releases:
   The workflow already enforces the match, and the updater compares the tag's
   semantic version with the running bundle.
 - Publish `Tauge-<version>.dmg` for manual installation and
-  `Tauge-<version>-arm64.zip` for in-app updates. `SHA256SUMS.txt` must list
-  both files. Publish the ZIP under the arm64 name alone so older universal
-  builds on Intel Macs cannot fetch it as an update.
+  `Tauge-<version>.zip` for in-app updates. `SHA256SUMS.txt` must list both files.
 - Every asset URL must be HTTPS. The updater rejects anything else.
 - Release notes become the "What's New" text in the update window. The workflow
   now fills them from the matching `CHANGELOG.md` section.
 
-For the first arm64-only release, verify that the DMG can replace an existing
-universal installation on Apple silicon. This manual upgrade is required once.
-For subsequent releases, verify the updater from an Apple silicon Mac running
-the previous arm64 release:
+For v1.2.9 only, the workflow adds `Tauge-1.2.9-arm64.zip` so v1.2.8 clients
+can update. It copies `Tauge-1.2.9.zip` byte for byte and lists both filenames
+with the same SHA-256 digest in `SHA256SUMS.txt`.
+
+Verify the updater from an Apple silicon Mac running an earlier version. For
+v1.2.9, exercise the canonical ZIP from v1.2.7 and the alias from v1.2.8:
 
 ```bash
 /Applications/Tauge.app/Contents/MacOS/Tauge --check-updates

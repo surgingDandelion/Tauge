@@ -22,15 +22,14 @@ macOS 自带终端，但一直没有顺手的方式在终端旁边浏览远程�
 最新的 `Tauge-<version>.dmg`，把 Tauge 拖进「应用程序」，然后打开。
 
 新版 Tauge 需要搭载 Apple 芯片（`arm64`）并运行 macOS 13 Ventura 或更新版本的 Mac。
+Intel Mac 请继续使用 Tauge 1.2.7。
 
 当前发布包在未配置 Developer ID 签名和公证凭据时为 ad-hoc 签名。如果 macOS
 拦截首次启动，右键点击应用选择「打开」，或参考
 [docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch)。
 
-如果已经在 Apple 芯片 Mac 上安装了通用版，请退出 Tauge，打开新版 DMG 并手动替换
-「应用程序」中的 Tauge。只需手动升级一次，之后可以继续使用应用内更新。Tauge 每天
-在后台检查 GitHub Release，安装前可以查看更新说明，也可以随时使用
-**Tauge → 检查更新…**。
+在 Apple 芯片 Mac 上，Tauge 每天在后台检查 GitHub Release。可以在应用内查看更新说明
+并安装更新，也可以随时使用 **Tauge → 检查更新…**。
 
 主机、设置和加密凭据都保存在应用包之外。Tauge 更名后的首次启动会先把旧目录中的
 目录数据库和凭据库复制到当前 Tauge 目录，再打开它们。

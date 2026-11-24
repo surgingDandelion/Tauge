@@ -67,7 +67,7 @@ jobs:
             printf '1. 下载并打开 `Tauge-*.dmg`，将 **Tauge** 拖到「应用程序」文件夹。\n'
             printf '2. 启动 Tauge。应用数据保存在本机，无需注册账号。\n\n'
             printf '安装包需要搭载 Apple 芯片的 Mac，系统版本为 macOS 13 或更新版本。可用 `shasum -a 256 -c SHA256SUMS.txt` 校验 DMG 和 ZIP。\n\n'
-            printf '从旧版通用包升级时，请下载 DMG 手动更新一次。此后可继续使用应用内更新。\n\n'
+            printf '搭载 Intel 芯片的 Mac 请继续使用 v1.2.7。旧版应用可能仍会显示更新提示。\n\n'
             printf '未配置 Developer ID 时，发布包使用临时签名。如果 macOS 阻止首次启动，请参阅[安装说明](https://github.com/%s/blob/main/docs/INSTALL.md)。\n\n' "$GITHUB_REPOSITORY"
             printf '[完整更新日志](https://github.com/%s/blob/main/CHANGELOG.md)\n' "$GITHUB_REPOSITORY"
           } > release-body.md
@@ -105,6 +105,15 @@ jobs:
           TAUGE_NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: ./scripts/package-release.sh
 
+      # v1.2.8 is the only released updater that requires the old suffixed name.
+      - name: Include the v1.2.8 update alias
+        if: github.ref_name == 'v1.2.9'
+        working-directory: dist/release
+        run: |
+          set -euo pipefail
+          cp Tauge-1.2.9.zip Tauge-1.2.9-arm64.zip
+          shasum -a 256 Tauge-1.2.9-arm64.zip >> SHA256SUMS.txt
+
       - name: Summarise artifacts
         run: |
           set -euo pipefail
@@ -117,7 +126,7 @@ jobs:
           name: Tauge-${{ github.ref_name }}
           path: |
             dist/release/*.dmg
-            dist/release/*-arm64.zip
+            dist/release/Tauge-*.zip
             dist/release/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -126,7 +135,7 @@ jobs:
         with:
           files: |
             dist/release/*.dmg
-            dist/release/*-arm64.zip
+            dist/release/Tauge-*.zip
             dist/release/SHA256SUMS.txt
           body_path: release-body.md
           fail_on_unmatched_files: true

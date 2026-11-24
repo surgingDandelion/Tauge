@@ -23,18 +23,16 @@ Download the latest `Tauge-<version>.dmg` from
 Tauge into Applications, and launch it.
 
 New Tauge releases require a Mac with Apple silicon (`arm64`) running macOS 13
-Ventura or later.
+Ventura or later. Intel Macs should stay on Tauge 1.2.7.
 
 Release builds are ad-hoc signed unless the repository is configured with
 Developer ID signing and notarisation credentials. If macOS blocks the first
 launch, right-click the app and choose **Open**, or follow
 [docs/INSTALL.md](docs/INSTALL.md#if-macos-blocks-the-first-launch).
 
-If you already use a universal build on Apple silicon, quit Tauge and replace
-it with the app from the new DMG once. Later releases are available through
-in-app updates. Tauge checks GitHub Releases once a day and lets you review the
-release notes before installing. Use **Tauge → Check for Updates…** to check
-immediately.
+On Apple silicon, Tauge checks GitHub Releases once a day and lets you review
+the release notes before installing the update in the app. Use **Tauge →
+Check for Updates…** to check immediately.
 
 Hosts, settings and encrypted credentials live outside the app bundle. The
 first launch after the Tauge rename copies the previous catalog and vault into

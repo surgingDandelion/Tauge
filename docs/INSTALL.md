@@ -1,7 +1,7 @@
 # Installing Tauge
 
 New Tauge releases require a Mac with **Apple silicon (`arm64`)** running
-**macOS 13 Ventura or later**.
+**macOS 13 Ventura or later**. Intel Macs should stay on Tauge 1.2.7.
 
 ## From a release
 
@@ -45,14 +45,10 @@ you verified.
 
 ### Updating
 
-If you are upgrading a universal build on Apple silicon, quit Tauge and replace
-`/Applications/Tauge.app` with the copy from the new DMG. This one-time manual
-upgrade lets you use in-app updates for subsequent releases.
-
-Tauge checks GitHub releases once a day in the background, and
+On Apple silicon, Tauge checks GitHub releases once a day in the background, and
 **Tauge → Check for Updates…** runs a check immediately. When a newer version is
 available, the update window shows its release notes. **Download and Install**
-fetches `Tauge-<version>-arm64.zip`, verifies it against the release's
+fetches `Tauge-<version>.zip`, verifies it against the release's
 `SHA256SUMS.txt`, validates the new bundle, then quits, swaps the app in place,
 and relaunches it. No administrator password is normally required for
 `/Applications`.

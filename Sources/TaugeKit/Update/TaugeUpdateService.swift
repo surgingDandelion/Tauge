@@ -69,7 +69,7 @@ public struct TaugeUpdate: Sendable, Equatable {
     public let checksumsURL: URL
     public let publishedAt: String?
 
-    /// The release pipeline uploads Tauge-<version>-arm64.zip next to the DMG.
+    /// The release pipeline uploads Tauge-<version>.zip next to the DMG.
     public var displaySize: String {
         guard archiveSize > 0 else { return "" }
         return ByteCountFormatter.string(fromByteCount: archiveSize, countStyle: .file)
@@ -364,9 +364,10 @@ public final class TaugeUpdateService: @unchecked Sendable {
             return .upToDate(current: current)
         }
         guard isSecure(release.htmlURL) else { throw TaugeUpdateError.insecureURL }
-        // The architecture suffix keeps older updaters from offering this ZIP on Intel Macs.
-        let archiveName = "Tauge-\(latest)-arm64.zip"
-        guard let archive = release.assets.first(where: { $0.name == archiveName }) else {
+        let archiveName = "Tauge-\(latest).zip"
+        let alternateArchiveName = "Tauge-\(latest)-arm64.zip"
+        guard let archive = release.assets.first(where: { $0.name == archiveName })
+            ?? release.assets.first(where: { $0.name == alternateArchiveName }) else {
             throw TaugeUpdateError.missingAsset(archiveName)
         }
         guard let checksums = release.assets.first(where: { $0.name == "SHA256SUMS.txt" }) else {

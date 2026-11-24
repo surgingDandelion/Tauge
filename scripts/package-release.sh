@@ -24,8 +24,7 @@ APP="dist/Tauge.app"
 OUT="dist/release"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 DMG="$OUT/Tauge-$VERSION.dmg"
-# Older updaters also run on Intel and look for the unsuffixed asset name.
-ZIP="$OUT/Tauge-$VERSION-arm64.zip"
+ZIP="$OUT/Tauge-$VERSION.zip"
 
 SIGN_IDENTITY="${TAUGE_SIGN_IDENTITY:-${TAUGE_SIGN_IDENTITY:-}}"
 SIGN_KEYCHAIN="${TAUGE_SIGN_KEYCHAIN:-${TAUGE_SIGN_KEYCHAIN:-}}"
