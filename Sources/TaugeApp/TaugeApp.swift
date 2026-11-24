@@ -265,9 +265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor { NSEvent.removeMonitor(monitor) }
         for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
-        AppState.shared.saveCurrentBoardIfDirty()
         // Must be synchronous here: a debounced Task will not run before the
-        // process exits.
+        // process exits. This includes SFTP visibility in workspace panes.
+        AppState.shared.flushCurrentBoardPersistence()
         AppState.shared.flushWorkspace()
     }
 }

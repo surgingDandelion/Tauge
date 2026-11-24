@@ -735,6 +735,8 @@
   "自动检查更新": "Automatically Check for Updates",
   "自动网格排列": "Auto grid layout",
   "自动重连": "Auto-Reconnect",
+  "恢复上次目录": "Restore Last Directory",
+  "重新打开应用或工作区时，恢复每台主机上次使用的目录。": "Reopen each host in its last directory when restarting Tauge or reopening a workspace.",
   "自动（推荐）": "Automatic (Recommended)",
   "至少保留一个工作区。": "Keep at least one workspace.",
   "至少选择一台服务器": "Select at least one server",
@@ -801,7 +803,7 @@
   "还没有代理。新建后可在这里编辑、测试、删除。": "No proxies yet. After creating one, edit, test, or delete it here.",
   "这一步只验证到代理这一段；失败说明本机到代理地址/端口不通（VPN、端口或地址有误），与目标主机无关。": "This step only tests the proxy leg; a failure means this Mac cannot reach the proxy address/port (wrong VPN, port, or address) and has nothing to do with the target host.",
   "这两个终端已经并排打开。起个名字，它就会留在工作区列表里，下次一键恢复；不保存关掉也没关系。": "These two terminals are already open side by side. Give them a name to keep them in the workspace list and bring them back with one click; closing without saving is fine.",
-  "这些项目将被永久删除。": "These items will be deleted permanently.",
+  "选中的项目及文件夹中的内容将被永久删除。": "The selected items and all contents of selected folders will be deleted permanently.",
   "这个分组下还有 ": "This group has ",
   "这个工作区还没有终端": "No terminals in this workspace yet",
   "这个标签是上次退出时保存的，会话已经结束。": "This tab was saved from your last session; the connection has ended.",
@@ -975,5 +977,8 @@
   "传输任务": "Transfer Tasks",
   "本地存储": "Local Storage",
   "主机配置": "Host Catalog",
-  "开源组件": "Open Source Components"
+  "开源组件": "Open Source Components",
+  "分组概览": "Group Overview",
+  "分组自定义": "Group Override",
+  "默认值": "Defaults"
 }

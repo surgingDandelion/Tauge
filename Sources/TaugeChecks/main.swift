@@ -384,6 +384,7 @@ runKeychainVaultChecks()
 runLocalVaultChecks()
 await runProxyChecks()
 await runTransferChecks()
+await runSFTPDeletionChecks()
 
 // MARK: - Operating system detection and its bundled logos
 

@@ -69,21 +69,57 @@ func runBoardChecks() {
         expectEqual(try store.lastSFTPPath(hostID: host.id), nil, "history rows are removed with the host")
     }
 
+    run("terminal directories survive catalog reopen separately from SFTP history") {
+        let host = SSHHost(name: "terminal directory", hostname: "example.com")
+        let other = SSHHost(name: "other terminal", hostname: "example.org")
+        do {
+            let (database, store) = try makeStore("terminal-directories.sqlite")
+            defer { database.close() }
+            try store.save(host: host)
+            try store.save(host: other)
+            try store.recordTerminalDirectory(hostID: host.id, path: "/old")
+            try store.recordTerminalDirectory(hostID: host.id, path: "/srv/文件 'data'")
+            try store.recordTerminalDirectory(hostID: host.id, path: "relative")
+            try store.recordTerminalDirectory(hostID: other.id, path: "/other")
+            try store.recordSFTPPath(hostID: host.id, path: "/files")
+            let legacy = """
+            {"hostID":"\(host.id.uuidString)","title":"Legacy","lastRemoteDirectory":"/files","showsSFTP":true}
+            """
+            let oldTab = try JSONDecoder().decode(WorkspaceSnapshot.Tab.self, from: Data(legacy.utf8))
+            expectEqual(oldTab.terminalDirectory, nil, "legacy browser path is not used as a shell path")
+            expectEqual(oldTab.lastRemoteDirectory, "/files", "legacy browser path survives decode")
+            try store.save(workspace: WorkspaceSnapshot(tabs: [
+                .init(hostID: host.id, title: "Saved tab", lastRemoteDirectory: "/files", terminalDirectory: "/per-tab")
+            ]))
+        }
+        let (database, store) = try makeStore("terminal-directories.sqlite")
+        defer { database.close() }
+        expectEqual(try store.lastTerminalDirectory(hostID: host.id), "/srv/文件 'data'", "latest valid terminal path reloads")
+        expectEqual(try store.lastTerminalDirectory(hostID: other.id), "/other", "each host has its own terminal path")
+        expectEqual(try store.lastSFTPPath(hostID: host.id), "/files", "SFTP retains its own location")
+        expectEqual(try store.workspaceSnapshot()?.tabs.first?.terminalDirectory, "/per-tab", "tab path survives separately")
+        try store.deleteHost(id: host.id)
+        expectEqual(try store.lastTerminalDirectory(hostID: host.id), nil, "deleting a host removes its terminal path")
+    }
+
     run("navigation settings round-trip and stay backward compatible") {
         let (database, store) = try makeStore("settings.sqlite")
         defer { database.close() }
         var settings = try store.settings()
+        expect(settings.restoreLastDirectory, "directory restoration is enabled by default")
         expectEqual(settings.navigationMode, "tabs", "tabs is the default view")
         expectEqual(settings.lastLocalDirectory, nil, "no local folder recorded initially")
         expectEqual(settings.mcpEnabled, false, "MCP starts disabled")
 
         settings.navigationMode = "board"
         settings.lastLocalDirectory = "/Users/example/Downloads"
+        settings.restoreLastDirectory = false
         settings.mcpEnabled = true
         try store.save(settings: settings)
         let reloaded = try store.settings()
         expectEqual(reloaded.navigationMode, "board", "board mode persists")
         expectEqual(reloaded.lastLocalDirectory, "/Users/example/Downloads", "local folder persists")
+        expect(!reloaded.restoreLastDirectory, "turning directory restoration off persists")
         expectEqual(reloaded.mcpEnabled, true, "MCP setting persists")
 
         // An old settings blob (no navigationMode / lastLocalDirectory keys) must still decode.
@@ -94,12 +130,14 @@ func runBoardChecks() {
         }
         object.removeValue(forKey: "navigationMode")
         object.removeValue(forKey: "lastLocalDirectory")
+        object.removeValue(forKey: "restoreLastDirectory")
         object.removeValue(forKey: "sidebarVisible")
         object.removeValue(forKey: "mcpEnabled")
         let legacy = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(AppSettings.self, from: legacy)
         expectEqual(decoded.navigationMode, "tabs", "legacy settings fall back to tabs")
         expectEqual(decoded.lastLocalDirectory, nil, "legacy settings have no local folder")
+        expect(decoded.restoreLastDirectory, "legacy settings enable directory restoration on upgrade")
         // The start page lists every host, so the sidebar starts hidden.
         expectEqual(decoded.sidebarVisible, false, "legacy settings hide the sidebar")
         expectEqual(decoded.mcpEnabled, false, "legacy settings keep MCP disabled")

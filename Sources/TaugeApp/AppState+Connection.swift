@@ -101,9 +101,14 @@ extension AppState {
             let columns = tab.terminalColumns
             let rows = tab.terminalRows
             let logger = makeSessionLogger(config: config, host: host, auth: established.auth)
+            let workingDirectory = settings.restoreLastDirectory
+                ? tab.terminalDirectory ?? (try? store.lastTerminalDirectory(hostID: host.id))
+                : nil
             let session = try await client.openTerminal(term: config.terminalType,
                                                         columns: columns,
                                                         rows: rows,
+                                                        workingDirectory: workingDirectory,
+                                                        reportWorkingDirectory: settings.restoreLastDirectory,
                                                         onData: { [weak tab] data in
                                                             DispatchQueue.main.async { [weak tab] in tab?.receive(data) }
                                                         },
@@ -327,11 +332,13 @@ extension AppState {
     /// Extra SFTP panes remembered from a previous session are dialled once the
     /// tab's own connection is up.
     private func openPendingPanes(_ tab: TerminalTab) async {
-        guard !tab.pendingPaneHostIDs.isEmpty else { return }
-        let pending = tab.pendingPaneHostIDs.compactMap { self.host(id: $0) }
-        tab.pendingPaneHostIDs.removeAll()
-        for extra in pending {
-            await addSFTPPane(tab, host: extra)
+        for id in tab.pendingPaneHostIDs {
+            guard !Task.isCancelled, !tab.isClosing else { return }
+            if let extra = host(id: id) {
+                await addSFTPPane(tab, host: extra, showBrowser: false)
+            }
+            guard !Task.isCancelled, !tab.isClosing else { return }
+            tab.pendingPaneHostIDs.removeAll { $0 == id }
         }
     }
 
@@ -630,11 +637,13 @@ extension AppState {
     // MARK: - SFTP
 
     func toggleSFTP(_ tab: TerminalTab) {
-        if tab.showsSFTP {
-            tab.showsSFTP = false
-            return
+        tab.showsSFTP.toggle()
+        if boardSessions.contains(where: { $0 === tab }) {
+            scheduleBoardPersist()
+        } else {
+            persistWorkspace()
         }
-        tab.showsSFTP = true
+        guard tab.showsSFTP else { return }
         // refreshSFTP re-dials a dead connection, so revealing the panel after a
         // dropped link no longer leaves an empty browser behind.
         Task { await refreshSFTP(tab: tab) }
@@ -648,9 +657,14 @@ extension AppState {
     /// on the tab's terminal connection; extra panes each own a connection.
     /// A pane whose transport died is dialled again rather than written off.
     func openSFTP(tab: TerminalTab, pane: RemoteBrowserModel) async {
-        if await sftpChannelIsUsable(tab: tab, pane: pane) {
-            tab.showsSFTP = true
-            return
+        guard !(await sftpChannelIsUsable(tab: tab, pane: pane)),
+              !tab.isClosing, !pane.isConnecting,
+              tab.allRemotes.contains(where: { $0 === pane }) else { return }
+        pane.isConnecting = true
+        tab.sftpLoading = true
+        defer {
+            pane.isConnecting = false
+            tab.sftpLoading = false
         }
         if let stale = pane.client {
             // The subsystem channel is closed; drop it before dialling again.
@@ -664,7 +678,6 @@ extension AppState {
             guard let existing = tab.client, await existing.isConnected else {
                 // The tab's own connection is gone. Reconnecting the tab reopens
                 // every pane through performConnect, so only ask for that.
-                tab.showsSFTP = true
                 tab.client = nil
                 pane.connectionError = L("连接已断开，正在重新连接…")
                 connect(tab: tab)
@@ -691,36 +704,23 @@ extension AppState {
             }
         }
 
-        pane.isConnecting = true
-        tab.sftpLoading = true
-        defer {
-            pane.isConnecting = false
-            tab.sftpLoading = false
-        }
         do {
             let sftp = try await client.openSFTP()
-            if isMain {
-                tab.attach(sftp: sftp)
-            } else {
-                pane.setClient(sftp)
+            guard !Task.isCancelled, !tab.isClosing, tab.sshClient(for: pane) === client else {
+                await sftp.shutdown()
+                return
             }
-            tab.showsSFTP = true
             configureSFTPHistory(for: pane)
-            // Reopen the folder this host was last browsed in; fall back to the
-            // host/group default only when there is no history yet.
-            let remembered = lastSFTPPath(for: pane.hostID)
-            let hostDefault = pane.hostID.flatMap { host(id: $0) }?.startDirectory
-            let start = isMain
-                ? (remembered ?? tab.lastRemoteDirectory ?? tab.host.startDirectory)
-                : (pane.startDirectory ?? remembered ?? hostDefault)
-            await pane.attach(client: sftp, startDirectory: start)
-            recordSFTPPath(pane.path, for: pane.hostID)
+            let savedPath = settings.restoreLastDirectory && isMain && pane.path != "." ? pane.path : nil
+            let start = pane.openedDirectory ?? pane.startDirectory ?? rememberedSFTPPath(for: pane.hostID) ?? savedPath
+            let hostDefault = isMain ? tab.host.startDirectory : pane.hostID.flatMap { host(id: $0) }?.startDirectory
+            await pane.attach(client: sftp, startDirectory: start, defaultDirectory: hostDefault)
             if isMain {
-                tab.lastRemoteDirectory = pane.path
                 tab.local.reload()
                 persistWorkspace()
             }
         } catch {
+            guard !Task.isCancelled, !tab.isClosing, tab.sshClient(for: pane) === client else { return }
             // An extra pane reports inline with a retry button: a modal for a
             // server the user just added interrupts whatever else they were
             // doing in the other panes.
@@ -739,14 +739,10 @@ extension AppState {
     /// Reloads a pane, reopening its connection first when the transport died.
     /// Refreshing a dead pane now re-dials instead of doing nothing.
     func refreshSFTP(tab: TerminalTab, pane: RemoteBrowserModel) async {
+        guard !pane.isConnecting else { return }
         let ready = await ensureSFTPChannel(tab: tab, pane: pane)
         guard ready else { return }
         await pane.refresh()
-        recordSFTPPath(pane.path, for: pane.hostID)
-        if pane === tab.remote {
-            tab.lastRemoteDirectory = pane.path
-            persistWorkspace()
-        }
     }
 
     /// True when the pane has a live SFTP channel on a live transport.
@@ -760,6 +756,7 @@ extension AppState {
     /// Returns whether a usable channel is in place afterwards.
     @discardableResult
     func ensureSFTPChannel(tab: TerminalTab, pane: RemoteBrowserModel) async -> Bool {
+        guard !tab.isClosing else { return false }
         guard !(await sftpChannelIsUsable(tab: tab, pane: pane)) else { return true }
         await openSFTP(tab: tab, pane: pane)
         guard let sftp = pane.client else { return false }
@@ -780,6 +777,7 @@ extension AppState {
             }
             if alive { continue }
             await sftp.shutdown()
+            guard pane.client === sftp else { continue }
             pane.setClient(nil)
             pane.connectionError = L("连接已断开，点击刷新重新连接。")
         }
@@ -787,9 +785,13 @@ extension AppState {
 
     /// Adds another remote pane to the tab, connecting on demand. Reusing the
     /// tab's own connection when the host matches keeps extra panes cheap.
-    func addSFTPPane(_ tab: TerminalTab, host: SSHHost, startDirectory: String? = nil) async {
+    func addSFTPPane(_ tab: TerminalTab,
+                     host: SSHHost,
+                     startDirectory: String? = nil,
+                     showBrowser: Bool = true) async {
+        guard !tab.isClosing else { return }
+        if showBrowser { tab.showsSFTP = true }
         if let existing = tab.allRemotes.first(where: { $0.hostID == host.id }) {
-            tab.showsSFTP = true
             await refreshSFTP(tab: tab, pane: existing)
             return
         }
@@ -797,26 +799,25 @@ extension AppState {
         pane.hostID = host.id
         pane.hostName = TerminalTab.label(for: host)
         pane.showHidden = tab.remote.showHidden
-        // nil means "decide when connecting": remembered folder first, then the
-        // host default (resolved in openSFTP).
         pane.startDirectory = startDirectory
         pane.isConnecting = true
         tab.extraRemotes.append(pane)
-        tab.showsSFTP = true
+        persistWorkspace()
         defer { pane.isConnecting = false }
         do {
             let client = try await paneConnection(tab: tab, host: host, pane: pane)
             let sftp = try await client.openSFTP()
-            pane.setClient(sftp)
+            guard !Task.isCancelled, !tab.isClosing, tab.sshClient(for: pane) === client else {
+                await sftp.shutdown()
+                return
+            }
             configureSFTPHistory(for: pane)
-            let start = pane.startDirectory
-                ?? lastSFTPPath(for: host.id)
-                ?? host.startDirectory
-            await pane.attach(client: sftp, startDirectory: start)
-            recordSFTPPath(pane.path, for: pane.hostID)
+            let start = pane.startDirectory ?? rememberedSFTPPath(for: host.id)
+            await pane.attach(client: sftp, startDirectory: start, defaultDirectory: host.startDirectory)
         } catch is CancellationError {
             pane.connectionError = L("已取消连接")
         } catch {
+            guard !tab.isClosing, tab.allRemotes.contains(where: { $0 === pane }) else { return }
             let text = describe(error)
             pane.connectionError = text
             presentMessage(L("打开 SFTP 失败（") + host.name + "）", text)
@@ -844,6 +845,10 @@ extension AppState {
             updated.transport = .system
             try? store.save(host: updated)
             reloadCatalog()
+        }
+        guard !Task.isCancelled, !tab.isClosing, tab.allRemotes.contains(where: { $0 === pane }) else {
+            await client.disconnect()
+            throw CancellationError()
         }
         tab.remoteClients[pane.id] = client
         // Extra panes own their transport, so they watch it themselves instead of

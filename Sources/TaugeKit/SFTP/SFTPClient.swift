@@ -218,6 +218,56 @@ public actor SFTPClient {
         _ = try checked(response)
     }
 
+    /// Removes an item and its directory contents using SFTP. Links are unlinked
+    /// at the selected path without traversing their targets.
+    public func removeItem(_ path: String) async throws {
+        let bytes = path.utf8
+        guard let leaf = bytes.split(separator: 0x2F).last,
+              POSIXPath.isChildComponent(String(decoding: leaf, as: UTF8.self)), !bytes.contains(0) else {
+            throw SFTPError.protocolError("Refusing to remove an invalid item path")
+        }
+        // A trailing slash can make LSTAT follow the last component of a link.
+        try await removeTreeEntry(String(decoding: bytes[..<leaf.endIndex], as: UTF8.self))
+    }
+
+    private func removeTreeEntry(_ path: String) async throws {
+        try Task.checkCancellation()
+        do {
+            let attributes = try await stat(path, followSymlink: false)
+            try Task.checkCancellation()
+            guard attributes.isDirectory else {
+                try await removeFile(path)
+                return
+            }
+
+            do {
+                try await removeDirectory(path)
+                return
+            } catch SFTPError.status(let status) where status.code == .failure {
+                // SFTP v3 reports a nonempty directory as SSH_FX_FAILURE.
+            }
+
+            guard try await stat(path, followSymlink: false).isDirectory else {
+                throw SFTPError.protocolError("Item changed while deleting: " + path)
+            }
+            let children = try await listDirectory(path).compactMap { entry -> String? in
+                let name = entry.filename
+                if name == "." || name == ".." { return nil }
+                guard POSIXPath.isChildComponent(name) else {
+                    throw SFTPError.protocolError("READDIR returned an invalid child name")
+                }
+                return name
+            }
+            for child in children {
+                try await removeTreeEntry(path + "/" + child)
+            }
+            try Task.checkCancellation()
+            try await removeDirectory(path)
+        } catch let error as SFTPError where error.isNoSuchFile {
+            // The item may already have been removed by another session.
+        }
+    }
+
     public func rename(_ oldPath: String, to newPath: String) async throws {
         let response = try await perform { SFTPRequests.rename(id: $0, oldPath: oldPath, newPath: newPath) }
         _ = try checked(response)

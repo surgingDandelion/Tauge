@@ -79,6 +79,33 @@ func runMockSSHChecks() async {
             try await Task.sleep(nanoseconds: 100_000_000)
             expect(server.shellSessions >= 1, "server saw a shell session (\(server.shellSessions))")
 
+            let systemOptions = SystemSSHOptions(host: options.host, port: options.port,
+                                                 username: options.username, credential: .none)
+            let workspace = try SystemSSHWorkspace(options: systemOptions)
+            let arguments = SystemSSHCommandBuilder.arguments(options: systemOptions,
+                                                              workspace: workspace,
+                                                              mode: .terminal,
+                                                              reportWorkingDirectory: true)
+            guard let command = arguments.last else { throw CheckError.message("missing directory bootstrap") }
+            server.stubExec(command: command, output: "mock-restored-terminal\r\n", holdOpen: true)
+            let restoredOutput = OutputRecorder()
+            let ordinaryShells = server.shellSessions
+            let restored = try await client.openTerminal(term: "xterm-256color", columns: 100, rows: 30,
+                                                          reportWorkingDirectory: true,
+                                                          onData: { restoredOutput.append($0) }, onClose: { _ in })
+            try await waitUntil(10) { restoredOutput.contains("mock-restored-terminal") }
+            expect(restored.isActive, "the shell integration opens a live terminal without a remembered directory")
+            expectEqual(server.shellSessions, ordinaryShells, "the integrated terminal uses the startup request")
+            restored.close()
+
+            let fallbackOutput = OutputRecorder()
+            let fallback = try await client.openTerminal(term: "xterm-256color", columns: 100, rows: 30,
+                                                           workingDirectory: "/remote/rejected",
+                                                           onData: { fallbackOutput.append($0) }, onClose: { _ in })
+            try await waitUntil(10) { fallbackOutput.contains("mock-shell-ready") }
+            expectEqual(server.shellSessions, ordinaryShells + 1, "an exec rejection retries with the normal shell")
+            fallback.close()
+
             let sftp = try await client.openSFTP()
             let cwd = try await sftp.realPath(".")
             expect(cwd == "/", "sftp realpath returns the server path (\(cwd))")

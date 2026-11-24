@@ -10,6 +10,7 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
         var data: Data
         var permissions: UInt32
         var modifyTime: UInt32
+        var symlinkTarget: String? = nil
     }
 
     enum Handle {
@@ -24,6 +25,9 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var nodes: [String: Node] = [:]
     private var filesAppearingBeforeOpen: [String: Data] = [:]
+    private var extraDirectoryNames: [String: [String]] = [:]
+    private var openedSymlinks: Set<String> = []
+    private var nextRemovalFailures: [String: SFTPStatus.Code] = [:]
     private var outbound = Data()
     private var isClosed = false
     private var handles: [Data: Handle] = [:]
@@ -74,6 +78,27 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
         let normalized = POSIXPath.normalize(path)
         ensureParents(of: normalized)
         nodes[normalized] = Node(isDirectory: true, data: Data(), permissions: 0o040755, modifyTime: 1_700_000_000)
+    }
+
+    func seedSymlink(_ path: String, to target: String) {
+        lock.withLock {
+            let normalized = POSIXPath.normalize(path)
+            ensureParents(of: normalized)
+            nodes[normalized] = Node(isDirectory: false, data: Data(), permissions: 0o120777,
+                                     modifyTime: 1_700_000_000, symlinkTarget: target)
+        }
+    }
+
+    func didOpenSymlink(_ path: String) -> Bool {
+        lock.withLock { openedSymlinks.contains(POSIXPath.normalize(path)) }
+    }
+
+    func advertiseNames(_ names: [String], in directory: String) {
+        lock.withLock { extraDirectoryNames[POSIXPath.normalize(directory)] = names }
+    }
+
+    func failNextRemoval(_ path: String, with error: SFTPStatus.Code) {
+        lock.withLock { nextRemovalFailures[POSIXPath.normalize(path)] = error }
     }
 
     func seedFileBeforeOpen(_ path: String, data: Data) {
@@ -167,7 +192,9 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
             return [namePacket(id: id, entries: [(POSIXPath.normalize(absolute), 0o040755, 0, 1_700_000_000)], includeDot: false)]
         case .stat, .lstat:
             let path = POSIXPath.normalize((try? reader.string()) ?? "/")
-            guard let node = nodes[path] else { return [statusPacket(id, .noSuchFile)] }
+            let followSymlink = packet.type == SFTPPacketType.stat.rawValue
+            let target = followSymlink ? nodes[path]?.symlinkTarget ?? path : path
+            guard let node = nodes[target] else { return [statusPacket(id, .noSuchFile)] }
             return [attrsPacket(id: id, attributes(for: node))]
         case .open:
             let path = POSIXPath.normalize((try? reader.string()) ?? "")
@@ -231,10 +258,12 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
             return [statusPacket(id, .ok)]
         case .opendir:
             let path = POSIXPath.normalize((try? reader.string()) ?? "/")
-            guard let node = nodes[path], node.isDirectory else {
+            let target = nodes[path]?.symlinkTarget ?? path
+            guard let node = nodes[target], node.isDirectory else {
                 return [statusPacket(id, .noSuchFile)]
             }
-            return [handlePacket(id: id, path: path, isDirectory: true)]
+            if target != path { openedSymlinks.insert(path) }
+            return [handlePacket(id: id, path: target, isDirectory: true)]
         case .readdir:
             guard let handle = try? reader.binary(), case .directory(let path, let sent)? = handles[handle] else {
                 return [statusPacket(id, .failure)]
@@ -243,10 +272,7 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
                 return [statusPacket(id, .eof)]
             }
             handles[handle] = .directory(path, sent: true)
-            let entries = children(of: path)
-            if entries.isEmpty {
-                return [namePacket(id: id, entries: [], includeDot: false)]
-            }
+            let entries = children(of: path) + (extraDirectoryNames[path] ?? []).map { ($0, 0o040755, 0, 1_700_000_000) }
             return [namePacket(id: id, entries: entries, includeDot: false)]
         case .mkdir:
             let path = POSIXPath.normalize((try? reader.string()) ?? "")
@@ -261,12 +287,17 @@ final class MockSFTPServer: SFTPTransport, @unchecked Sendable {
             return [statusPacket(id, .ok)]
         case .rmdir:
             let path = POSIXPath.normalize((try? reader.string()) ?? "")
+            if let error = nextRemovalFailures.removeValue(forKey: path) { return [statusPacket(id, error)] }
+            guard let node = nodes[path] else { return [statusPacket(id, .noSuchFile)] }
+            guard node.isDirectory else { return [statusPacket(id, .failure)] }
             if !children(of: path).isEmpty { return [statusPacket(id, .failure)] }
             nodes.removeValue(forKey: path)
             return [statusPacket(id, .ok)]
         case .remove:
             let path = POSIXPath.normalize((try? reader.string()) ?? "")
-            guard nodes[path] != nil else { return [statusPacket(id, .noSuchFile)] }
+            if let error = nextRemovalFailures.removeValue(forKey: path) { return [statusPacket(id, error)] }
+            guard let node = nodes[path] else { return [statusPacket(id, .noSuchFile)] }
+            guard !node.isDirectory else { return [statusPacket(id, .failure)] }
             nodes.removeValue(forKey: path)
             return [statusPacket(id, .ok)]
         case .rename:

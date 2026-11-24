@@ -15,7 +15,9 @@ enum TerminalTabSwitchCheck {
             print(tabFailure.map { "FAIL terminal tab switch: \($0)" } ?? "ok terminal tab switch")
             let sftpFailure = await checkSFTPToggle()
             print(sftpFailure.map { "FAIL terminal SFTP toggle: \($0)" } ?? "ok terminal SFTP toggle")
-            exit(tabFailure == nil && sftpFailure == nil ? 0 : 1)
+            let directoryFailure = await checkDirectoryReport()
+            print(directoryFailure.map { "FAIL terminal directory report: \($0)" } ?? "ok terminal directory report")
+            exit(tabFailure == nil && sftpFailure == nil && directoryFailure == nil ? 0 : 1)
         }
         app.run()
         exit(1)
@@ -124,6 +126,28 @@ enum TerminalTabSwitchCheck {
         terminal.visibleRowsText(0..<terminal.terminalDimensions.rows)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    private static func checkDirectoryReport() async -> String? {
+        let host = SSHHost(name: "Fixture", hostname: "fixture.example")
+        let tab = TerminalTab(host: host, localFiles: LocalFileService(), startRemoteDirectory: "/sftp")
+        defer { tab.close() }
+        var reported: [String] = []
+        tab.onTerminalDirectoryChange = { reported.append($0) }
+        tab.bridge.prepare(settings: AppSettings(), columns: 100, rows: 30)
+        let validReport = "\u{1b}]7;file://fixture.example/srv/%E6%96%87%E4%BB%B6%20%27data%27\u{7}"
+        tab.receive(Data(validReport.utf8))
+        tab.receive(Data(validReport.utf8))
+        tab.receive(Data("\u{1b}]7;https://fixture.example/invalid\u{7}\u{1b}]7;file:///invalid%00path\u{7}".utf8))
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        let directory = "/srv/文件 'data'"
+        guard reported == [directory], tab.snapshot.terminalDirectory == directory,
+              tab.snapshot.lastRemoteDirectory == "/sftp" else {
+            return "expected one terminal report and an independent SFTP path, got \(reported), SFTP \(tab.remote.path)"
+        }
+        return nil
     }
 
     private static func settle(_ window: NSWindow, until condition: () -> Bool) async -> Bool {

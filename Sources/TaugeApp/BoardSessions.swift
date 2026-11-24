@@ -33,11 +33,10 @@ extension AppState {
         let tab = TerminalTab(id: pane.id,
                               host: host,
                               localFiles: environment.localFiles,
-                              startRemoteDirectory: lastSFTPPath(for: host.id) ?? host.startDirectory,
+                              startRemoteDirectory: rememberedSFTPPath(for: host.id) ?? host.startDirectory,
                               localStartDirectory: settings.lastLocalDirectory,
                               showsSFTP: pane.showsSFTP)
-        tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
-        configureSFTPHistory(for: tab.remote)
+        configureDirectoryTracking(for: tab)
         tab.local.showHidden = settings.showHiddenFiles
         tab.remote.showHidden = settings.showHiddenFiles
         return tab
@@ -138,7 +137,12 @@ extension AppState {
 
     func closeBoardTab(_ id: UUID) {
         guard let index = openBoardIDs.firstIndex(of: id) else { return }
-        if currentBoard?.id == id { saveCurrentBoardIfDirty() }
+        if currentBoard?.id == id {
+            flushCurrentBoardPersistence()
+            boardSessions = []
+            currentBoard = nil
+            boardDirty = false
+        }
         // A workspace that was never saved is not in the catalog either, so
         // closing its tab drops it instead of leaving a placeholder behind.
         if draftBoardIDs.remove(id) != nil {
@@ -152,10 +156,6 @@ extension AppState {
         }
         if selectedBoardID == id {
             selectedBoardID = nil
-            if currentBoard?.id == id {
-                boardSessions = []
-                currentBoard = nil
-            }
             selectedTabID = tabs.last?.id
             if let nextBoardID = openBoardIDs.first,
                let next = boards.first(where: { $0.id == nextBoardID }) {
@@ -163,12 +163,13 @@ extension AppState {
             }
         }
         persistOpenBoardIDs()
+        persistSelectedBoard()
         persistWorkspace()
     }
 
     func activateBoard(_ board: BoardDefinition, connecting: Bool) {
         // Switching workspaces commits whatever the previous one had pending.
-        saveCurrentBoardIfDirty()
+        flushCurrentBoardPersistence()
         stashCurrentSessions()
         var sanitized = board
         let knownHosts = Set(hosts.map { $0.id })
@@ -210,28 +211,25 @@ extension AppState {
     /// disappear while the user was still editing.
     func scheduleBoardPersist() {
         boardSaveTask?.cancel()
-        guard !boardDirty, var board = currentBoard else { return }
-        for index in board.panes.indices {
-            if let tab = boardSessions.first(where: { $0.id == board.panes[index].id }) {
-                board.panes[index].showsSFTP = tab.showsSFTP
-            }
-        }
-        let store = self.store
-        boardSaveTask = Task { @MainActor in
+        boardSaveTask = nil
+        guard !boardDirty, let id = currentBoard?.id, !draftBoardIDs.contains(id) else { return }
+        boardSaveTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            try? store.save(board: board)
+            guard !Task.isCancelled, let self, self.currentBoard?.id == id, !self.boardDirty else { return }
+            self.flushCurrentBoardPersistence()
         }
     }
 
     /// A pane was added or removed: the header switches to 未保存 until ⌘S.
     func markBoardDirty() {
         guard currentBoard != nil else { return }
+        boardSaveTask?.cancel()
+        boardSaveTask = nil
         boardDirty = true
     }
 
     /// Commits the workspace exactly as it is on screen (⌘S or the header button).
-    func saveCurrentBoard() {
+    func saveCurrentBoard(reportFailure: Bool = true) {
         boardSaveTask?.cancel()
         boardSaveTask = nil
         guard var board = currentBoard else {
@@ -248,20 +246,20 @@ extension AppState {
         }
         do {
             try store.save(board: board)
-            currentBoard = board
-            if let index = boards.firstIndex(where: { $0.id == board.id }) {
+            if currentBoard != board { currentBoard = board }
+            if let index = boards.firstIndex(where: { $0.id == board.id }), boards[index] != board {
                 boards[index] = board
             }
-            boardDirty = false
+            if boardDirty { boardDirty = false }
         } catch {
-            present(error, title: L("保存工作区失败"))
+            if reportFailure { present(error, title: L("保存工作区失败")) }
         }
     }
 
-    /// Never lose unsaved panes when switching away or quitting.
-    func saveCurrentBoardIfDirty() {
-        guard boardDirty else { return }
-        saveCurrentBoard()
+    /// Commit pending layout and pane visibility before switching, closing or quitting.
+    func flushCurrentBoardPersistence() {
+        guard boardDirty || boardSaveTask != nil else { return }
+        saveCurrentBoard(reportFailure: boardDirty)
     }
 
     // MARK: Board CRUD
@@ -344,8 +342,11 @@ extension AppState {
             persistOpenBoardIDs()
         }
         if currentBoard?.id == id {
+            boardSaveTask?.cancel()
+            boardSaveTask = nil
             boardSessions = []
             currentBoard = nil
+            boardDirty = false
             selectedBoardID = nil
             if let nextID = openBoardIDs.first, let next = boards.first(where: { $0.id == nextID }) {
                 activateBoard(next, connecting: false)

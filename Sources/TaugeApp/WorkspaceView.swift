@@ -227,15 +227,14 @@ struct TabStripView: View {
 struct SftpToggleButton: View {
     @EnvironmentObject private var app: AppState
     @ObservedObject var tab: TerminalTab
-    var persistsBoard = false
+    var isBoardPane = false
 
     var body: some View {
         let title = tab.showsSFTP ? L("隐藏 SFTP 面板") : L("显示 SFTP 面板")
         StripButton(systemName: tab.showsSFTP ? "folder.fill" : "folder",
-                    help: title, tip: title, keys: persistsBoard ? [] : ["⇧⌘O"],
+                    help: title, tip: title, keys: isBoardPane ? [] : ["⇧⌘O"],
                     isActive: tab.showsSFTP) {
             app.toggleSFTP(tab)
-            if persistsBoard { app.scheduleBoardPersist() }
         }
     }
 }
@@ -392,14 +391,12 @@ private struct TabRailChrome: ViewModifier {
     var dropTarget = false
 
     func body(content: Content) -> some View {
-        let cornerRadius: CGFloat = 7
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
         content
             .foregroundStyle(selected ? Color.primary : Theme.secondary)
             .background {
                 shape.fill(surface)
                     .overlay { shape.strokeBorder(edge, lineWidth: 0.75) }
-                    .silverHoverSheen(hovered: hovering && !dropTarget, cornerRadius: cornerRadius)
                     .shadow(color: selected ? Theme.shadow.opacity(0.65) : .clear, radius: 1.5, y: 0.75)
                     .allowsHitTesting(false)
             }
@@ -612,7 +609,7 @@ struct TerminalPane: View {
     }
 
     private func handleDroppedFiles(_ urls: [URL]) {
-        let directory = tab.lastRemoteDirectory ?? tab.remote.path
+        let directory = tab.terminalDirectory ?? tab.remote.path
         app.uploadDropped(urls: urls, to: tab, destination: directory)
         var quoted: [String] = []
         for url in urls {

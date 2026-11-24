@@ -154,9 +154,35 @@ struct GroupEditorView: View {
     @ViewState private var defaults: GroupDefaults
     @ViewState private var jumpQuery = ""
     @ViewState private var jumpMessage: String?
+    @ViewState private var selectedSection: EditorSection = .group
+    @FocusState private var focusedField: EditorField?
 
     private let onSave: ((HostGroup) -> Void)?
     private let onCancel: (() -> Void)?
+
+    private enum EditorSection: CaseIterable, Hashable {
+        case group, route, defaults
+
+        var title: String {
+            switch self {
+            case .group: return L("分组")
+            case .route: return L("代理与跳板")
+            case .defaults: return L("默认值")
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .group: return "folder"
+            case .route: return "arrow.triangle.branch"
+            case .defaults: return "slider.horizontal.3"
+            }
+        }
+    }
+
+    private enum EditorField: Hashable {
+        case name, jumpSearch, terminalType, uploadDirectory
+    }
 
     init(
         group: HostGroup,
@@ -176,69 +202,333 @@ struct GroupEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(L("分组设置")).font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(L("取消")) { cancel() }
-                    .keyboardShortcut(.cancelAction)
-                Button(L("保存")) { save() }
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            Divider()
-            Form {
-                TextField(L("名称"), text: $group.name)
-                Picker(L("上级分组"), selection: $group.parentID) {
-                    Text(L("顶级分组")).tag(UUID?.none)
-                    ForEach(availableParents) { candidate in
-                        Text(app.groupPath(for: candidate.id)).tag(Optional(candidate.id))
+            header
+            Theme.separator.frame(height: 1)
+            VStack(alignment: .leading, spacing: 15) {
+                sectionPicker
+                HStack(alignment: .top, spacing: 18) {
+                    ScrollView {
+                        selectedForm
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 12)
+                            .padding(.trailing, 4)
                     }
-                }
-                ColorChoicePicker(colorHex: $group.colorHex,
-                                  inheritedHex: inheritedColorHex,
-                                  inheritedTitle: "继承上级分组颜色")
-                Text(L("组内主机未单独设置颜色时继承这里的颜色；子分组会继续向上查找最近的颜色。"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Section(L("默认值（向下继承）")) {
-                    Picker(L("代理"), selection: proxySelection) {
-                        Text(L("继承上级分组")).tag("inherit")
-                        Text(L("不使用代理")).tag("direct")
-                        ForEach(app.proxies) { proxy in
-                            Text(proxy.name).tag(proxy.id.uuidString)
-                        }
-                    }
-                    Text(L("代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Picker(L("跳板机"), selection: jumpSelection) {
-                        Text(L("继承上级分组")).tag("inherit")
-                        Text(L("直连")).tag("direct")
-                        Text(L("指定跳板机")).tag("custom")
-                    }
-                    jumpDetail
-                    Picker(L("编码"), selection: $defaults.encoding) {
-                        Text(L("继承")).tag(TextEncodingKind?.none)
-                        ForEach(TextEncodingKind.allCases, id: \.self) { kind in
-                            Text(kind.displayName).tag(Optional(kind))
-                        }
-                    }
-                    TextField(L("终端类型"), text: Binding(
-                        get: { defaults.terminalType ?? "" },
-                        set: { defaults.terminalType = $0.isEmpty ? nil : $0 }
-                    ))
-                    TextField(L("默认上传目录"), text: Binding(
-                        get: { defaults.defaultUploadDirectory ?? "" },
-                        set: { defaults.defaultUploadDirectory = $0.isEmpty ? nil : $0 }
-                    ))
+                    .id(selectedSection)
+                    groupSummary
+                        .frame(width: 180)
                 }
             }
-            .formStyle(.grouped)
+            .padding(20)
         }
-        .frame(width: 520, height: 600)
+        .background(Theme.windowBackground)
+        .frame(width: 700, height: 520)
+    }
+
+    private var header: some View {
+        HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 5) {
+                Label(draftName, systemImage: "folder")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                Text(app.group(id: group.id) == nil ? L("新建分组") : L("分组设置"))
+                    .font(.system(size: 26, weight: .semibold))
+                    .tracking(-0.5)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("group-editor-title")
+            }
+            Spacer(minLength: 12)
+            sheetButton(L("取消"), action: cancel)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("group-editor-cancel")
+            sheetButton(L("保存"), systemName: "checkmark", prominent: true, action: save)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("group-editor-save")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(Theme.titleBarGradient)
+    }
+
+    private var sectionPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(EditorSection.allCases, id: \.self) { item in
+                let selected = selectedSection == item
+                Button {
+                    selectedSection = item
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.secondary)
+                            .accessibilityHidden(true)
+                        Text(item.title)
+                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selected ? Color.primary : Theme.secondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 29)
+                    .background(selected ? Theme.cardBackground : .clear, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .strokeBorder(selected ? Theme.separator : .clear, lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Theme.tabRailBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Theme.separator, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedForm: some View {
+        switch selectedSection {
+        case .group: groupSection
+        case .route: routeSection
+        case .defaults: defaultsSection
+        }
+    }
+
+    private var groupSection: some View {
+        section(L("分组")) {
+            textField(L("名称"), text: $group.name, focus: .name)
+            let parents: [(UUID?, String)] = [(nil, L("顶级分组"))]
+                + availableParents.map { (Optional($0.id), app.groupPath(for: $0.id)) }
+            choice(L("上级分组"), selection: $group.parentID, options: parents)
+            Theme.separator.frame(height: 1)
+            ColorChoicePicker(colorHex: $group.colorHex,
+                              inheritedHex: inheritedColorHex,
+                              inheritedTitle: "继承上级分组颜色")
+            hint(L("组内主机未单独设置颜色时继承这里的颜色；子分组会继续向上查找最近的颜色。"))
+        }
+    }
+
+    private var routeSection: some View {
+        section(L("代理与跳板")) {
+            let proxies = [("inherit", L("继承上级分组")), ("direct", L("不使用代理"))]
+                + app.proxies.map { ($0.id.uuidString, $0.name) }
+            choice(L("代理"), selection: proxySelection, options: proxies)
+            hint(L("代理与跳板机只能二选一：选了代理，下面的跳板机会被清空。"))
+            Theme.separator.frame(height: 1)
+            choice(L("跳板机"), selection: jumpSelection,
+                   options: [("inherit", L("继承上级分组")), ("direct", L("直连")), ("custom", L("指定跳板机"))])
+            jumpDetail
+        }
+    }
+
+    private var defaultsSection: some View {
+        section(L("默认值（向下继承）")) {
+            let encodings: [(TextEncodingKind?, String)] = [(nil, L("继承"))]
+                + TextEncodingKind.allCases.map { (Optional($0), $0.displayName) }
+            HStack(alignment: .top, spacing: 12) {
+                choice(L("编码"), selection: $defaults.encoding, options: encodings)
+                textField(L("终端类型"), prompt: L("继承"),
+                          text: defaultText(\.terminalType), focus: .terminalType)
+            }
+            textField(L("默认上传目录"), prompt: L("继承"),
+                      text: defaultText(\.defaultUploadDirectory), focus: .uploadDirectory)
+        }
+    }
+
+    private var draftName: String {
+        let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? L("新分组") : name
+    }
+
+    private var parentPath: String? {
+        group.parentID.map { app.groupPath(for: $0) }
+    }
+
+    private var colorSource: String {
+        if HostColor.normalized(group.colorHex) != nil { return L("分组自定义") }
+        return inheritedColorHex == nil ? L("默认配色") : L("继承上级分组颜色")
+    }
+
+    private var groupSummary: some View {
+        let tint = (Color(hex: group.colorHex) ?? Color(hex: inheritedColorHex))
+            .map(Theme.quietIdentity) ?? Theme.secondary
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(L("分组概览"))
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+            HStack(spacing: 8) {
+                Image(systemName: "folder")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 36, height: 36)
+                    .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(tint.opacity(0.20), lineWidth: 1)
+                    }
+                    .accessibilityHidden(true)
+                Text(draftName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+            }
+            summaryRow(L("上级分组"), parentPath ?? L("顶级分组"))
+            summaryRow(L("配色来源"), colorSource)
+            summaryRow(L("代理"), defaults.proxyPolicy.isInherit ? L("继承上级分组") : app.proxyName(for: defaults.proxyPolicy))
+            summaryRow(L("跳板机"), jumpSummary)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.panelBackground, in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(Theme.separator, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var jumpSummary: String {
+        switch defaults.jumpPolicy {
+        case .inherit: return L("继承上级分组")
+        case .hosts(let ids) where ids.isEmpty: return L("指定跳板机")
+        default: return app.jumpDescription(for: defaults.jumpPolicy)
+        }
+    }
+
+    private func summaryRow(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Theme.separator.frame(height: 1)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.secondary)
+            Text(value)
+                .font(.system(size: 11.5))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.windowBackground, in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(Theme.separator, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .accessibilityHidden(true)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func textField(_ title: String, prompt: String? = nil,
+                           text: Binding<String>, focus: EditorField) -> some View {
+        field(title) {
+            controlSurface(focused: focusedField == focus) {
+                TextField(title, text: text, prompt: prompt.map { Text($0) })
+                    .labelsHidden()
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .focused($focusedField, equals: focus)
+                    .accessibilityLabel(title)
+            }
+        }
+    }
+
+    private func choice<Value: Hashable>(_ title: String, selection: Binding<Value>,
+                                         options: [(value: Value, label: String)]) -> some View {
+        let selected = options.first { $0.value == selection.wrappedValue }?.label ?? ""
+        return field(title) {
+            Menu {
+                Picker(title, selection: selection) {
+                    ForEach(options.indices, id: \.self) { index in
+                        Text(options[index].label).tag(options[index].value)
+                    }
+                }
+                .labelsHidden()
+            } label: {
+                controlSurface {
+                    HStack(spacing: 8) {
+                        Text(selected)
+                            .font(.system(size: 12.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .accessibilityLabel(title)
+            .accessibilityValue(selected)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func controlSurface<Content: View>(focused: Bool = false,
+                                               @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
+            .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(focused ? Theme.accent.opacity(0.65) : Theme.cardStroke, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+    }
+
+    private func sheetButton(_ title: String, systemName: String? = nil, prominent: Bool = false,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let systemName {
+                    Image(systemName: systemName)
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(prominent ? Theme.dynamic(light: 0xFFFFFF, dark: 0x1B2638) : Color.primary)
+            .padding(.horizontal, 11)
+            .frame(height: 34)
+            .background(prominent ? Theme.dynamic(light: 0x253044, dark: 0xDCE5F5) : Theme.fieldBackground,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(prominent ? .clear : Theme.cardStroke, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TechButtonStyle(kind: .ghost))
+    }
+
+    private func defaultText(_ key: WritableKeyPath<GroupDefaults, String?>) -> Binding<String> {
+        Binding(get: { defaults[keyPath: key] ?? "" },
+                set: { defaults[keyPath: key] = $0.isEmpty ? nil : $0 })
     }
 
     // MARK: - Jump defaults
@@ -263,67 +553,79 @@ struct GroupEditorView: View {
         if ids.isEmpty {
             hint(L("按顺序经过 1–3 台主机；在下面输入名称或地址搜索，不会列出全部主机。"))
         } else {
-            jumpChips(ids)
+            jumpRows(ids)
         }
         searchField
         if !jumpQuery.trimmingCharacters(in: .whitespaces).isEmpty {
             jumpResults(ids)
         }
         if let jumpMessage {
-            Text(jumpMessage)
-                .font(.system(size: 10))
+            Label(jumpMessage, systemImage: "exclamationmark.circle")
+                .font(.system(size: 11.5))
                 .foregroundStyle(Theme.danger)
+                .accessibilityIdentifier("group-editor-validation")
         }
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.secondary)
-            TextField(L("搜索主机（名称或地址）"), text: $jumpQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 11))
-            if !jumpQuery.isEmpty {
-                Button { jumpQuery = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.secondary)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.fieldBackground))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.separator))
-    }
-
-    private func jumpChips(_ ids: [UUID]) -> some View {
-        HStack(spacing: 4) {
-            ForEach(Array(ids.enumerated()), id: \.element) { index, id in
-                if index > 0 {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 8))
-                        .foregroundStyle(Theme.secondary)
-                }
-                let missing = app.host(id: id) == nil
-                HStack(spacing: 4) {
-                    Text(app.host(id: id)?.name ?? L("已失效的跳板机"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(missing ? Theme.danger : Color.primary)
-                    Button { toggleJump(id, on: false) } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+        controlSurface(focused: focusedField == .jumpSearch) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.secondary)
+                    .accessibilityHidden(true)
+                TextField(L("搜索主机（名称或地址）"), text: $jumpQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($focusedField, equals: .jumpSearch)
+                if !jumpQuery.isEmpty {
+                    Button { jumpQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.secondary)
+                    .accessibilityLabel(L("清空搜索"))
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Theme.accent.opacity(0.14)))
             }
-            Spacer(minLength: 0)
+        }
+    }
+
+    private func jumpRows(_ ids: [UUID]) -> some View {
+        VStack(spacing: 4) {
+            ForEach(Array(ids.enumerated()), id: \.element) { index, id in
+                let host = app.host(id: id)
+                HStack(spacing: 7) {
+                    Text(String(index + 1))
+                        .font(TechFont.mono(10, .medium))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(width: 20, height: 20)
+                        .background(Theme.tabRailBackground, in: RoundedRectangle(cornerRadius: 5))
+                    Text(host?.name ?? L("已失效的跳板机"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(host == nil ? Theme.danger : Color.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button { toggleJump(id, on: false) } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 22, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TechButtonStyle(kind: .ghost))
+                    .help(L("移除"))
+                    .accessibilityLabel(L("移除"))
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(Theme.separator, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 
@@ -401,7 +703,7 @@ struct GroupEditorView: View {
 
     private func hint(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10))
+            .font(.system(size: 11.5))
             .foregroundStyle(Theme.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -485,6 +787,8 @@ struct GroupEditorView: View {
     private func save() {
         if case .hosts(let ids) = defaults.jumpPolicy, ids.isEmpty {
             jumpMessage = L("请选择至少一台跳板机，或选择直连")
+            selectedSection = .route
+            DispatchQueue.main.async { focusedField = .jumpSearch }
             return
         }
         let route = RouteRules.normalized(proxy: defaults.proxyPolicy, jump: defaults.jumpPolicy)

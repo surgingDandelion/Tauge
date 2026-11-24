@@ -55,7 +55,8 @@ final class TerminalTab: ObservableObject, Identifiable {
     @Published var statusMessage = ""
     @Published var statusDetail = ""
     @Published var reportFingerprint = false
-    @Published var lastRemoteDirectory: String?
+    @Published private(set) var terminalDirectory: String?
+    var onTerminalDirectoryChange: ((String) -> Void)?
 
     let bridge = TerminalBridge()
     /// Primary remote pane (the tab's own host). Extra panes let one local
@@ -91,6 +92,7 @@ final class TerminalTab: ObservableObject, Identifiable {
          host: SSHHost,
          localFiles: LocalFileService,
          startRemoteDirectory: String? = nil,
+         terminalDirectory: String? = nil,
          localStartDirectory: String? = nil,
          showsSFTP: Bool = false) {
         self.id = id
@@ -99,7 +101,7 @@ final class TerminalTab: ObservableObject, Identifiable {
         self.host = host
         self.title = TerminalTab.label(for: host)
         self.showsSFTP = showsSFTP || kind == .sftp
-        self.lastRemoteDirectory = startRemoteDirectory
+        self.terminalDirectory = terminalDirectory
         self.remote = RemoteBrowserModel()
         self.remote.hostID = host.id
         self.remote.hostName = Self.label(for: host)
@@ -112,7 +114,11 @@ final class TerminalTab: ObservableObject, Identifiable {
             self.remote.path = start
         }
         bridge.onResize = { [weak self] columns, rows in self?.resize(columns: columns, rows: rows) }
-        bridge.onDirectoryChange = { [weak self] directory in self?.lastRemoteDirectory = directory }
+        bridge.onDirectoryChange = { [weak self] directory in
+            guard let self, !self.isClosing, self.terminalDirectory != directory else { return }
+            self.terminalDirectory = directory
+            self.onTerminalDirectoryChange?(directory)
+        }
         bridge.onBackgroundReply = { [weak self] data in self?.write(data) }
     }
 
@@ -185,10 +191,6 @@ final class TerminalTab: ObservableObject, Identifiable {
         self.connectedAt = Date()
         self.reconnectAttempt = 0
         self.connectionState = .connected
-    }
-
-    func attach(sftp: SFTPClient) {
-        remote.setClient(sftp)
     }
 
     /// Every remote pane, primary first.
@@ -281,12 +283,15 @@ final class TerminalTab: ObservableObject, Identifiable {
     /// Metadata persisted for crash recovery. Contents and secrets are never
     /// stored, per the PRD's recovery requirements.
     var snapshot: WorkspaceSnapshot.Tab {
-        WorkspaceSnapshot.Tab(hostID: hostID,
-                              title: title,
-                              lastRemoteDirectory: remote.path,
-                              showsSFTP: showsSFTP,
-                              additionalHostIDs: extraRemotes.compactMap { $0.hostID },
-                              kind: kind.rawValue)
+        let extraHostIDs = extraRemotes.compactMap(\.hostID)
+        let unopenedHostIDs = pendingPaneHostIDs.filter { !extraHostIDs.contains($0) }
+        return WorkspaceSnapshot.Tab(hostID: hostID,
+                                     title: title,
+                                     lastRemoteDirectory: remote.path,
+                                     terminalDirectory: terminalDirectory,
+                                     showsSFTP: showsSFTP,
+                                     additionalHostIDs: extraHostIDs + unopenedHostIDs,
+                                     kind: kind.rawValue)
     }
 }
 

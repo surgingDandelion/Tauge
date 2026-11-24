@@ -322,11 +322,7 @@ extension AppState {
             var failures: [(entry: FileEntry, error: Error)] = []
             for entry in entries {
                 do {
-                    if entry.kind == .directory {
-                        try await client.removeDirectory(entry.path)
-                    } else {
-                        try await client.removeFile(entry.path)
-                    }
+                    try await client.removeItem(entry.path)
                     removedPaths.insert(entry.path)
                 } catch {
                     failures.append((entry, error))

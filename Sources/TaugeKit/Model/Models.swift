@@ -602,6 +602,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var transferRetryCount: Int = 3
     public var conflictPolicy: String = "ask"
     public var autoReconnect: Bool = true
+    public var restoreLastDirectory: Bool = true
     public var editorMaxFileSize: Int = 2 * 1024 * 1024
     public var showHiddenFiles: Bool = false
     public var language: String = TaugeLanguage.systemDefault.rawValue
@@ -654,6 +655,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         transferRetryCount = (try? c.decode(Int.self, forKey: .transferRetryCount)) ?? transferRetryCount
         conflictPolicy = (try? c.decode(String.self, forKey: .conflictPolicy)) ?? conflictPolicy
         autoReconnect = (try? c.decode(Bool.self, forKey: .autoReconnect)) ?? autoReconnect
+        restoreLastDirectory = (try? c.decode(Bool.self, forKey: .restoreLastDirectory)) ?? restoreLastDirectory
         editorMaxFileSize = (try? c.decode(Int.self, forKey: .editorMaxFileSize)) ?? editorMaxFileSize
         showHiddenFiles = (try? c.decode(Bool.self, forKey: .showHiddenFiles)) ?? showHiddenFiles
         language = (try? c.decode(String.self, forKey: .language)) ?? language
@@ -961,7 +963,9 @@ public struct WorkspaceSnapshot: Codable, Sendable {
     public struct Tab: Codable, Sendable {
         public var hostID: UUID
         public var title: String
+        /// Remote file browser path, also used by older snapshots.
         public var lastRemoteDirectory: String?
+        public var terminalDirectory: String?
         public var showsSFTP: Bool
         /// Hosts of the extra SFTP panes that were open in this tab.
         public var additionalHostIDs: [UUID]?
@@ -970,12 +974,14 @@ public struct WorkspaceSnapshot: Codable, Sendable {
         public init(hostID: UUID,
                     title: String,
                     lastRemoteDirectory: String? = nil,
+                    terminalDirectory: String? = nil,
                     showsSFTP: Bool = false,
                     additionalHostIDs: [UUID]? = nil,
                     kind: String? = nil) {
             self.hostID = hostID
             self.title = title
             self.lastRemoteDirectory = lastRemoteDirectory
+            self.terminalDirectory = terminalDirectory
             self.showsSFTP = showsSFTP
             self.additionalHostIDs = additionalHostIDs
             self.kind = kind

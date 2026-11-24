@@ -391,23 +391,6 @@ public actor SSHClient {
         return authDelegate
     }
 
-    private final class AdapterBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored: SSHChannelAdapter?
-        var adapter: SSHChannelAdapter? {
-            get {
-                lock.lock()
-                defer { lock.unlock() }
-                return stored
-            }
-            set {
-                lock.lock()
-                stored = newValue
-                lock.unlock()
-            }
-        }
-    }
-
     private func openChildChannel(parent: Channel,
                                   type: SSHChannelType,
                                   adapter: (any ChannelHandler & Sendable)? = nil,
@@ -493,22 +476,38 @@ public actor SSHClient {
     public func openTerminal(term: String,
                              columns: Int,
                              rows: Int,
+                             workingDirectory: String? = nil,
+                             reportWorkingDirectory: Bool = false,
                              onData: @escaping @Sendable (Data) -> Void,
                              onClose: @escaping @Sendable (Error?) -> Void) async throws -> SSHTerminalSession {
         if transportKind == .system {
             return try openSystemTerminal(term: term,
                                           columns: columns,
                                           rows: rows,
+                                          workingDirectory: workingDirectory,
+                                          reportWorkingDirectory: reportWorkingDirectory,
                                           onData: onData,
                                           onClose: onClose)
         }
         guard let root = rootChannel, root.isActive else {
             throw handshakeFailure ?? SSHClientError.notConnected
         }
-        let box = AdapterBox()
+        let startupCommand = ShellDirectoryIntegration.command(workingDirectory: workingDirectory,
+                                                               reportWorkingDirectory: reportWorkingDirectory)
+        return try await openBuiltinTerminal(parent: root, term: term, columns: columns, rows: rows,
+                                             directoryCommand: startupCommand,
+                                             onData: onData, onClose: onClose)
+    }
+
+    private func openBuiltinTerminal(parent: Channel,
+                                     term: String,
+                                     columns: Int,
+                                     rows: Int,
+                                     directoryCommand: String?,
+                                     onData: @escaping @Sendable (Data) -> Void,
+                                     onClose: @escaping @Sendable (Error?) -> Void) async throws -> SSHTerminalSession {
         let adapter = SSHChannelAdapter()
-        box.adapter = adapter
-        let channel = try await openChildChannel(parent: root, type: .session, adapter: adapter)
+        let channel = try await openChildChannel(parent: parent, type: .session, adapter: adapter)
         let pty = SSHChannelRequestEvent.PseudoTerminalRequest(wantReply: true,
                                                                term: term,
                                                                terminalCharacterWidth: max(columns, 1),
@@ -517,13 +516,44 @@ public actor SSHClient {
                                                                terminalPixelHeight: 0,
                                                                terminalModes: SSHTerminalModes([:]))
         do {
-            try await channel.triggerUserOutboundEvent(pty).get()
-            try await channel.triggerUserOutboundEvent(SSHChannelRequestEvent.ShellRequest(wantReply: true)).get()
+            guard let directoryCommand else {
+                return try await channel.eventLoop.flatSubmit {
+                    channel.triggerUserOutboundEvent(pty).flatMap {
+                        // A first-prompt OSC 7 can arrive as soon as the shell starts.
+                        adapter.onData = onData
+                        return channel.triggerUserOutboundEvent(SSHChannelRequestEvent.ShellRequest(wantReply: true))
+                    }.map {
+                        SSHTerminalSession(channel: channel, adapter: adapter, onData: onData, onClose: onClose)
+                    }
+                }.get()
+            }
+
+            let exec = SSHChannelRequestEvent.ExecRequest(command: directoryCommand, wantReply: true)
+            let timeout = channelTimeout
+            let session = try await channel.eventLoop.flatSubmit {
+                adapter.sessionReply(to: pty, on: channel, timeout: timeout)
+                    .flatMap { accepted -> EventLoopFuture<Bool> in
+                        guard accepted else {
+                            return channel.eventLoop.makeFailedFuture(ChannelError.operationUnsupported)
+                        }
+                        return adapter.sessionReply(to: exec, on: channel, timeout: timeout)
+                    }.map { accepted -> SSHTerminalSession? in
+                        guard accepted else { return nil }
+                        // Install the output handler before the peer's first prompt arrives.
+                        return SSHTerminalSession(channel: channel, adapter: adapter, onData: onData, onClose: onClose)
+                    }
+            }.get()
+            if let session { return session }
         } catch {
             channel.close(mode: .all, promise: nil)
             throw SSHClient.mapError(error, stage: .channel, host: "", port: 0)
         }
-        return SSHTerminalSession(channel: channel, adapter: adapter, onData: onData, onClose: onClose)
+
+        // Some servers permit an interactive shell but reject exec requests.
+        channel.close(mode: .all, promise: nil)
+        try Task.checkCancellation()
+        return try await openBuiltinTerminal(parent: parent, term: term, columns: columns, rows: rows,
+                                             directoryCommand: nil, onData: onData, onClose: onClose)
     }
 
     /// Opens the SFTP subsystem and returns a ready client.
@@ -689,6 +719,8 @@ public actor SSHClient {
     private func openSystemTerminal(term: String,
                                     columns: Int,
                                     rows: Int,
+                                    workingDirectory: String?,
+                                    reportWorkingDirectory: Bool,
                                     onData: @escaping @Sendable (Data) -> Void,
                                     onClose: @escaping @Sendable (Error?) -> Void) throws -> SSHTerminalSession {
         guard let workspace = systemWorkspace, var options = systemOptions else {
@@ -699,10 +731,14 @@ public actor SSHClient {
             let process = try SystemSSHTerminalProcess(options: options,
                                                        workspace: workspace,
                                                        columns: columns,
-                                                       rows: rows)
+                                                       rows: rows,
+                                                       workingDirectory: workingDirectory,
+                                                       reportWorkingDirectory: reportWorkingDirectory,
+                                                       onData: onData,
+                                                       onClose: onClose)
             pruneSystemChildren()
             systemChildren.append(process)
-            return SSHTerminalSession(process: process, onData: onData, onClose: onClose)
+            return SSHTerminalSession(process: process)
         } catch {
             throw SSHClient.mapError(error, stage: .channel, host: options.host, port: options.port)
         }

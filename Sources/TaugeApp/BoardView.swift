@@ -49,7 +49,7 @@ struct BoardStripTools: View {
             }
 
             if board?.isGrid == false, let session = app.focusedBoardSession {
-                SftpToggleButton(tab: session, persistsBoard: true)
+                SftpToggleButton(tab: session, isBoardPane: true)
                 StripButton(systemName: "pencil", help: L("编辑主机…"), isEnabled: app.host(id: session.hostID) != nil) {
                     app.editingHost = app.host(id: session.hostID)
                 }
@@ -405,7 +405,6 @@ private struct BoardSessionRow: View {
             Button(session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
                 app.focusBoardPane(session.id)
                 app.toggleSFTP(session)
-                app.scheduleBoardPersist()
             }
             Divider()
             Button(L("关闭窗格")) { app.closeBoardPane(session.id) }
@@ -644,7 +643,6 @@ private struct BoardPaneView: View {
                            active: session.showsSFTP,
                            help: session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
                     app.toggleSFTP(session)
-                    app.scheduleBoardPersist()
                 }
                 paneButton("xmark", help: L("关闭窗格")) {
                     app.closeBoardPane(session.id)
@@ -681,7 +679,6 @@ private struct BoardPaneView: View {
             Button(session.showsSFTP ? L("隐藏文件面板") : L("显示文件面板")) {
                 app.focusBoardPane(session.id)
                 app.toggleSFTP(session)
-                app.scheduleBoardPersist()
             }
             Divider()
             Button(L("关闭窗格")) { app.closeBoardPane(session.id) }

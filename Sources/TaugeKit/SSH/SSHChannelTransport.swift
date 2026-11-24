@@ -13,6 +13,7 @@ public final class SSHChannelAdapter: ChannelDuplexHandler, @unchecked Sendable 
     public var onData: (@Sendable (Data) -> Void)?
     public var onClose: (@Sendable (Error?) -> Void)?
     private var closed = false
+    private var pendingSessionRequest: EventLoopPromise<Bool>?
 
     public init() {}
 
@@ -27,14 +28,54 @@ public final class SSHChannelAdapter: ChannelDuplexHandler, @unchecked Sendable 
         context.write(wrapOutboundOut(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: promise)
     }
 
+    /// NIOSSH's outbound promise acknowledges the write. The peer's reply is
+    /// a later inbound event, with no request identifier. Send one at a time.
+    func sessionReply(to request: any Sendable, on channel: Channel, timeout: TimeAmount) -> EventLoopFuture<Bool> {
+        channel.eventLoop.preconditionInEventLoop()
+        precondition(pendingSessionRequest == nil)
+        let reply = channel.eventLoop.makePromise(of: Bool.self)
+        pendingSessionRequest = reply
+        let deadline = channel.eventLoop.scheduleTask(in: timeout) {
+            self.completeSessionRequest(.failure(SSHClientError.channelOpenTimedOut))
+        }
+        channel.triggerUserOutboundEvent(request).whenFailure { error in
+            if self.pendingSessionRequest?.futureResult === reply.futureResult {
+                self.completeSessionRequest(.failure(error))
+            }
+        }
+        return reply.futureResult.always { _ in deadline.cancel() }
+    }
+
+    public func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if pendingSessionRequest != nil {
+            if event is ChannelSuccessEvent {
+                completeSessionRequest(.success(true))
+                return
+            }
+            if event is ChannelFailureEvent {
+                completeSessionRequest(.success(false))
+                return
+            }
+        }
+        context.fireUserInboundEventTriggered(event)
+    }
+
     public func channelInactive(context: ChannelHandlerContext) {
+        completeSessionRequest(.failure(ChannelError.eof))
         notifyClose(nil)
         context.fireChannelInactive()
     }
 
     public func errorCaught(context: ChannelHandlerContext, error: Error) {
+        completeSessionRequest(.failure(error))
         notifyClose(error)
         context.close(promise: nil)
+    }
+
+    private func completeSessionRequest(_ result: Result<Bool, Error>) {
+        let pending = pendingSessionRequest
+        pendingSessionRequest = nil
+        pending?.completeWith(result)
     }
 
     private func notifyClose(_ error: Error?) {
@@ -201,16 +242,10 @@ public final class SSHTerminalSession: @unchecked Sendable {
         }
     }
 
-    init(process: SystemSSHTerminalProcess, onData: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable (Error?) -> Void) {
+    init(process: SystemSSHTerminalProcess) {
         self.channel = nil
         self.adapter = nil
         self.process = process
-        process.onData = { data in
-            onData(data)
-        }
-        process.onClose = { error in
-            onClose(error)
-        }
     }
 
     public var isActive: Bool {

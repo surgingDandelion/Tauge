@@ -10,8 +10,10 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     /// The host this pane talks to, and its display name.
     @Published var hostID: UUID?
     @Published var hostName: String = L("远端")
-    /// Starting directory requested when the pane was added (nil = host default).
+    /// One-time starting directory requested when the pane was added.
     var startDirectory: String?
+    /// A directory the current pane has successfully listed, including before a reconnect.
+    private(set) var openedDirectory: String?
     @Published var isConnecting = false
     @Published var connectionError: String?
     @Published var path: String = "."
@@ -33,14 +35,20 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     @Published private(set) var canGoForward = false
     @Published var pathEditing = false
 
-    /// Called for every folder the pane successfully navigates to (user
-    /// navigation only, not refreshes), so the caller can remember it.
+    /// Called after opening a directory or moving through navigation history.
     var onDirectoryChange: ((String) -> Void)?
 
     private(set) var client: SFTPClient?
     private var history: [String] = []
     private var historyIndex = -1
     private var loadGeneration = 0
+
+    private enum Navigation {
+        case attach
+        case visit
+        case history(Int)
+        case refresh
+    }
 
     private(set) var sortedEntries: [FileEntry] = []
 
@@ -63,6 +71,9 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     var isReady: Bool { client != nil }
 
     func setClient(_ client: SFTPClient?) {
+        guard self.client !== client else { return }
+        loadGeneration += 1
+        isLoading = false
         self.client = client
     }
 
@@ -78,24 +89,19 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
         selectionAnchor = outcome.anchor
     }
 
-    func attach(client: SFTPClient, startDirectory: String?) async {
-        self.client = client
+    func attach(client: SFTPClient, startDirectory: String?, defaultDirectory: String?) async {
+        setClient(client)
         connectionError = nil
-        isConnecting = false
-        var target = startDirectory
-        if target == nil || target?.isEmpty == true {
-            target = try? await client.realPath(".")
-        }
-        await load(target ?? ".", recordHistory: true)
-        // A remembered folder can disappear between sessions (deleted, renamed, unmounted).
-        // Falling back to the login directory beats leaving the pane empty.
-        if errorText != nil, let home = try? await client.realPath("."), home != path {
-            await load(home, recordHistory: true)
-        }
+        // A remembered folder can disappear between sessions. Try the host's
+        // configured start directory and then the server's login directory.
+        var seen: Set<String> = []
+        let paths = [startDirectory, defaultDirectory, "."].compactMap { $0 }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        await load(paths, navigation: .attach)
     }
 
     func detach() {
-        client = nil
+        setClient(nil)
         entries = []
         selection.removeAll()
         selectionAnchor = nil
@@ -106,83 +112,104 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
         var target = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return }
         if target.hasPrefix("~") {
+            let generation = loadGeneration
             if let home = try? await client?.realPath(".") {
                 target = home + target.dropFirst()
             }
+            guard generation == loadGeneration, !Task.isCancelled else { return }
         }
         if !target.hasPrefix("/") {
             target = POSIXPath.join(path, target)
         }
-        await load(target, recordHistory: true)
+        await load([target], navigation: .visit)
     }
 
-    func load(_ newPath: String, recordHistory: Bool) async {
+    private func load(_ paths: [String], navigation: Navigation) async {
         guard let client else { return }
         loadGeneration += 1
         let generation = loadGeneration
-        let previousPath = path
         isLoading = true
         errorText = nil
-        do {
-            let names = try await client.listDirectory(newPath)
-            guard generation == loadGeneration else { return }
-            var resolved = newPath
-            if !resolved.hasPrefix("/") {
-                resolved = (try? await client.realPath(newPath)) ?? resolved
-            }
-            path = resolved
-            entries = names.compactMap { RemoteBrowserModel.fileEntry(base: resolved, name: $0) }
-                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            if resolved != previousPath {
-                // Rows from the old folder no longer exist here.
-                selection.removeAll()
-                selectionAnchor = nil
-            }
-            if recordHistory {
-                if historyIndex < history.count - 1 {
-                    history = Array(history.prefix(historyIndex + 1))
+        defer { if generation == loadGeneration { isLoading = false } }
+        for (index, target) in paths.enumerated() {
+            do {
+                let names = try await client.listDirectory(target)
+                guard generation == loadGeneration, !Task.isCancelled else { return }
+                let resolved = target.hasPrefix("/") ? target : (try? await client.realPath(target)) ?? target
+                guard generation == loadGeneration, !Task.isCancelled else { return }
+                updateDirectory(resolved, entries: names, navigation: navigation)
+                return
+            } catch {
+                guard generation == loadGeneration, !Task.isCancelled else { return }
+                if index < paths.count - 1,
+                   let error = error as? SFTPError, case .status(let status) = error,
+                   [.noSuchFile, .permissionDenied, .failure].contains(status.code) {
+                    continue
                 }
-                if history.last != resolved {
-                    history.append(resolved)
-                    historyIndex = history.count - 1
-                }
-                updateHistoryFlags()
-                onDirectoryChange?(resolved)
+                errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                return
             }
-        } catch {
-            guard generation == loadGeneration else { return }
-            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-        if generation == loadGeneration { isLoading = false }
+    }
+
+    private func updateDirectory(_ directory: String, entries names: [SFTPNameEntry], navigation: Navigation) {
+        let previousDirectory = openedDirectory
+        if path != directory {
+            // Rows from the old folder no longer exist here.
+            selection.removeAll()
+            selectionAnchor = nil
+        }
+        path = directory
+        openedDirectory = directory
+        startDirectory = nil
+        entries = names.compactMap { Self.fileEntry(base: directory, name: $0) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        switch navigation {
+        case .attach where previousDirectory == directory:
+            return
+        case .attach, .visit:
+            if historyIndex < history.count - 1 {
+                history = Array(history.prefix(historyIndex + 1))
+            }
+            if history.last != directory {
+                history.append(directory)
+                historyIndex = history.count - 1
+            }
+        case .history(let index):
+            historyIndex = index
+        case .refresh:
+            return
+        }
+        updateHistoryFlags()
+        onDirectoryChange?(directory)
     }
 
     func refresh() async {
-        await load(path, recordHistory: false)
+        guard !isLoading else { return }
+        await load([path], navigation: .refresh)
     }
 
     func open(_ entry: FileEntry) async {
         guard entry.isDirectory else { return }
-        await load(entry.path, recordHistory: true)
+        await load([entry.path], navigation: .visit)
     }
 
     func goUp() async {
         guard path != "/" else { return }
         let parent = POSIXPath.parent(path)
-        await load(parent, recordHistory: true)
+        await load([parent], navigation: .visit)
     }
 
     func goBack() async {
         guard historyIndex > 0 else { return }
-        historyIndex -= 1
-        updateHistoryFlags()
-        await load(history[historyIndex], recordHistory: false)
+        let index = historyIndex - 1
+        await load([history[index]], navigation: .history(index))
     }
 
     func goForward() async {
         guard historyIndex + 1 < history.count else { return }
-        historyIndex += 1
-        updateHistoryFlags()
-        await load(history[historyIndex], recordHistory: false)
+        let index = historyIndex + 1
+        await load([history[index]], navigation: .history(index))
     }
 
     private func updateHistoryFlags() {
@@ -201,7 +228,7 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     }
 
     static func fileEntry(base: String, name: SFTPNameEntry) -> FileEntry? {
-        guard name.filename != ".", name.filename != ".." else { return nil }
+        guard POSIXPath.isChildComponent(name.filename) else { return nil }
         let attributes = name.attributes
         let permissions = attributes.permissions ?? 0
         let kind: FileEntry.Kind
@@ -214,7 +241,8 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
         } else {
             kind = .other
         }
-        let fullPath = POSIXPath.join(base, name.filename)
+        let separator = base.isEmpty || base.hasSuffix("/") ? "" : "/"
+        let fullPath = base + separator + name.filename
         return FileEntry(path: fullPath,
                          name: name.filename,
                          kind: kind,

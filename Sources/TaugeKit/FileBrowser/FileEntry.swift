@@ -202,6 +202,10 @@ public struct FileSortOrder: Sendable, Equatable {
 }
 
 public enum POSIXPath {
+    public static func isChildComponent(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.utf8.contains(0x2F) && !name.utf8.contains(0)
+    }
+
     public static func join(_ base: String, _ component: String) -> String {
         if component.hasPrefix("/") { return normalize(component) }
         if base.isEmpty || base == "." { return normalize(component) }

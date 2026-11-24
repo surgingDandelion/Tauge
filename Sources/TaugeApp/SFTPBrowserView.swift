@@ -207,7 +207,7 @@ private func confirmDeletion(of entries: [FileEntry]) -> Bool {
     let title = entries.count == 1
         ? L("删除「%@」？", first.name)
         : L("删除选中的 %lld 项？", entries.count)
-    return Prompt.confirm(title: title, message: L("这些项目将被永久删除。"))
+    return Prompt.confirm(title: title, message: L("选中的项目及文件夹中的内容将被永久删除。"))
 }
 
 // MARK: - Local pane

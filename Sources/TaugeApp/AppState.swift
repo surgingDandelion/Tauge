@@ -496,8 +496,8 @@ final class AppState: ObservableObject {
 
     // MARK: - SFTP folder history
 
-    func lastSFTPPath(for hostID: UUID?) -> String? {
-        guard let hostID else { return nil }
+    func rememberedSFTPPath(for hostID: UUID?) -> String? {
+        guard settings.restoreLastDirectory, let hostID else { return nil }
         return (try? store.lastSFTPPath(hostID: hostID)) ?? nil
     }
 
@@ -528,6 +528,18 @@ final class AppState: ObservableObject {
         pane.onDirectoryChange = { [weak self, weak pane] path in
             guard let self, let pane else { return }
             self.recordSFTPPath(path, for: pane.hostID)
+        }
+    }
+
+    func configureDirectoryTracking(for tab: TerminalTab) {
+        tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
+        configureSFTPHistory(for: tab.remote)
+        tab.onTerminalDirectoryChange = { [weak self, weak tab] path in
+            guard let self, let tab, self.settings.restoreLastDirectory else { return }
+            try? self.store.recordTerminalDirectory(hostID: tab.hostID, path: path)
+            if self.tabs.contains(where: { $0 === tab }) {
+                self.persistWorkspace()
+            }
         }
     }
 
@@ -1027,11 +1039,10 @@ final class AppState: ObservableObject {
         // working directories, and Claude Code sessions side by side.
         let tab = TerminalTab(host: host,
                               localFiles: environment.localFiles,
-                              startRemoteDirectory: lastSFTPPath(for: host.id) ?? host.startDirectory,
+                              startRemoteDirectory: rememberedSFTPPath(for: host.id) ?? host.startDirectory,
                               localStartDirectory: settings.lastLocalDirectory,
                               showsSFTP: showsSFTP)
-        tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
-        configureSFTPHistory(for: tab.remote)
+        configureDirectoryTracking(for: tab)
         tab.local.showHidden = settings.showHiddenFiles
         tab.remote.showHidden = settings.showHiddenFiles
         tabs.append(tab)
@@ -1051,11 +1062,10 @@ final class AppState: ObservableObject {
         let tab = TerminalTab(kind: .sftp,
                               host: host,
                               localFiles: environment.localFiles,
-                              startRemoteDirectory: lastSFTPPath(for: host.id) ?? host.startDirectory,
+                              startRemoteDirectory: rememberedSFTPPath(for: host.id) ?? host.startDirectory,
                               localStartDirectory: settings.lastLocalDirectory,
                               showsSFTP: true)
-        tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
-        configureSFTPHistory(for: tab.remote)
+        configureDirectoryTracking(for: tab)
         tab.local.showHidden = settings.showHiddenFiles
         tab.remote.showHidden = settings.showHiddenFiles
         tab.pendingPaneHostIDs = extraHostIDs
@@ -1164,6 +1174,7 @@ final class AppState: ObservableObject {
 
     func updateSettings(_ newValue: AppSettings) {
         let languageChanged = newValue.language != settings.language
+        let directoryRestoreChanged = newValue.restoreLastDirectory != settings.restoreLastDirectory
         settings = newValue
         if languageChanged {
             TaugeL10n.shared.language = TaugeLanguage(rawValue: newValue.language) ?? .systemDefault
@@ -1173,6 +1184,7 @@ final class AppState: ObservableObject {
         } catch {
             present(error)
         }
+        if directoryRestoreChanged { flushWorkspace() }
         Task {
             await environment.transferEngine.updateConfiguration(.init(maxConcurrent: newValue.defaultTransferConcurrency,
                                                                        maxRetries: newValue.transferRetryCount))
@@ -1245,10 +1257,22 @@ final class AppState: ObservableObject {
 
     // MARK: - Workspace persistence
 
+    private func workspaceSnapshot() -> WorkspaceSnapshot {
+        let savedTabs = tabs.map { tab in
+            var saved = tab.snapshot
+            if !settings.restoreLastDirectory {
+                saved.lastRemoteDirectory = nil
+                saved.terminalDirectory = nil
+            }
+            return saved
+        }
+        return WorkspaceSnapshot(tabs: savedTabs,
+                                 selectedIndex: tabs.firstIndex(where: { $0.id == selectedTabID }) ?? 0)
+    }
+
     func persistWorkspace() {
         workspaceSaveTask?.cancel()
-        let snapshot = WorkspaceSnapshot(tabs: tabs.map { $0.snapshot },
-                                         selectedIndex: tabs.firstIndex(where: { $0.id == selectedTabID }) ?? 0)
+        let snapshot = workspaceSnapshot()
         workspaceSaveTask = Task { [store] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
@@ -1264,9 +1288,7 @@ final class AppState: ObservableObject {
     func flushWorkspace() {
         workspaceSaveTask?.cancel()
         workspaceSaveTask = nil
-        let selected = tabs.firstIndex(where: { $0.id == selectedTabID }) ?? 0
-        let snapshot = WorkspaceSnapshot(tabs: tabs.map { $0.snapshot }, selectedIndex: selected)
-        try? store.save(workspace: snapshot)
+        try? store.save(workspace: workspaceSnapshot())
     }
 
     func restoreWorkspace() {
@@ -1278,11 +1300,11 @@ final class AppState: ObservableObject {
             let tab = TerminalTab(kind: kind,
                                   host: host,
                                   localFiles: environment.localFiles,
-                                  startRemoteDirectory: saved.lastRemoteDirectory,
+                                  startRemoteDirectory: settings.restoreLastDirectory ? saved.lastRemoteDirectory : host.startDirectory,
+                                  terminalDirectory: settings.restoreLastDirectory ? saved.terminalDirectory : nil,
                                   localStartDirectory: settings.lastLocalDirectory,
                                   showsSFTP: saved.showsSFTP)
-            tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
-            configureSFTPHistory(for: tab.remote)
+            configureDirectoryTracking(for: tab)
             tab.local.showHidden = settings.showHiddenFiles
             tab.remote.showHidden = settings.showHiddenFiles
             tab.pendingPaneHostIDs = saved.additionalHostIDs ?? []

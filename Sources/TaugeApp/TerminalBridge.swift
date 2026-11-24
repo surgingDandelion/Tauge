@@ -85,7 +85,19 @@ final class TerminalBridge: TerminalViewDelegate {
     func setTerminalTitle(source: TerminalView, title: String) {}
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        if let directory { onDirectoryChange?(directory) }
+        guard let directory else { return }
+        let path: String
+        if directory.hasPrefix("/") {
+            path = directory
+        } else {
+            guard let uri = URLComponents(string: directory), uri.scheme?.lowercased() == "file",
+                  uri.user == nil, uri.password == nil, uri.port == nil,
+                  uri.query == nil, uri.fragment == nil,
+                  let decoded = uri.percentEncodedPath.removingPercentEncoding else { return }
+            path = decoded
+        }
+        guard path.hasPrefix("/"), !path.utf8.contains(0) else { return }
+        onDirectoryChange?(path)
     }
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {

@@ -149,6 +149,57 @@ func runSystemSSHChecks() {
         expect(!line.contains("--"), "terminal mode has no command separator")
     }
 
+    run("terminal startup restores a quoted directory and handles a missing one") {
+        let opts = options(.none)
+        let workspace = try SystemSSHWorkspace(options: opts)
+        defer { workspace.cleanup() }
+        let home = workspace.directory.resolvingSymlinksInPath()
+        let directory = home.appendingPathComponent(#"archive '2026' & $(echo unexpected) `echo unexpected` ! \ 中文"# + "\n")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let loginShell = home.appendingPathComponent("login shell")
+        try "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\"\n".write(to: loginShell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: loginShell.path)
+
+        let regular = SystemSSHCommandBuilder.arguments(options: opts, workspace: workspace, mode: .terminal)
+        let invalid = SystemSSHCommandBuilder.arguments(options: opts, workspace: workspace, mode: .terminal,
+                                                        workingDirectory: "relative/path")
+        expectEqual(invalid, regular, "a relative directory uses the normal terminal invocation")
+
+        func launch(command: String) throws -> String {
+            let process = Process()
+            let output = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            process.currentDirectoryURL = home
+            process.environment = ["SHELL": loginShell.path, "HOME": home.path]
+            process.standardOutput = output
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            expectEqual(process.terminationStatus, 0, "the user's login shell starts successfully")
+            return String(decoding: data, as: UTF8.self)
+        }
+
+        func launch(in path: String) throws -> String {
+            let args = SystemSSHCommandBuilder.arguments(options: opts, workspace: workspace, mode: .terminal,
+                                                         workingDirectory: path)
+            expectEqual(Array(args.dropLast()), regular, "restore adds one command to the normal pty request")
+            guard let command = args.last else { throw CheckError.message("missing directory bootstrap") }
+            return try launch(command: command)
+        }
+
+        expectEqual(try launch(in: directory.path), directory.path + "\n-l\n", "the path is passed literally")
+        let normalLogin = try launch(command: #"exec "$SHELL" -l"#)
+        expectEqual(try launch(in: home.appendingPathComponent("missing").path), normalLogin,
+                    "an unavailable path leaves the regular login directory")
+    }
+
+    for shell in ["bash", "zsh"] {
+        run("\(shell) reports and restores directories on a fresh terminal") {
+            try checkTerminalDirectoryReporting(shell: shell)
+        }
+    }
+
     run("command argv separates the remote command") {
         let opts = options(.key(text: "KEY", passphrase: nil))
         let workspace = try SystemSSHWorkspace(options: opts)
@@ -332,4 +383,96 @@ func runSystemSSHChecks() {
         expect(!result.timedOut, "a refused connection fails fast")
         expect(!result.stderrText.isEmpty, "ssh explains the failure on stderr")
     }
+}
+
+private func checkTerminalDirectoryReporting(shell: String) throws {
+    let fileManager = FileManager.default
+    let home = fileManager.temporaryDirectory.appendingPathComponent("tauge-shell-check-" + UUID().uuidString)
+    try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+    defer { try? fileManager.removeItem(at: home) }
+    let directory = home.appendingPathComponent("项目 '2026' with spaces")
+    let scratch = home.appendingPathComponent("scratch")
+    try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
+    try fileManager.createDirectory(at: scratch, withIntermediateDirectories: false)
+
+    let promptMarker = "TAUGE_EXISTING_PROMPT_HOOK"
+    let startupFile = home.appendingPathComponent(shell == "bash" ? ".bash_profile" : ".zshrc")
+    let profile = shell == "bash"
+        ? "PROMPT_COMMAND='printf \"%s\\n\" \"\(promptMarker)\"'\n"
+        : """
+        autoload -Uz add-zsh-hook
+        existing_prompt_hook() { print -r -- '\(promptMarker)'; }
+        add-zsh-hook precmd existing_prompt_hook
+        """ + "\n"
+    try profile.write(to: startupFile, atomically: true, encoding: .utf8)
+
+    func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    let executable = home.appendingPathComponent("fake-ssh")
+    let wrapper = """
+    #!/bin/sh
+    unset BASH_ENV ENV ZDOTDIR PROMPT_COMMAND TERM_PROGRAM
+    export HOME=\(quote(home.path)) TMPDIR=\(quote(scratch.path)) SHELL=/bin/\(shell)
+    cd "$HOME" || exit 1
+    for argument do last=$argument; done
+    if [ "$last" = check@127.0.0.1 ]; then
+        exec "$SHELL" -il
+    fi
+    exec "$SHELL" -c "$last"
+    """
+    try wrapper.write(to: executable, atomically: true, encoding: .utf8)
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+
+    let options = SystemSSHOptions(host: "127.0.0.1", port: 22, username: "check", credential: .none)
+    let workspace = try SystemSSHWorkspace(options: options, sshExecutable: executable.path)
+    defer { workspace.cleanup() }
+
+    func launch(workingDirectory: String? = nil, report: Bool = true) throws -> (SystemSSHTerminalProcess, OutputRecorder) {
+        let output = OutputRecorder()
+        let process = try SystemSSHTerminalProcess(options: options, workspace: workspace, columns: 100, rows: 30,
+                                                   workingDirectory: workingDirectory, reportWorkingDirectory: report,
+                                                   onData: { output.append($0) })
+        return (process, output)
+    }
+
+    func reports(_ directory: URL, in text: String) -> Bool {
+        let expected = directory.resolvingSymlinksInPath().path
+        return text.components(separatedBy: "\u{1B}]7;").dropFirst().contains { report in
+            guard let end = report.firstIndex(where: { $0 == "\u{7}" || $0 == "\u{1B}" }),
+                  let uri = URLComponents(string: String(report[..<end])), uri.scheme == "file", uri.host == "ssh.invalid",
+                  let path = uri.percentEncodedPath.removingPercentEncoding else { return false }
+            return URL(fileURLWithPath: path).resolvingSymlinksInPath().path == expected
+        }
+    }
+
+    func wait(_ output: OutputRecorder, for description: String, until condition: (String) -> Bool) throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if condition(output.text) { return }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        throw CheckError.message("\(description): \(String(reflecting: output.text))")
+    }
+
+    do {
+        let (process, output) = try launch()
+        defer { process.terminate() }
+        try wait(output, for: "initial directory and existing prompt hook") {
+            reports(home, in: $0) && $0.contains(promptMarker)
+        }
+        process.write(Data("cd \(quote(directory.path))\n".utf8))
+        try wait(output, for: "updated directory after cd") { reports(directory, in: $0) }
+    }
+
+    do {
+        let (process, output) = try launch(workingDirectory: directory.path)
+        defer { process.terminate() }
+        try wait(output, for: "restored directory on the first prompt") { reports(directory, in: $0) }
+    }
+
+    let (ordinary, output) = try launch(report: false)
+    defer { ordinary.terminate() }
+    try wait(output, for: "ordinary login prompt") { $0.contains(promptMarker) }
+    expect(!output.text.contains("\u{1B}]7;"), "the ordinary login shell does not inherit shell integration")
+    expectEqual(try String(contentsOf: startupFile, encoding: .utf8), profile, "the user's startup file is unchanged")
+    expectEqual(try fileManager.contentsOfDirectory(atPath: scratch.path), [], "the integration removes its temporary files")
 }

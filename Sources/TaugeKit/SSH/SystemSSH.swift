@@ -313,7 +313,11 @@ public enum SystemSSHCommandBuilder {
         return args
     }
 
-    public static func arguments(options: SystemSSHOptions, workspace: SystemSSHWorkspace, mode: SystemSSHMode) -> [String] {
+    public static func arguments(options: SystemSSHOptions,
+                                 workspace: SystemSSHWorkspace,
+                                 mode: SystemSSHMode,
+                                 workingDirectory: String? = nil,
+                                 reportWorkingDirectory: Bool = false) -> [String] {
         var args = baseOptions(options: options, askpassAvailable: workspace.askpassPath != nil)
         if options.keepaliveSeconds > 0 {
             args += ["-o", "ServerAliveInterval=" + String(options.keepaliveSeconds)]
@@ -346,6 +350,10 @@ public enum SystemSSHCommandBuilder {
         case .terminal:
             args += ["-tt"]
             args += [options.destination]
+            if let command = ShellDirectoryIntegration.command(workingDirectory: workingDirectory,
+                                                               reportWorkingDirectory: reportWorkingDirectory) {
+                args.append(command)
+            }
         case .sftp:
             args += ["-s"]
             args += [options.destination, "sftp"]
@@ -504,8 +512,15 @@ public final class SystemSSHTerminalProcess: SystemSSHChild, @unchecked Sendable
     public init(options: SystemSSHOptions,
                 workspace: SystemSSHWorkspace,
                 columns: Int,
-                rows: Int) throws {
+                rows: Int,
+                workingDirectory: String? = nil,
+                reportWorkingDirectory: Bool = false,
+                onData: (@Sendable (Data) -> Void)? = nil,
+                onClose: (@Sendable (Error?) -> Void)? = nil) throws {
         self.workspace = workspace
+        // Attach consumers before the child can emit its first prompt and OSC 7.
+        self.onData = onData
+        self.onClose = onClose
         var master: Int32 = -1
         var slave: Int32 = -1
         var size = winsize(ws_row: UInt16(max(rows, 1)),
@@ -520,7 +535,11 @@ public final class SystemSSHTerminalProcess: SystemSSHChild, @unchecked Sendable
         let handle = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: workspace.sshExecutable)
-        process.arguments = SystemSSHCommandBuilder.arguments(options: options, workspace: workspace, mode: .terminal)
+        process.arguments = SystemSSHCommandBuilder.arguments(options: options,
+                                                              workspace: workspace,
+                                                              mode: .terminal,
+                                                              workingDirectory: workingDirectory,
+                                                              reportWorkingDirectory: reportWorkingDirectory)
         process.environment = SystemSSHCommandBuilder.environment(options: options, workspace: workspace)
         process.standardInput = handle
         process.standardOutput = handle

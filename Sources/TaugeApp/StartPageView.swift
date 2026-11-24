@@ -907,7 +907,6 @@ private struct StartHostCard: View {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .fill(LinearGradient(colors: [Theme.cardBackground, Self.tileBase],
                                      startPoint: .top, endPoint: .bottom))
-                .silverHoverSheen(hovered: hovering, cornerRadius: Self.cornerRadius)
                 .allowsHitTesting(false)
         }
         .overlay {

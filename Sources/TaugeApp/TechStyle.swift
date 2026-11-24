@@ -22,45 +22,6 @@ extension Theme {
     static let gridLine = dynamic(light: 0xE8EBEF, dark: 0x2A2D31)
 }
 
-/// A single reflection that crosses the surface as the pointer enters.
-/// It resets offscreen on exit, so a stationary pointer produces no shimmer.
-private struct SilverHoverSheen: ViewModifier {
-    let hovered: Bool
-    let cornerRadius: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-
-    func body(content: Content) -> some View {
-        content.overlay {
-            if !reduceMotion {
-                GeometryReader { proxy in
-                    let size = proxy.size
-                    let bandWidth = max(26, size.width * 0.46)
-                    let reach = bandWidth / 2 + size.height * 0.17
-                    let silver = Theme.dynamic(light: 0x9EADBE, dark: 0xC4D0DE)
-                    let strength = colorScheme == .dark ? 0.072 : 0.14
-
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: silver.opacity(strength * 0.45), location: 0.34),
-                        .init(color: silver.opacity(strength), location: 0.54),
-                        .init(color: .clear, location: 1)
-                    ], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: bandWidth, height: size.height * 1.55)
-                    .rotationEffect(.degrees(12))
-                    .position(x: hovered ? size.width + reach : -reach, y: size.height / 2)
-                    .opacity(hovered ? 1 : 0)
-                    .animation(hovered ? .timingCurve(0.28, 0.08, 0.36, 1, duration: 0.82) : nil,
-                               value: hovered)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
-    }
-}
-
 /// The shared card surface: gradient fill, one-pixel inner highlight and a
 /// hairline border. Callers keep their own padding and corner radius so the
 /// compact geometry is untouched.
@@ -140,10 +101,6 @@ struct TechDotGrid: View {
 }
 
 extension View {
-    func silverHoverSheen(hovered: Bool, cornerRadius: CGFloat) -> some View {
-        modifier(SilverHoverSheen(hovered: hovered, cornerRadius: cornerRadius))
-    }
-
     func techCard(cornerRadius: CGFloat = 8,
                   hovered: Bool = false,
                   selected: Bool = false,

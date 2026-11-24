@@ -6,7 +6,7 @@ public final class HostStore: @unchecked Sendable {
     public let database: SQLiteDatabase
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
 
     public init(database: SQLiteDatabase, createSchema: Bool = true) throws {
         self.database = database
@@ -159,6 +159,12 @@ public final class HostStore: @unchecked Sendable {
             path TEXT NOT NULL,
             last_used REAL NOT NULL,
             PRIMARY KEY (host_id, path)
+        );
+        """)
+        try database.execute("""
+        CREATE TABLE IF NOT EXISTS terminal_directories (
+            host_id TEXT PRIMARY KEY REFERENCES hosts(id) ON DELETE CASCADE,
+            path TEXT NOT NULL
         );
         """)
         // Terminal boards: named split workspaces, stored as JSON so the tree
@@ -721,6 +727,20 @@ public final class HostStore: @unchecked Sendable {
 
     public func clearSFTPHistory(hostID: UUID) throws {
         try database.execute("DELETE FROM sftp_history WHERE host_id = ?;", [.text(hostID.uuidString)])
+    }
+
+    /// Terminal working directories and SFTP browsing history are independent.
+    public func recordTerminalDirectory(hostID: UUID, path: String) throws {
+        guard path.hasPrefix("/"), !path.utf8.contains(0) else { return }
+        try database.execute("""
+        INSERT INTO terminal_directories (host_id, path) VALUES (?, ?)
+        ON CONFLICT(host_id) DO UPDATE SET path = excluded.path;
+        """, [.text(hostID.uuidString), .text(path)])
+    }
+
+    public func lastTerminalDirectory(hostID: UUID) throws -> String? {
+        try database.scalarString("SELECT path FROM terminal_directories WHERE host_id = ?;",
+                                  [.text(hostID.uuidString)])
     }
 
     // MARK: - Terminal boards
