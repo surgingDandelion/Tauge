@@ -140,9 +140,16 @@ func runBoardTreeChecks() {
 
     run("board definitions round-trip through JSON and SQLite") {
         let tree = BoardSplitTree.splitting(BoardSplitTree.grid(for: [a, b])!, leaf: a, axis: .vertical, newPane: c)
+        // Both panes point at the same host on purpose: pane identity, not the
+        // host, must decide which directory comes back.
+        let sharedHostID = UUID()
         let board = BoardDefinition(name: "生产环境",
-                                    panes: [BoardPaneDefinition(id: a, hostID: UUID(), showsSFTP: true),
-                                            BoardPaneDefinition(id: b, hostID: UUID()),
+                                    panes: [BoardPaneDefinition(id: a, hostID: sharedHostID, showsSFTP: true,
+                                                                 terminalDirectory: "/srv/api",
+                                                                 lastRemoteDirectory: "/var/log/nginx"),
+                                            BoardPaneDefinition(id: b, hostID: sharedHostID,
+                                                                 terminalDirectory: "/srv/worker",
+                                                                 lastRemoteDirectory: "/remote/worker"),
                                             BoardPaneDefinition(id: c, hostID: UUID())],
                                     layout: "grid",
                                     tree: tree,
@@ -163,11 +170,17 @@ func runBoardTreeChecks() {
 
         expectEqual(decoded.panes[0].showsSFTP, true, "an open SFTP browser is remembered")
         expectEqual(decoded.panes[1].showsSFTP, false, "a closed SFTP browser is remembered too")
+        expectEqual(decoded.panes[0].terminalDirectory, "/srv/api", "first pane keeps its terminal directory")
+        expectEqual(decoded.panes[1].terminalDirectory, "/srv/worker", "same-host second pane keeps its own terminal directory")
+        expectEqual(decoded.panes[0].lastRemoteDirectory, "/var/log/nginx", "first pane keeps its SFTP directory")
+        expectEqual(decoded.panes[1].lastRemoteDirectory, "/remote/worker", "same-host second pane keeps its own SFTP directory")
 
         let legacy = #"{"id":"\#(UUID().uuidString)","name":"旧看板","panes":[{"id":"\#(a.uuidString)","hostID":"\#(UUID().uuidString)"}],"layout":"list"}"#
         let legacyBoard = try JSONDecoder().decode(BoardDefinition.self, from: Data(legacy.utf8))
         expectEqual(legacyBoard.panes.count, 1, "boards saved before pane SFTP still decode")
         expectEqual(legacyBoard.panes[0].showsSFTP, false, "missing flag defaults to closed")
+        expectEqual(legacyBoard.panes[0].terminalDirectory, nil, "legacy panes have no terminal directory")
+        expectEqual(legacyBoard.panes[0].lastRemoteDirectory, nil, "legacy panes have no SFTP directory")
     }
 
     run("divider drag measures in window coordinates") {

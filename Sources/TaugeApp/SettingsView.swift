@@ -184,7 +184,7 @@ struct SettingsView: View {
             settingsGroup(L("会话")) {
                 toggleRow(L("关闭窗口时"), detail: L("运行中的会话需要确认"), isOn: binding(\.confirmCloseRunning))
                 toggleRow(L("自动重连"), detail: L("网络中断后指数退避重连"), isOn: binding(\.autoReconnect))
-                toggleRow(L("恢复上次目录"), detail: L("重新打开应用或工作区时，恢复每台主机上次使用的目录。"),
+                toggleRow(L("恢复上次目录"), detail: L("每个终端标签和工作区窗格分别记住自己的目录，互不影响。"),
                           isOn: binding(\.restoreLastDirectory))
             }
             settingsGroup(L("更新与集成")) {

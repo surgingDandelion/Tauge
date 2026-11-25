@@ -713,17 +713,27 @@ public struct BoardPaneDefinition: Codable, Sendable, Equatable, Identifiable {
     public var hostID: UUID
     /// Whether this pane's SFTP browser was open, so a board reopens the same way.
     public var showsSFTP: Bool
+    /// Last successfully observed remote shell directory for this pane.
+    /// Kept on the pane so two panes connected to the same host stay independent.
+    public var terminalDirectory: String?
+    /// Last successfully browsed SFTP directory for this pane.
+    public var lastRemoteDirectory: String?
 
-    public init(id: UUID = UUID(), hostID: UUID, showsSFTP: Bool = false) {
+    public init(id: UUID = UUID(), hostID: UUID, showsSFTP: Bool = false,
+                terminalDirectory: String? = nil, lastRemoteDirectory: String? = nil) {
         self.id = id
         self.hostID = hostID
         self.showsSFTP = showsSFTP
+        self.terminalDirectory = terminalDirectory
+        self.lastRemoteDirectory = lastRemoteDirectory
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case hostID
         case showsSFTP
+        case terminalDirectory
+        case lastRemoteDirectory
     }
 
     public init(from decoder: Decoder) throws {
@@ -732,6 +742,8 @@ public struct BoardPaneDefinition: Codable, Sendable, Equatable, Identifiable {
         hostID = try container.decode(UUID.self, forKey: .hostID)
         // Boards saved before panes could own SFTP browsers have no flag.
         showsSFTP = (try? container.decodeIfPresent(Bool.self, forKey: .showsSFTP)) ?? false
+        terminalDirectory = try? container.decodeIfPresent(String.self, forKey: .terminalDirectory)
+        lastRemoteDirectory = try? container.decodeIfPresent(String.self, forKey: .lastRemoteDirectory)
     }
 }
 

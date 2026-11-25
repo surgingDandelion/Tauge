@@ -101,9 +101,7 @@ extension AppState {
             let columns = tab.terminalColumns
             let rows = tab.terminalRows
             let logger = makeSessionLogger(config: config, host: host, auth: established.auth)
-            let workingDirectory = settings.restoreLastDirectory
-                ? tab.terminalDirectory ?? (try? store.lastTerminalDirectory(hostID: host.id))
-                : nil
+            let workingDirectory = settings.restoreLastDirectory ? tab.terminalDirectory : nil
             let session = try await client.openTerminal(term: config.terminalType,
                                                         columns: columns,
                                                         rows: rows,
@@ -710,9 +708,11 @@ extension AppState {
                 await sftp.shutdown()
                 return
             }
-            configureSFTPHistory(for: pane)
+            if !isMain {
+                configureExtraPaneDirectoryTracking(for: pane)
+            }
             let savedPath = settings.restoreLastDirectory && isMain && pane.path != "." ? pane.path : nil
-            let start = pane.openedDirectory ?? pane.startDirectory ?? rememberedSFTPPath(for: pane.hostID) ?? savedPath
+            let start = pane.openedDirectory ?? pane.startDirectory ?? savedPath
             let hostDefault = isMain ? tab.host.startDirectory : pane.hostID.flatMap { host(id: $0) }?.startDirectory
             await pane.attach(client: sftp, startDirectory: start, defaultDirectory: hostDefault)
             if isMain {
@@ -811,8 +811,8 @@ extension AppState {
                 await sftp.shutdown()
                 return
             }
-            configureSFTPHistory(for: pane)
-            let start = pane.startDirectory ?? rememberedSFTPPath(for: host.id)
+            configureExtraPaneDirectoryTracking(for: pane)
+            let start = pane.startDirectory
             await pane.attach(client: sftp, startDirectory: start, defaultDirectory: host.startDirectory)
         } catch is CancellationError {
             pane.connectionError = L("已取消连接")

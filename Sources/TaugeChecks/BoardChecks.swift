@@ -89,7 +89,8 @@ func runBoardChecks() {
             expectEqual(oldTab.terminalDirectory, nil, "legacy browser path is not used as a shell path")
             expectEqual(oldTab.lastRemoteDirectory, "/files", "legacy browser path survives decode")
             try store.save(workspace: WorkspaceSnapshot(tabs: [
-                .init(hostID: host.id, title: "Saved tab", lastRemoteDirectory: "/files", terminalDirectory: "/per-tab")
+                .init(hostID: host.id, title: "Saved tab", lastRemoteDirectory: "/files", terminalDirectory: "/per-tab"),
+                .init(hostID: host.id, title: "Second tab", lastRemoteDirectory: "/other-files", terminalDirectory: "/srv/其他")
             ]))
         }
         let (database, store) = try makeStore("terminal-directories.sqlite")
@@ -97,7 +98,12 @@ func runBoardChecks() {
         expectEqual(try store.lastTerminalDirectory(hostID: host.id), "/srv/文件 'data'", "latest valid terminal path reloads")
         expectEqual(try store.lastTerminalDirectory(hostID: other.id), "/other", "each host has its own terminal path")
         expectEqual(try store.lastSFTPPath(hostID: host.id), "/files", "SFTP retains its own location")
-        expectEqual(try store.workspaceSnapshot()?.tabs.first?.terminalDirectory, "/per-tab", "tab path survives separately")
+        let savedTabs = try store.workspaceSnapshot()?.tabs ?? []
+        expectEqual(savedTabs.count, 2, "both tabs for one host survive")
+        expectEqual(savedTabs.first?.terminalDirectory, "/per-tab", "first tab keeps its shell path")
+        expectEqual(savedTabs.first?.lastRemoteDirectory, "/files", "first tab keeps its SFTP path")
+        expectEqual(savedTabs.last?.terminalDirectory, "/srv/其他", "second tab on the same host keeps its own shell path")
+        expectEqual(savedTabs.last?.lastRemoteDirectory, "/other-files", "second tab on the same host keeps its own SFTP path")
         try store.deleteHost(id: host.id)
         expectEqual(try store.lastTerminalDirectory(hostID: host.id), nil, "deleting a host removes its terminal path")
     }

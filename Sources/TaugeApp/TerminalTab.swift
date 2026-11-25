@@ -287,7 +287,7 @@ final class TerminalTab: ObservableObject, Identifiable {
         let unopenedHostIDs = pendingPaneHostIDs.filter { !extraHostIDs.contains($0) }
         return WorkspaceSnapshot.Tab(hostID: hostID,
                                      title: title,
-                                     lastRemoteDirectory: remote.path,
+                                     lastRemoteDirectory: remote.recordedDirectory,
                                      terminalDirectory: terminalDirectory,
                                      showsSFTP: showsSFTP,
                                      additionalHostIDs: extraHostIDs + unopenedHostIDs,

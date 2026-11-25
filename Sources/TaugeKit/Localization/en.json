@@ -736,7 +736,7 @@
   "自动网格排列": "Auto grid layout",
   "自动重连": "Auto-Reconnect",
   "恢复上次目录": "Restore Last Directory",
-  "重新打开应用或工作区时，恢复每台主机上次使用的目录。": "Reopen each host in its last directory when restarting Tauge or reopening a workspace.",
+  "每个终端标签和工作区窗格分别记住自己的目录，互不影响。": "Each terminal tab and workspace pane remembers its own directory independently.",
   "自动（推荐）": "Automatic (Recommended)",
   "至少保留一个工作区。": "Keep at least one workspace.",
   "至少选择一台服务器": "Select at least one server",

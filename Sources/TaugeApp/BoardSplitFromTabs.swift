@@ -37,7 +37,7 @@ extension AppState {
                                     tree: BoardSplitTree.grid(for: panes.map(\.id)),
                                     focusedPaneID: panes.first?.id)
         let sessions = zip(panes, uniqueHosts).map { pane, host in
-            makeBoardTab(pane: pane, host: host)
+            makeBoardTab(pane: pane, host: host, boardID: board.id)
         }
         boards.append(board)
         draftBoardIDs.insert(board.id)
@@ -93,8 +93,12 @@ extension AppState {
               let source = tabs.first(where: { $0.id == draggedID }),
               let target = tabs.first(where: { $0.id == targetID }),
               source.kind == .terminal, target.kind == .terminal else { return false }
-        let left = BoardPaneDefinition(id: target.id, hostID: target.host.id, showsSFTP: target.showsSFTP)
-        let right = BoardPaneDefinition(id: source.id, hostID: source.host.id, showsSFTP: source.showsSFTP)
+        let left = BoardPaneDefinition(id: target.id, hostID: target.host.id, showsSFTP: target.showsSFTP,
+                                       terminalDirectory: target.terminalDirectory,
+                                       lastRemoteDirectory: target.remote.recordedDirectory)
+        let right = BoardPaneDefinition(id: source.id, hostID: source.host.id, showsSFTP: source.showsSFTP,
+                                        terminalDirectory: source.terminalDirectory,
+                                        lastRemoteDirectory: source.remote.recordedDirectory)
         let board = BoardDefinition.sideBySide(
             left,
             right,
@@ -104,6 +108,8 @@ extension AppState {
         boards.append(board)
         draftBoardIDs.insert(board.id)
         boardSessionCache[board.id] = [left.id: target, right.id: source]
+        configureBoardDirectoryTracking(for: target, boardID: board.id)
+        configureBoardDirectoryTracking(for: source, boardID: board.id)
         // The two chips are panes now: drop them from the strip without closing
         // their connections.
         tabs.removeAll { $0.id == draggedID || $0.id == targetID }
@@ -130,7 +136,9 @@ extension AppState {
             openBoardTab(boardID, connect: false)
         }
         guard var current = currentBoard, current.id == boardID else { return false }
-        let pane = BoardPaneDefinition(id: tab.id, hostID: tab.host.id, showsSFTP: tab.showsSFTP)
+        let pane = BoardPaneDefinition(id: tab.id, hostID: tab.host.id, showsSFTP: tab.showsSFTP,
+                                       terminalDirectory: tab.terminalDirectory,
+                                       lastRemoteDirectory: tab.remote.recordedDirectory)
         current.panes.append(pane)
         if current.isGrid {
             let anchor = current.focusedPaneID ?? current.panes.first?.id
@@ -145,6 +153,7 @@ extension AppState {
         currentBoard = current
         boardSessions.append(tab)
         boardSessionCache[boardID, default: [:]][pane.id] = tab
+        configureBoardDirectoryTracking(for: tab, boardID: boardID)
         tabs.removeAll { $0.id == tab.id }
         if selectedTabID == tab.id { selectedTabID = nil }
         markBoardDirty()

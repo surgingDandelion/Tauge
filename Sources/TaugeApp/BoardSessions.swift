@@ -29,17 +29,69 @@ extension AppState {
     /// same terminal, find bar, SFTP browser, drag-and-drop and transfer plumbing
     /// as a tab. The only difference is that board panes live in
     /// `boardSessions` instead of the tab strip.
-    func makeBoardTab(pane: BoardPaneDefinition, host: SSHHost) -> TerminalTab {
+    func makeBoardTab(pane: BoardPaneDefinition, host: SSHHost, boardID: UUID) -> TerminalTab {
         let tab = TerminalTab(id: pane.id,
                               host: host,
                               localFiles: environment.localFiles,
-                              startRemoteDirectory: rememberedSFTPPath(for: host.id) ?? host.startDirectory,
+                              startRemoteDirectory: settings.restoreLastDirectory
+                                  ? (pane.lastRemoteDirectory ?? host.startDirectory)
+                                  : host.startDirectory,
+                              terminalDirectory: settings.restoreLastDirectory ? pane.terminalDirectory : nil,
                               localStartDirectory: settings.lastLocalDirectory,
                               showsSFTP: pane.showsSFTP)
-        configureDirectoryTracking(for: tab)
+        configureBoardDirectoryTracking(for: tab, boardID: boardID)
         tab.local.showHidden = settings.showHiddenFiles
         tab.remote.showHidden = settings.showHiddenFiles
         return tab
+    }
+
+    /// Installs callbacks for a pane that belongs to a workspace. The callback
+    /// carries the pane identity, so two sessions to the same host stay separate.
+    func configureBoardDirectoryTracking(for tab: TerminalTab, boardID: UUID) {
+        tab.local.onDirectoryChange = { [weak self] path in self?.recordLocalDirectory(path) }
+        tab.remote.onDirectoryChange = { [weak self, weak tab] path in
+            guard let self, let tab else { return }
+            self.recordSFTPPath(path, for: tab.remote.hostID)
+            guard self.settings.restoreLastDirectory else { return }
+            self.updateBoardPaneDirectory(boardID: boardID, paneID: tab.id, remoteDirectory: path)
+        }
+        tab.onTerminalDirectoryChange = { [weak self, weak tab] path in
+            guard let self, let tab, self.settings.restoreLastDirectory else { return }
+            self.updateBoardPaneDirectory(boardID: boardID, paneID: tab.id, terminalDirectory: path)
+        }
+    }
+
+    /// Updates only the board pane that owns a session. A host may appear in
+    /// several panes and each pane keeps its own terminal and SFTP locations.
+    func updateBoardPaneDirectory(boardID: UUID,
+                                  paneID: UUID,
+                                  terminalDirectory: String? = nil,
+                                  remoteDirectory: String? = nil) {
+        guard let index = boards.firstIndex(where: { $0.id == boardID }) else { return }
+        if currentBoard?.id == boardID {
+            // While the current board has unsaved pane edits, boards[index] is
+            // stale. Update the live copy only and let saveCurrentBoard publish
+            // it, so navigation never leaks a partial edit into the catalog.
+            guard var board = currentBoard,
+                  let paneIndex = board.panes.firstIndex(where: { $0.id == paneID }) else { return }
+            if let terminalDirectory { board.panes[paneIndex].terminalDirectory = terminalDirectory }
+            if let remoteDirectory { board.panes[paneIndex].lastRemoteDirectory = remoteDirectory }
+            guard board != currentBoard else { return }
+            currentBoard = board
+            if !boardDirty { scheduleBoardPersist() }
+        } else {
+            // Background and draft boards keep their pane locations here. A
+            // draft stays in memory until the user saves it.
+            var board = boards[index]
+            guard let paneIndex = board.panes.firstIndex(where: { $0.id == paneID }) else { return }
+            if let terminalDirectory { board.panes[paneIndex].terminalDirectory = terminalDirectory }
+            if let remoteDirectory { board.panes[paneIndex].lastRemoteDirectory = remoteDirectory }
+            guard board != boards[index] else { return }
+            boards[index] = board
+            if !draftBoardIDs.contains(boardID) {
+                try? store.save(board: board)
+            }
+        }
     }
 
     // MARK: Restore and persistence
@@ -191,7 +243,7 @@ extension AppState {
                 existing.title = TerminalTab.label(for: existing.host)
                 sessions.append(existing)
             } else if let host = host(id: pane.hostID) {
-                sessions.append(makeBoardTab(pane: pane, host: host))
+                sessions.append(makeBoardTab(pane: pane, host: host, boardID: sanitized.id))
             }
         }
         boardSessions = sessions
@@ -242,6 +294,17 @@ extension AppState {
         for index in board.panes.indices {
             if let tab = boardSessions.first(where: { $0.id == board.panes[index].id }) {
                 board.panes[index].showsSFTP = tab.showsSFTP
+                // Directory recording pauses while the setting is off. Existing
+                // catalog values stay put so re-enabling restores the last
+                // location recorded while it was on.
+                if settings.restoreLastDirectory {
+                    if let directory = tab.terminalDirectory {
+                        board.panes[index].terminalDirectory = directory
+                    }
+                    if let directory = tab.remote.openedDirectory {
+                        board.panes[index].lastRemoteDirectory = directory
+                    }
+                }
             }
         }
         do {
@@ -394,16 +457,14 @@ extension AppState {
     /// the focused pane so the layout stays intentional.
     func addHostsToBoard(_ hostIDs: [UUID], connect: Bool = true) {
         let newHosts = hostIDs.compactMap { host(id: $0) }
-        guard !newHosts.isEmpty else { return }
+        guard !newHosts.isEmpty, let boardID = currentBoard?.id else { return }
         var added: [UUID] = []
         for host in newHosts {
             let pane = BoardPaneDefinition(hostID: host.id)
             currentBoard?.panes.append(pane)
-            let session = makeBoardTab(pane: pane, host: host)
+            let session = makeBoardTab(pane: pane, host: host, boardID: boardID)
             boardSessions.append(session)
-            if let boardID = currentBoard?.id {
-                boardSessionCache[boardID, default: [:]][pane.id] = session
-            }
+            boardSessionCache[boardID, default: [:]][pane.id] = session
             added.append(pane.id)
         }
         if let first = added.first { currentBoard?.focusedPaneID = first }
@@ -469,7 +530,7 @@ extension AppState {
               let host = host(id: hostID) else { return }
         let pane = BoardPaneDefinition(hostID: host.id)
         currentBoard?.panes.append(pane)
-        let session = makeBoardTab(pane: pane, host: host)
+        let session = makeBoardTab(pane: pane, host: host, boardID: board.id)
         boardSessions.append(session)
         let boardID = board.id
         boardSessionCache[boardID, default: [:]][pane.id] = session

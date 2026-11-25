@@ -14,6 +14,11 @@ final class RemoteBrowserModel: ObservableObject, Identifiable {
     var startDirectory: String?
     /// A directory the current pane has successfully listed, including before a reconnect.
     private(set) var openedDirectory: String?
+    /// The directory worth persisting for this pane. A restored-but-not-yet-listed
+    /// path still counts; the placeholder "." does not.
+    var recordedDirectory: String? {
+        openedDirectory ?? (path == "." ? nil : path)
+    }
     @Published var isConnecting = false
     @Published var connectionError: String?
     @Published var path: String = "."
